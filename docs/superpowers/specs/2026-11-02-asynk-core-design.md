@@ -104,9 +104,14 @@ supply their own (e.g. a string-wrapped JSON for an outbox column).
 
 ### CLI
 An `asynk` console command (declared under `[project.scripts]` in `pyproject.toml`), Celery-style,
-built on stdlib `argparse`. v1 subcommand: `asynk health liveness|readiness`. Whether v1 also
-includes `asynk worker` (start a worker from an app path like `module:app`) is an open question
-for the owner.
+built on stdlib `argparse`. v1 subcommands:
+- `asynk worker <module:app>`: the default entrypoint (owner's decision). Imports the app from
+  the given path and runs a worker (concurrency, probe file paths, shutdown timeout as options).
+- `asynk health liveness|readiness --max-age N`.
+
+Open point: `asynk worker` needs to know which consumer to use, so the consumer must be
+reachable from the app path (e.g. configured on the `App` next to the producer, or given as a
+second path option). To be decided with the owner.
 
 ### Failure handling and hooks
 - After each task the worker builds a result record: envelope, `TaskStatus` enum (e.g. SUCCESS,
