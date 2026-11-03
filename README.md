@@ -56,7 +56,8 @@ class Producer(Protocol):
 
 
 class Consumer(Protocol):
-    connected: bool  # read-only property
+    @property
+    def connected(self) -> bool: ...
 
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
@@ -65,8 +66,10 @@ class Consumer(Protocol):
 
 
 class Delivery(Protocol):
-    envelope: Envelope
-    settled: bool
+    @property
+    def envelope(self) -> Envelope: ...
+    @property
+    def settled(self) -> bool: ...
 
     async def ack(self) -> None: ...
     async def reject(self, *, requeue: bool = False) -> None: ...
@@ -77,9 +80,24 @@ thing a producer and a consumer must agree on; `JsonCodec` is the default.
 `consumer.process(delivery)` wraps the handling: the transport decides what to
 do on success (usually ack) and on an exception (usually reject).
 
+### Consumer process contract
+
+When a task fails, is unknown or exceeds its retries, the failure reaches
+`consumer.process()` as a `TaskFailedError` (see `.result.status`); other
+exceptions are unexpected errors. `process()` must settle a delivery that is
+still unsettled when the block exits, and must never suppress exceptions,
+especially `asyncio.CancelledError`. On shutdown cancellation the worker
+rejects the unsettled delivery with `requeue=True` before the cancellation
+reaches the context manager. `deliveries()` may be cancelled at any await
+point (an `aclose()` on the iterator is called if present); when it ends, the
+worker drains and `run()` returns. `stop()` runs after the iterator is closed,
+and the broker should redeliver anything still unsettled. `connected` drives
+readiness. See the docstrings in `asynk.transport` for details.
+
 ## Probes
 
-A running worker (given `probe_dir`, which the CLI always sets) touches
+A running worker (given `probe_dir`, which the CLI always sets; it defaults to
+`<tempfile.gettempdir()>/asynk`) touches
 `liveness` and `readiness` files every heartbeat. Readiness is removed while
 the consumer is disconnected or the worker is shutting down. Use a Kubernetes
 `exec` probe:
@@ -94,14 +112,18 @@ readinessProbe:
 ```
 
 `--max-age` should exceed the heartbeat interval (default 5s). Both commands
-accept `--probe-dir`; exit code 0 means healthy.
+accept `--probe-dir`; exit code 0 means healthy. `asynk health` must use the
+same `--probe-dir` as the worker it checks, and two workers in one container
+need distinct directories.
 
 ## Retries
 
 The core does not retry. A failing task yields a `TaskResult` with status
 `FAILED` (or `RETRIES_EXCEEDED` once `envelope.attempt >= max_retries`), the
-delivery is rejected without requeue, and the `after_task` hook runs first.
-Retry mechanics belong to the producer, consumer and hook. For example:
+`after_task` hook runs, and, if the hook left the delivery unsettled, the
+failure reaches `consumer.process()` as a `TaskFailedError` and the consumer's
+default settles it (the memory transport rejects without requeue). Retry
+mechanics belong to the producer, consumer and hook. For example:
 
 ```python
 from asynk import Delivery, TaskResult, TaskStatus
@@ -110,8 +132,29 @@ from asynk import Delivery, TaskResult, TaskStatus
 @app.after_task
 async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
+        # Publish first, then ack: if publishing fails the hook raises, the
+        # delivery is still unsettled and gets requeued, so nothing is lost.
+        await producer.publish(result.envelope.retry())  # attempt + 1
         await delivery.ack()
-        await app.producer.publish(result.envelope.retry())  # attempt + 1
 ```
 
-A hook that raises causes the message to be requeued.
+A hook that raises causes the message to be requeued. The hook above only
+retries `FAILED`; `RETRIES_EXCEEDED` falls through to the consumer's default
+(reject, i.e. dead-letter). If you also retried `RETRIES_EXCEEDED` here, a
+task with `max_retries=None` would retry forever.
+
+## Delivery guarantees and shutdown
+
+Delivery is at-least-once, so tasks should be idempotent. `envelope.id` stays
+stable across `retry()`, which makes it usable as an idempotency key.
+
+On shutdown the worker stops fetching and waits up to `shutdown_timeout` for
+running tasks. Async tasks still running afterwards are cancelled and their
+deliveries requeued. Sync tasks cannot be interrupted: after the timeout their
+delivery is requeued but the thread keeps running, so the task may run twice,
+and process exit blocks until the thread finishes. A failing `after_task` hook
+on a `SUCCESS` result also requeues the message, which runs the task again.
+
+On Kubernetes set `terminationGracePeriodSeconds` above `shutdown_timeout`
+plus the longest sync task. The default `shutdown_timeout` of 30 seconds equals
+the Kubernetes default grace period of 30 seconds, so raise one of them.
