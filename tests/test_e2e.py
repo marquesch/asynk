@@ -23,6 +23,8 @@ NAMES = [
     "Worker",
     "NonJsonArgumentError",
     "NotConfiguredError",
+    "TaskFailedError",
+    "DecodeError",
 ]
 
 
