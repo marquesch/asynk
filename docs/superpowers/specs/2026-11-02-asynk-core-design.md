@@ -45,7 +45,8 @@ consumer that reads the RabbitMQ message and runs the task. Celery cannot expres
 ## Components
 
 ### App and task registry
-- `App(name, producer=...)` holds the task registry and the configured producer.
+- `App(name, producer=..., consumer=...)` holds the task registry and the configured producer and
+  consumer (both optional, since a process may only produce or only consume).
 - `@app.task(name=None, max_retries=None, **options)` registers a function (async or sync) and
   returns a `Task` object. Task options are general-purpose: hooks may read them, but they are
   not hook-specific. The core itself reads `max_retries` only to set the `RETRIES_EXCEEDED`
@@ -84,7 +85,7 @@ supply their own (e.g. a string-wrapped JSON for an outbox column).
   is optional) to prove the interfaces and to test the core without a broker.
 
 ### Worker
-- One asyncio process: `Worker(app, consumer, concurrency=N, hooks=...)`.
+- One asyncio process: `Worker(app, concurrency=N, hooks=...)` (the consumer comes from the app).
 - Pulls deliveries, looks up the task in the registry, runs it concurrently up to `concurrency`
   (semaphore). Async tasks are awaited; sync tasks run via `asyncio.to_thread`. No other sync
   machinery.
@@ -109,9 +110,9 @@ built on stdlib `argparse`. v1 subcommands:
   the given path and runs a worker (concurrency, probe file paths, shutdown timeout as options).
 - `asynk health liveness|readiness --max-age N`.
 
-Open point: `asynk worker` needs to know which consumer to use, so the consumer must be
-reachable from the app path (e.g. configured on the `App` next to the producer, or given as a
-second path option). To be decided with the owner.
+The consumer is configured on the `App` next to the producer (owner's decision), so
+`asynk worker module:app` needs nothing else. A process that only produces never touches the
+consumer, and a worker never touches the producer unless a hook uses it (e.g. to republish).
 
 ### Failure handling and hooks
 - After each task the worker builds a result record: envelope, `TaskStatus` enum (e.g. SUCCESS,
