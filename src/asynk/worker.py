@@ -6,7 +6,7 @@ import logging
 import signal
 from collections.abc import Awaitable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import TaskFailedError, TaskResult, TaskStatus
@@ -14,6 +14,8 @@ from asynk.probes import ProbeFiles
 from asynk.transport import Consumer, Delivery
 
 _SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+T = TypeVar("T")
 
 logger = logging.getLogger("asynk")
 
@@ -68,7 +70,6 @@ class Worker:
             await asyncio.sleep(self.heartbeat_interval)
 
     async def run_with_signals(self) -> None:
-        """Run until SIGTERM/SIGINT; the previous signal handlers are restored on exit."""
         loop = asyncio.get_running_loop()
         previous = {sig: signal.getsignal(sig) for sig in _SHUTDOWN_SIGNALS}
         for sig in _SHUTDOWN_SIGNALS:
@@ -81,7 +82,6 @@ class Worker:
                 signal.signal(sig, handler)
 
     async def run(self) -> None:
-        """Consume deliveries until shutdown is requested, then drain and stop the consumer."""
         await self.consumer.start()
         semaphore = asyncio.Semaphore(self.concurrency)
         in_flight: set[asyncio.Task[None]] = set()
@@ -129,8 +129,7 @@ class Worker:
                     except OSError:
                         logger.exception("failed to clear probe files")
 
-    async def _race[T](self, aw: Awaitable[T], shutdown: asyncio.Future[Any]) -> T | None:
-        """Await `aw` unless shutdown wins; a result that arrived anyway is still returned."""
+    async def _race(self, aw: Awaitable[T], shutdown: asyncio.Future[Any]) -> T | None:
         fut = asyncio.ensure_future(aw)
         try:
             await asyncio.wait({fut, shutdown}, return_when=asyncio.FIRST_COMPLETED)
@@ -167,7 +166,6 @@ class Worker:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def handle(self, delivery: Delivery) -> TaskResult:
-        """Process exactly one delivery; task and hook errors never propagate."""
         result: TaskResult | None = None
         try:
             async with self.consumer.process(delivery):

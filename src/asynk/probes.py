@@ -12,8 +12,6 @@ def default_probe_dir() -> Path:
 
 
 class ProbeFiles:
-    """Liveness/readiness marker files; their mtime is the heartbeat."""
-
     def __init__(self, directory: Path) -> None:
         self.directory = directory
 
@@ -54,7 +52,6 @@ class ProbeFiles:
 
 
 def check_probe(path: Path, max_age: float, now: float | None = None) -> tuple[bool, str]:
-    """Healthy iff `path` exists and was modified within `max_age` seconds. Never raises."""
     try:
         mtime = path.stat().st_mtime
     except FileNotFoundError:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
@@ -24,12 +24,10 @@ class TaskResult:
     error: BaseException | None = None
 
 
-type AfterTaskHook = Callable[[TaskResult, Delivery], Awaitable[None]]
+AfterTaskHook: TypeAlias = Callable[[TaskResult, Delivery], Awaitable[None]]
 
 
 class TaskFailedError(Exception):
-    """Raised inside the consumer's process context to trigger its default rejection."""
-
     def __init__(self, result: TaskResult) -> None:
         super().__init__(f"task {result.envelope.task!r} ended with {result.status.name}")
         self.result = result

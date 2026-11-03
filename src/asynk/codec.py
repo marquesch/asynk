@@ -7,7 +7,7 @@ from asynk.envelope import Envelope, JSONValue, NonJsonArgumentError, ensure_jso
 
 
 class DecodeError(ValueError):
-    """Raised when bytes cannot be decoded into a valid Envelope."""
+    pass
 
 
 class Codec(Protocol):
@@ -35,8 +35,6 @@ class JsonCodec:
     def decode(self, data: bytes) -> Envelope:
         try:
             obj = json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
-        except DecodeError:
-            raise
         except (ValueError, RecursionError) as exc:
             raise DecodeError(f"invalid JSON: {exc}") from exc
         if not isinstance(obj, dict):

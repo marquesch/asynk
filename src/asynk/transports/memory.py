@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TypeAlias
 
 from asynk.codec import Codec, DecodeError, JsonCodec
 from asynk.envelope import Envelope
@@ -15,7 +16,7 @@ class _Stop:
 
 _STOP = _Stop()
 
-type _Queue = asyncio.Queue[bytes | _Stop]
+_Queue: TypeAlias = "asyncio.Queue[bytes | _Stop]"
 
 
 class MemoryProducer:

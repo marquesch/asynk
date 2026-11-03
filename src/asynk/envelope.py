@@ -4,12 +4,13 @@ import math
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from typing import TypeAlias
 
-type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
+JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 class NonJsonArgumentError(TypeError):
-    """Raised when a task argument is not JSON-friendly."""
+    pass
 
 
 def ensure_json(value: object, path: str = "value") -> None:

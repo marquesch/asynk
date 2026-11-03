@@ -15,7 +15,7 @@ from asynk.worker import Worker
 
 
 class CliError(Exception):
-    """A user-facing error: printed as `asynk: <message>` with exit code 2."""
+    pass
 
 
 def load_app(path: str) -> App:

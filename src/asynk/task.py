@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
 
 from asynk.envelope import Envelope
 
@@ -10,7 +10,11 @@ if TYPE_CHECKING:
     from asynk.app import App
 
 
-class Task[**P, R]:
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class Task(Generic[P, R]):
     def __init__(
         self,
         app: App,

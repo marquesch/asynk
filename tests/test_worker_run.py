@@ -111,17 +111,16 @@ async def test_concurrency_limit_respected() -> None:
 async def test_tasks_run_concurrently() -> None:
     app, producer, consumer, worker = _setup()
     seen = _collect(app)
-    barrier = asyncio.Barrier(2)
     both = asyncio.Event()
     count = 0
 
     @app.task(name="meet")
     async def meet() -> None:
         nonlocal count
-        await asyncio.wait_for(barrier.wait(), 1)
         count += 1
         if count == 2:
             both.set()
+        await asyncio.wait_for(both.wait(), 1)
 
     await producer.publish(Envelope.create("meet", (), {}))
     await producer.publish(Envelope.create("meet", (), {}))
@@ -333,9 +332,12 @@ def _listing(path: Path) -> list[Path]:
 
 async def _until(predicate: Any, limit: float = 2.0) -> None:
     """Poll until `predicate()` is true; fail loudly on timeout."""
-    async with asyncio.timeout(limit):
-        while not predicate():  # noqa: ASYNC110 - polls arbitrary file state
-            await asyncio.sleep(0.005)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + limit
+    while not predicate():
+        if loop.time() > deadline:
+            raise TimeoutError
+        await asyncio.sleep(0.005)
 
 
 async def test_worker_writes_probe_files_while_running(tmp_path: Path) -> None:

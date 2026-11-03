@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
@@ -11,8 +11,12 @@ if TYPE_CHECKING:
     from asynk.hooks import AfterTaskHook
 
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
 class NotConfiguredError(RuntimeError):
-    """Raised when an app lacks a component required by the operation."""
+    pass
 
 
 class App:
@@ -33,7 +37,7 @@ class App:
     def tasks(self) -> Mapping[str, Task[..., Any]]:
         return MappingProxyType(self._tasks)
 
-    def task[**P, R](
+    def task(
         self,
         *,
         name: str | None = None,
