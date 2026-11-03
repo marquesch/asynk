@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
+
+if TYPE_CHECKING:
+    from asynk.hooks import AfterTaskHook
 
 
 class NotConfiguredError(RuntimeError):
@@ -24,6 +27,7 @@ class App:
         self.producer = producer
         self.consumer = consumer
         self._tasks: dict[str, Task[..., Any]] = {}
+        self.after_task_hook: AfterTaskHook | None = None
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -48,3 +52,7 @@ class App:
 
     def get_task(self, name: str) -> Task[..., Any]:
         return self._tasks[name]
+
+    def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
+        self.after_task_hook = hook
+        return hook
