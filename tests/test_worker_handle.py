@@ -178,6 +178,28 @@ async def test_failing_hook_requeues_delivery_and_does_not_raise(
     assert redelivered.envelope.task == "ok"
 
 
+async def test_cancelled_handle_requeues_delivery_and_reraises() -> None:
+    app, producer, consumer, worker = _setup()
+    started = asyncio.Event()
+
+    @app.task(name="hang")
+    async def hang() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    env = Envelope.create("hang", (), {})
+    await producer.publish(env)
+    delivery = await _next(consumer)
+    handler = asyncio.create_task(worker.handle(delivery))
+    await asyncio.wait_for(started.wait(), 1)
+    handler.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handler
+    assert delivery.settled
+    redelivered = await _next(consumer)
+    assert redelivered.envelope == env
+
+
 def test_worker_requires_consumer() -> None:
     with pytest.raises(NotConfiguredError):
         Worker(App("t"))

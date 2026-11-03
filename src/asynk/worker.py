@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any
 
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import TaskFailedError, TaskResult, TaskStatus
 from asynk.transport import Consumer, Delivery
+
+_SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
 logger = logging.getLogger("asynk")
 
@@ -30,14 +34,110 @@ class Worker:
         self.shutdown_timeout = shutdown_timeout
         self.probe_dir = probe_dir
         self.heartbeat_interval = heartbeat_interval
+        self._shutdown = asyncio.Event()
+
+    def request_shutdown(self) -> None:
+        """Ask the run loop to stop fetching and drain; idempotent, signal-handler safe."""
+        if not self._shutdown.is_set():
+            logger.info("worker shutdown requested")
+            self._shutdown.set()
+
+    async def run_with_signals(self) -> None:
+        """Run until SIGTERM/SIGINT; the previous signal handlers are restored on exit."""
+        loop = asyncio.get_running_loop()
+        previous = {sig: signal.getsignal(sig) for sig in _SHUTDOWN_SIGNALS}
+        for sig in _SHUTDOWN_SIGNALS:
+            loop.add_signal_handler(sig, self.request_shutdown)
+        try:
+            await self.run()
+        finally:
+            for sig, handler in previous.items():
+                loop.remove_signal_handler(sig)
+                signal.signal(sig, handler)
+
+    async def run(self) -> None:
+        """Consume deliveries until shutdown is requested, then drain and stop the consumer."""
+        await self.consumer.start()
+        semaphore = asyncio.Semaphore(self.concurrency)
+        in_flight: set[asyncio.Task[None]] = set()
+        deliveries = aiter(self.consumer.deliveries())
+        shutdown = asyncio.ensure_future(self._shutdown.wait())
+        try:
+            while not self._shutdown.is_set():
+                if not await self._race(semaphore.acquire(), shutdown):
+                    break
+                try:
+                    delivery = await self._race(anext(deliveries), shutdown)
+                except StopAsyncIteration:
+                    delivery = None
+                if delivery is None:
+                    semaphore.release()
+                    break
+                task = asyncio.create_task(self._handle_and_release(delivery, semaphore))
+                in_flight.add(task)
+                task.add_done_callback(in_flight.discard)
+            await self._drain(in_flight)
+        except asyncio.CancelledError:
+            await self._cancel(in_flight)
+            raise
+        finally:
+            shutdown.cancel()
+            aclose = getattr(deliveries, "aclose", None)
+            if aclose is not None:
+                await aclose()
+            await self.consumer.stop()
+
+    async def _race[T](self, aw: Awaitable[T], shutdown: asyncio.Future[Any]) -> T | None:
+        """Await `aw` unless shutdown wins; a result that arrived anyway is still returned."""
+        fut = asyncio.ensure_future(aw)
+        try:
+            await asyncio.wait({fut, shutdown}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if not fut.done():
+                fut.cancel()
+                # Wait for the cancellation to land without swallowing our own.
+                await asyncio.wait({fut})
+        if fut.cancelled():
+            return None
+        return fut.result()
+
+    async def _handle_and_release(self, delivery: Delivery, semaphore: asyncio.Semaphore) -> None:
+        try:
+            await self.handle(delivery)
+        except Exception:
+            logger.exception("unexpected error handling task %r", delivery.envelope.task)
+        finally:
+            semaphore.release()
+
+    async def _drain(self, in_flight: set[asyncio.Task[None]]) -> None:
+        if not in_flight:
+            return
+        _, pending = await asyncio.wait(set(in_flight), timeout=self.shutdown_timeout)
+        if pending:
+            logger.warning("cancelling %d task(s) still running at shutdown", len(pending))
+            await self._cancel(pending)
+
+    @staticmethod
+    async def _cancel(tasks: set[asyncio.Task[None]]) -> None:
+        tasks = set(tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def handle(self, delivery: Delivery) -> TaskResult:
         """Process exactly one delivery; task and hook errors never propagate."""
         result: TaskResult | None = None
         try:
             async with self.consumer.process(delivery):
-                result = await self._execute(delivery)
-                await self._run_hook(result, delivery)
+                try:
+                    result = await self._execute(delivery)
+                    await self._run_hook(result, delivery)
+                except asyncio.CancelledError:
+                    # Settle before the context manager sees the cancellation, so a
+                    # shutdown-cancelled task is redelivered rather than dropped.
+                    if not delivery.settled:
+                        await delivery.reject(requeue=True)
+                    raise
                 if not delivery.settled and result.status is not TaskStatus.SUCCESS:
                     raise TaskFailedError(result)
         except TaskFailedError as exc:
