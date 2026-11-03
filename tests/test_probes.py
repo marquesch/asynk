@@ -24,12 +24,12 @@ def test_beat_not_ready_removes_readiness(tmp_path: Path) -> None:
     probes.beat(ready=False)
     assert probes.liveness.exists()
     assert not probes.readiness.exists()
-    probes.beat(ready=False)  # absent readiness is fine
+    probes.beat(ready=False)
 
 
 def test_clear_is_idempotent(tmp_path: Path) -> None:
     probes = ProbeFiles(tmp_path)
-    probes.clear()  # nothing there yet
+    probes.clear()
     probes.beat(ready=True)
     probes.clear()
     probes.clear()

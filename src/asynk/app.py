@@ -16,10 +16,19 @@ R = TypeVar("R")
 
 
 class NotConfiguredError(RuntimeError):
-    pass
+    """Raised when an app lacks a component required by the operation."""
 
 
 class App:
+    """Registry of tasks plus the producer and consumer that move their messages.
+
+    Attributes:
+        name: Name of the app.
+        producer: Used by `Task.delay`; None if the app only consumes.
+        consumer: Used by `Worker`; None if the app only produces.
+        after_task_hook: Hook set through `after_task`.
+    """
+
     def __init__(
         self,
         name: str,
@@ -44,6 +53,20 @@ class App:
         max_retries: int | None = None,
         **options: Any,
     ) -> Callable[[Callable[P, R]], Task[P, R]]:
+        """Decorator that registers a function as a task.
+
+        Args:
+            name: Task name; defaults to the function's module and qualified name.
+            max_retries: Attempts after which failures stop being retried; None for no limit.
+            **options: Extra options stored on the task.
+
+        Returns:
+            A decorator producing a `Task`.
+
+        Raises:
+            ValueError: If the name is already registered.
+        """
+
         def decorator(func: Callable[P, R]) -> Task[P, R]:
             task_name = name or f"{func.__module__}.{func.__qualname__}"
             if task_name in self._tasks:
@@ -55,8 +78,27 @@ class App:
         return decorator
 
     def get_task(self, name: str) -> Task[..., Any]:
+        """Looks up a registered task.
+
+        Args:
+            name: The task name.
+
+        Returns:
+            The task.
+
+        Raises:
+            KeyError: If no task has that name.
+        """
         return self._tasks[name]
 
     def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
+        """Registers the hook run after every task; usable as a decorator.
+
+        Args:
+            hook: The async hook, replacing any previous one.
+
+        Returns:
+            The hook, unchanged.
+        """
         self.after_task_hook = hook
         return hook

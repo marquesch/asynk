@@ -1,7 +1,8 @@
 """asynk: an asyncio task framework."""
 
 from asynk.app import App, NotConfiguredError
-from asynk.codec import Codec, DecodeError, JsonCodec
+from asynk.codec import Codec, DecodeError
+from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope, NonJsonArgumentError
 from asynk.hooks import TaskFailedError, TaskResult, TaskStatus
 from asynk.task import Task

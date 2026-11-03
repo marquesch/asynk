@@ -17,7 +17,7 @@ from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.hooks import TaskResult, TaskStatus
 from asynk.transport import Delivery
-from asynk.transports.memory import MemoryConsumer, MemoryProducer, memory_transport
+from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
 from asynk.worker import Worker
 
 
@@ -38,7 +38,6 @@ def _collect(app: App) -> list[tuple[TaskResult, Delivery]]:
 
 
 async def _drain(consumer: MemoryConsumer) -> list[Delivery]:
-    """Collect whatever is left in the queue; ends at the stop sentinel run() enqueued."""
     return [d async for d in consumer.deliveries()]
 
 
@@ -98,7 +97,6 @@ async def test_concurrency_limit_respected() -> None:
         await producer.publish(Envelope.create("t", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(two_running.wait(), 1)
-    # Give the run loop ample iterations to start a third task if the limit allowed it.
     for _ in range(100):
         await asyncio.sleep(0)
     assert running == 2
@@ -271,8 +269,6 @@ async def test_run_with_signals_handles_sigterm() -> None:
 
 
 class _FailingConsumer:
-    """Yields the inner consumer's first delivery, then raises once `fail` is set."""
-
     def __init__(self, inner: MemoryConsumer, events: list[str]) -> None:
         self.inner = inner
         self.events = events
@@ -331,7 +327,6 @@ def _listing(path: Path) -> list[Path]:
 
 
 async def _until(predicate: Any, limit: float = 2.0) -> None:
-    """Poll until `predicate()` is true; fail loudly on timeout."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + limit
     while not predicate():
@@ -368,9 +363,8 @@ async def test_readiness_removed_when_shutdown_starts(tmp_path: Path) -> None:
     await _until((tmp_path / "readiness").exists)
     worker.request_shutdown()
     await _until(lambda: not (tmp_path / "readiness").exists())
-    assert not run.done()  # still draining the long task
+    assert not run.done()
     assert (tmp_path / "liveness").exists()
-    # It stays gone across further heartbeats while draining.
     first = (tmp_path / "liveness").stat().st_mtime_ns
     await _until(lambda: (tmp_path / "liveness").stat().st_mtime_ns > first)
     assert not (tmp_path / "readiness").exists()
@@ -431,7 +425,6 @@ async def test_no_files_when_probe_dir_is_none(
         def __getattr__(self, name: str) -> Any:
             return lambda *args, **kwargs: None
 
-    # Any default location derived from the temp dir would land in tmp_path.
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     monkeypatch.setattr("asynk.worker.ProbeFiles", RecordingProbeFiles)
     _, _, _, worker = _setup(heartbeat_interval=0.02)

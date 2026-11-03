@@ -10,10 +10,20 @@ JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dic
 
 
 class NonJsonArgumentError(TypeError):
-    pass
+    """Raised when a task argument is not JSON-friendly."""
 
 
 def ensure_json(value: object, path: str = "value") -> None:
+    """Checks that a value is JSON-friendly.
+
+    Args:
+        value: The value to check, recursively.
+        path: Name used to locate the offending value in the error message.
+
+    Raises:
+        NonJsonArgumentError: If `value` contains a non-finite float, a dict with
+            non-str keys, or a type JSON cannot represent.
+    """
     if value is None or isinstance(value, bool | int | str):
         return
     if isinstance(value, float):
@@ -35,6 +45,17 @@ def ensure_json(value: object, path: str = "value") -> None:
 
 @dataclass(frozen=True, slots=True)
 class Envelope:
+    """The message exchanged between producers and consumers.
+
+    Attributes:
+        task: Registered name of the task to run.
+        args: Positional arguments for the task.
+        kwargs: Keyword arguments for the task.
+        id: Unique message id.
+        attempt: Zero-based delivery attempt counter.
+        metadata: Free-form JSON data carried alongside the task call.
+    """
+
     task: str
     args: tuple[JSONValue, ...]
     kwargs: dict[str, JSONValue]
@@ -44,6 +65,19 @@ class Envelope:
 
     @classmethod
     def create(cls, task: str, args: Sequence[object], kwargs: Mapping[str, object]) -> Envelope:
+        """Builds a new envelope with a fresh id, validating the arguments.
+
+        Args:
+            task: Registered name of the task to run.
+            args: Positional arguments for the task.
+            kwargs: Keyword arguments for the task.
+
+        Returns:
+            A new envelope at attempt 0.
+
+        Raises:
+            NonJsonArgumentError: If any argument is not JSON-friendly.
+        """
         for i, arg in enumerate(args):
             ensure_json(arg, f"args[{i}]")
         for key, val in kwargs.items():
@@ -59,4 +93,5 @@ class Envelope:
         )
 
     def retry(self) -> Envelope:
+        """Returns a copy of this envelope with `attempt` incremented."""
         return replace(self, attempt=self.attempt + 1)

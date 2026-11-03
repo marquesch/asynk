@@ -1,19 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol
+from typing import Any
 
+from asynk.codec import DecodeError
 from asynk.envelope import Envelope, JSONValue, NonJsonArgumentError, ensure_json
-
-
-class DecodeError(ValueError):
-    pass
-
-
-class Codec(Protocol):
-    def encode(self, envelope: Envelope) -> bytes: ...
-
-    def decode(self, data: bytes) -> Envelope: ...
 
 
 def _reject_constant(name: str) -> Any:
@@ -21,7 +12,20 @@ def _reject_constant(name: str) -> Any:
 
 
 class JsonCodec:
+    """Codec that encodes envelopes as compact UTF-8 JSON.
+
+    NaN and infinite floats are rejected in both directions.
+    """
+
     def encode(self, envelope: Envelope) -> bytes:
+        """Serializes an envelope to JSON bytes.
+
+        Args:
+            envelope: The envelope to serialize.
+
+        Returns:
+            The UTF-8 encoded JSON document.
+        """
         payload = {
             "id": envelope.id,
             "task": envelope.task,
@@ -33,6 +37,17 @@ class JsonCodec:
         return json.dumps(payload, allow_nan=False, separators=(",", ":")).encode("utf-8")
 
     def decode(self, data: bytes) -> Envelope:
+        """Deserializes JSON bytes into an envelope.
+
+        Args:
+            data: A UTF-8 encoded JSON document.
+
+        Returns:
+            The decoded envelope.
+
+        Raises:
+            DecodeError: If `data` is not valid JSON or lacks a well-formed envelope.
+        """
         try:
             obj = json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
         except (ValueError, RecursionError) as exc:

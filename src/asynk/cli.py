@@ -15,10 +15,21 @@ from asynk.worker import Worker
 
 
 class CliError(Exception):
-    pass
+    """Raised for user-facing command-line errors."""
 
 
 def load_app(path: str) -> App:
+    """Imports an app from a `module:attr` path.
+
+    Args:
+        path: Import path of the form `module:attr`.
+
+    Returns:
+        The app.
+
+    Raises:
+        CliError: If the path is malformed, cannot be imported, or is not an `App`.
+    """
     module_name, sep, attr = path.partition(":")
     if not sep or not module_name or not attr:
         raise CliError(f"invalid app path {path!r}: expected 'module:attr'")
@@ -39,7 +50,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="asynk")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    # Unset options are omitted so the Worker's own defaults apply.
     worker = commands.add_parser("worker", help="run a worker for an app")
     worker.add_argument("app", metavar="MODULE:APP")
     worker.add_argument("--concurrency", type=int)
@@ -94,6 +104,14 @@ def _run_health(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Runs the `asynk` command line.
+
+    Args:
+        argv: Arguments to parse; defaults to `sys.argv[1:]`.
+
+    Returns:
+        The process exit code.
+    """
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "worker":

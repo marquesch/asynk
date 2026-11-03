@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from asynk.codec import Codec, DecodeError, JsonCodec
+from asynk.codec import Codec, DecodeError
+from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 
 

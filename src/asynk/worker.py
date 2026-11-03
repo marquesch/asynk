@@ -21,6 +21,17 @@ logger = logging.getLogger("asynk")
 
 
 class Worker:
+    """Runs an app's tasks, consuming deliveries with bounded concurrency.
+
+    Attributes:
+        app: The app to serve.
+        consumer: The app's consumer.
+        concurrency: Maximum tasks running at once.
+        shutdown_timeout: Seconds to let running tasks finish after shutdown is requested.
+        probe_dir: Directory for probe files; None disables them.
+        heartbeat_interval: Seconds between probe file updates.
+    """
+
     def __init__(
         self,
         app: App,
@@ -30,6 +41,20 @@ class Worker:
         probe_dir: Path | None = None,
         heartbeat_interval: float = 5.0,
     ) -> None:
+        """Initializes the worker.
+
+        Args:
+            app: The app to serve; it must have a consumer.
+            concurrency: Maximum tasks running at once.
+            shutdown_timeout: Seconds to let running tasks finish after shutdown is requested.
+            probe_dir: Directory for probe files; None disables them.
+            heartbeat_interval: Seconds between probe file updates.
+
+        Raises:
+            ValueError: If `concurrency` < 1, `heartbeat_interval` <= 0 or
+                `shutdown_timeout` < 0.
+            NotConfiguredError: If the app has no consumer.
+        """
         if concurrency < 1:
             raise ValueError(f"concurrency must be >= 1, got {concurrency}")
         if heartbeat_interval <= 0:
@@ -49,12 +74,11 @@ class Worker:
         self._probes_live = False
 
     def request_shutdown(self) -> None:
-        """Ask the run loop to stop fetching and drain; idempotent, signal-handler safe."""
+        """Asks `run` to stop fetching and drain; idempotent and safe in signal handlers."""
         if not self._shutdown.is_set():
             logger.info("worker shutdown requested")
             self._shutdown.set()
             if self._probes is not None and self._probes_live:
-                # Stop advertising readiness right away, not at the next heartbeat.
                 try:
                     self._probes.remove_readiness()
                 except OSError:
@@ -70,6 +94,7 @@ class Worker:
             await asyncio.sleep(self.heartbeat_interval)
 
     async def run_with_signals(self) -> None:
+        """Runs like `run`, with SIGTERM and SIGINT requesting a graceful shutdown."""
         loop = asyncio.get_running_loop()
         previous = {sig: signal.getsignal(sig) for sig in _SHUTDOWN_SIGNALS}
         for sig in _SHUTDOWN_SIGNALS:
@@ -82,6 +107,11 @@ class Worker:
                 signal.signal(sig, handler)
 
     async def run(self) -> None:
+        """Consumes and runs tasks until shutdown is requested or deliveries end.
+
+        In-flight tasks are given `shutdown_timeout` seconds to finish; stragglers
+        are cancelled and their deliveries requeued.
+        """
         await self.consumer.start()
         semaphore = asyncio.Semaphore(self.concurrency)
         in_flight: set[asyncio.Task[None]] = set()
@@ -107,8 +137,6 @@ class Worker:
                 task.add_done_callback(in_flight.discard)
             await self._drain(in_flight)
         except BaseException:
-            # Cancelled, or the transport failed: don't orphan handlers on a stopped consumer.
-            # Their cancel path requeues unsettled deliveries.
             await self._cancel(in_flight)
             raise
         finally:
@@ -136,7 +164,6 @@ class Worker:
         finally:
             if not fut.done():
                 fut.cancel()
-                # Wait for the cancellation to land without swallowing our own.
                 await asyncio.wait({fut})
         if fut.cancelled():
             return None
@@ -166,6 +193,14 @@ class Worker:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def handle(self, delivery: Delivery) -> TaskResult:
+        """Runs the task for one delivery inside the consumer's `process` context.
+
+        Args:
+            delivery: The delivery to handle.
+
+        Returns:
+            The task's result.
+        """
         result: TaskResult | None = None
         try:
             async with self.consumer.process(delivery):
@@ -174,8 +209,6 @@ class Worker:
                     self._log_result(result)
                     await self._run_hook(result, delivery)
                 except asyncio.CancelledError:
-                    # Settle before the context manager sees the cancellation, so a
-                    # shutdown-cancelled task is redelivered rather than dropped.
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
                     raise
@@ -224,7 +257,6 @@ class Worker:
             else:
                 value = await asyncio.to_thread(task.func, *envelope.args, **envelope.kwargs)
                 if inspect.isawaitable(value):
-                    # e.g. a sync wrapper or functools.partial around an async function
                     value = await value
         except Exception as exc:
             exceeded = task.max_retries is not None and envelope.attempt >= task.max_retries

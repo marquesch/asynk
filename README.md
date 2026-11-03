@@ -12,7 +12,7 @@ transport ships for demos and tests.
 import asyncio
 
 from asynk import App, Worker
-from asynk.transports.memory import memory_transport
+from asynk.transport.memory import memory_transport
 
 producer, consumer = memory_transport()
 app = App("demo", producer=producer, consumer=consumer)
