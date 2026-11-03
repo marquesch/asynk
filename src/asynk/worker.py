@@ -77,7 +77,9 @@ class Worker:
                 in_flight.add(task)
                 task.add_done_callback(in_flight.discard)
             await self._drain(in_flight)
-        except asyncio.CancelledError:
+        except BaseException:
+            # Cancelled, or the transport failed: don't orphan handlers on a stopped consumer.
+            # Their cancel path requeues unsettled deliveries.
             await self._cancel(in_flight)
             raise
         finally:

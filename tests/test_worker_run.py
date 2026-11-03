@@ -5,7 +5,11 @@ import os
 import signal
 import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Any
+
+import pytest
 
 from asynk.app import App
 from asynk.envelope import Envelope
@@ -72,6 +76,7 @@ async def test_concurrency_limit_respected() -> None:
     max_seen = 0
     finished = 0
     two_running = asyncio.Event()
+    gate = asyncio.Event()
     all_done = asyncio.Event()
 
     @app.task(name="t")
@@ -79,11 +84,9 @@ async def test_concurrency_limit_respected() -> None:
         nonlocal running, max_seen, finished
         running += 1
         max_seen = max(max_seen, running)
-        if running >= 2:
+        if running == 2:
             two_running.set()
-        await asyncio.wait_for(two_running.wait(), 1)
-        for _ in range(5):
-            await asyncio.sleep(0)
+        await asyncio.wait_for(gate.wait(), 1)
         running -= 1
         finished += 1
         if finished == 5:
@@ -92,6 +95,12 @@ async def test_concurrency_limit_respected() -> None:
     for _ in range(5):
         await producer.publish(Envelope.create("t", (), {}))
     run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(two_running.wait(), 1)
+    # Give the run loop ample iterations to start a third task if the limit allowed it.
+    for _ in range(100):
+        await asyncio.sleep(0)
+    assert running == 2
+    gate.set()
     await asyncio.wait_for(all_done.wait(), 1)
     await _stop(worker, run)
     assert max_seen == 2
@@ -258,3 +267,59 @@ async def test_run_with_signals_handles_sigterm() -> None:
     assert not consumer.connected
     assert signal.getsignal(signal.SIGTERM) == before_term
     assert signal.getsignal(signal.SIGINT) == before_int
+
+
+class _FailingConsumer:
+    """Yields the inner consumer's first delivery, then raises once `fail` is set."""
+
+    def __init__(self, inner: MemoryConsumer, events: list[str]) -> None:
+        self.inner = inner
+        self.events = events
+        self.fail = asyncio.Event()
+
+    @property
+    def connected(self) -> bool:
+        return self.inner.connected
+
+    async def start(self) -> None:
+        await self.inner.start()
+
+    async def stop(self) -> None:
+        self.events.append("stop")
+        await self.inner.stop()
+
+    async def deliveries(self) -> AsyncIterator[Delivery]:
+        yield await anext(self.inner.deliveries())
+        await self.fail.wait()
+        raise ConnectionError("broker gone")
+
+    def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:
+        return self.inner.process(delivery)
+
+
+async def test_consumer_error_cancels_and_requeues_in_flight() -> None:
+    producer, inner = memory_transport()
+    events: list[str] = []
+    consumer = _FailingConsumer(inner, events)
+    app = App("t", producer=producer, consumer=consumer)
+    worker = Worker(app)
+    started = asyncio.Event()
+
+    @app.task(name="slow")
+    async def slow() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("task_exit")
+
+    env = Envelope.create("slow", (), {})
+    await producer.publish(env)
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    consumer.fail.set()
+    with pytest.raises(ConnectionError, match="broker gone"):
+        await asyncio.wait_for(run, 1)
+    assert events == ["task_exit", "stop"]
+    remaining = await _drain(inner)
+    assert [d.envelope for d in remaining] == [env]
