@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import signal
 from collections.abc import Awaitable
@@ -192,6 +193,9 @@ class Worker:
                 value = await task.func(*envelope.args, **envelope.kwargs)
             else:
                 value = await asyncio.to_thread(task.func, *envelope.args, **envelope.kwargs)
+                if inspect.isawaitable(value):
+                    # e.g. a sync wrapper or functools.partial around an async function
+                    value = await value
         except Exception as exc:
             exceeded = task.max_retries is not None and envelope.attempt >= task.max_retries
             status = TaskStatus.RETRIES_EXCEEDED if exceeded else TaskStatus.FAILED

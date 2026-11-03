@@ -203,3 +203,24 @@ async def test_cancelled_handle_requeues_delivery_and_reraises() -> None:
 def test_worker_requires_consumer() -> None:
     with pytest.raises(NotConfiguredError):
         Worker(App("t"))
+
+
+async def test_sync_wrapper_returning_awaitable_is_awaited() -> None:
+    import functools
+
+    app, producer, consumer, worker = _setup()
+    ran: list[int] = []
+
+    async def inner(a: int) -> int:
+        ran.append(a)
+        return a * 2
+
+    @functools.wraps(inner)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return inner(*args, **kwargs)
+
+    app.task(name="wrapped")(wrapper)
+    result = await _run(producer, consumer, worker, Envelope.create("wrapped", (4,), {}))
+    assert result.status is TaskStatus.SUCCESS
+    assert result.value == 8
+    assert ran == [4]
