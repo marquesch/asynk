@@ -1,7 +1,7 @@
 [project]
 name = "asynk"
 version = "0.1.0"
-description = "Add your description here"
+description = "Asyncio task framework with decoupled producers and consumers"
 readme = "README.md"
 authors = [
     { name = "Carlos Marques", email = "chmarques93@gmail.com" }
