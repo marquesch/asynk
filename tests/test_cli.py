@@ -119,3 +119,12 @@ def test_worker_configures_logging_and_logs_startup(
     assert len(calls) == 1
     assert calls[0]["level"] == logging.INFO
     assert any("concurrency=3" in r.getMessage() for r in records)
+
+
+def test_worker_invalid_argument_returns_2_without_traceback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["worker", "tests.fixture_app:app", "--concurrency", "0"]) == 2
+    err = capsys.readouterr().err
+    assert "asynk:" in err
+    assert "Traceback" not in err

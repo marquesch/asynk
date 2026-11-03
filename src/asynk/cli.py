@@ -74,7 +74,7 @@ def _run_worker(args: argparse.Namespace) -> int:
     }
     try:
         worker = Worker(app, probe_dir=args.probe_dir, **options)
-    except NotConfiguredError as exc:
+    except (NotConfiguredError, ValueError) as exc:
         raise CliError(str(exc)) from exc
     logging.getLogger("asynk").info(
         "starting worker for app %r: concurrency=%d shutdown_timeout=%s probe_dir=%s",

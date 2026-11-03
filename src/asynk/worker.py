@@ -28,6 +28,12 @@ class Worker:
         probe_dir: Path | None = None,
         heartbeat_interval: float = 5.0,
     ) -> None:
+        if concurrency < 1:
+            raise ValueError(f"concurrency must be >= 1, got {concurrency}")
+        if heartbeat_interval <= 0:
+            raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
+        if shutdown_timeout < 0:
+            raise ValueError(f"shutdown_timeout must be >= 0, got {shutdown_timeout}")
         if app.consumer is None:
             raise NotConfiguredError(f"app {app.name!r} has no consumer configured")
         self.app = app

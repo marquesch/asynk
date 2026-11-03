@@ -422,3 +422,21 @@ async def test_no_files_when_probe_dir_is_none(tmp_path: Path) -> None:
     await asyncio.sleep(0.1)
     await _stop(worker, run)
     assert _listing(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"concurrency": 0},
+        {"heartbeat_interval": 0},
+        {"heartbeat_interval": -1},
+        {"shutdown_timeout": -1},
+    ],
+)
+def test_worker_rejects_invalid_arguments(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        _setup(**kwargs)
+
+
+def test_worker_accepts_zero_shutdown_timeout() -> None:
+    _setup(shutdown_timeout=0)
