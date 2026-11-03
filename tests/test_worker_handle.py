@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from typing import Any
 
@@ -224,3 +225,55 @@ async def test_sync_wrapper_returning_awaitable_is_awaited() -> None:
     assert result.status is TaskStatus.SUCCESS
     assert result.value == 8
     assert ran == [4]
+
+
+async def test_failed_task_is_logged_with_exc_info(caplog: pytest.LogCaptureFixture) -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="boom")
+    async def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        await _run(producer, consumer, worker, Envelope.create("boom", (), {}))
+    records = [r for r in caplog.records if r.name == "asynk" and "boom" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.ERROR
+    assert records[0].exc_info is not None
+    assert isinstance(records[0].exc_info[1], RuntimeError)
+
+
+async def test_retries_exceeded_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="boom", max_retries=0)
+    async def boom() -> None:
+        raise RuntimeError("kaboom")
+
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        await _run(producer, consumer, worker, Envelope.create("boom", (), {}))
+    records = [r for r in caplog.records if r.name == "asynk" and "boom" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert records[0].exc_info is not None
+
+
+async def test_unknown_task_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    _, producer, consumer, worker = _setup()
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        await _run(producer, consumer, worker, Envelope.create("nope", (), {}))
+    records = [r for r in caplog.records if r.name == "asynk" and "nope" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+
+
+async def test_success_is_not_logged_above_debug(caplog: pytest.LogCaptureFixture) -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="ok")
+    async def ok() -> None:
+        return None
+
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        await _run(producer, consumer, worker, Envelope.create("ok", (), {}))
+    assert [r for r in caplog.records if r.name == "asynk"] == []

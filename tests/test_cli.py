@@ -86,3 +86,36 @@ def test_worker_subprocess_lifecycle(tmp_path: Path) -> None:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def test_worker_configures_logging_and_logs_startup(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import logging
+
+    import asynk.cli
+    from asynk.worker import Worker
+
+    async def fake_run(self: Worker) -> None:
+        return None
+
+    monkeypatch.setattr(Worker, "run_with_signals", fake_run)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(logging, "basicConfig", lambda **kw: calls.append(kw))
+    records: list[logging.LogRecord] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = Capture()
+    logging.getLogger("asynk").addHandler(handler)
+    logging.getLogger("asynk").setLevel(logging.INFO)
+    try:
+        assert asynk.cli.main(["worker", "tests.fixture_app:app", "--concurrency", "3"]) == 0
+    finally:
+        logging.getLogger("asynk").removeHandler(handler)
+        logging.getLogger("asynk").setLevel(logging.NOTSET)
+    assert len(calls) == 1
+    assert calls[0]["level"] == logging.INFO
+    assert any("concurrency=3" in r.getMessage() for r in records)

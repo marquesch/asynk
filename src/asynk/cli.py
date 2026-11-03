@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -45,6 +46,12 @@ def _build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--shutdown-timeout", type=float)
     worker.add_argument("--heartbeat-interval", type=float)
     worker.add_argument("--probe-dir", type=Path, default=default_probe_dir())
+    worker.add_argument(
+        "--log-level",
+        default="INFO",
+        type=str.upper,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
 
     health = commands.add_parser("health", help="check a worker probe file")
     health.add_argument("probe", choices=["liveness", "readiness"])
@@ -54,6 +61,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_worker(args: argparse.Namespace) -> int:
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     app = load_app(args.app)
     options: dict[str, Any] = {
         key: value
@@ -64,6 +76,13 @@ def _run_worker(args: argparse.Namespace) -> int:
         worker = Worker(app, probe_dir=args.probe_dir, **options)
     except NotConfiguredError as exc:
         raise CliError(str(exc)) from exc
+    logging.getLogger("asynk").info(
+        "starting worker for app %r: concurrency=%d shutdown_timeout=%s probe_dir=%s",
+        app.name,
+        worker.concurrency,
+        worker.shutdown_timeout,
+        worker.probe_dir,
+    )
     asyncio.run(worker.run_with_signals())
     return 0
 

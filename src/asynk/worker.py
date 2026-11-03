@@ -167,6 +167,7 @@ class Worker:
             async with self.consumer.process(delivery):
                 try:
                     result = await self._execute(delivery)
+                    self._log_result(result)
                     await self._run_hook(result, delivery)
                 except asyncio.CancelledError:
                     # Settle before the context manager sees the cancellation, so a
@@ -180,6 +181,31 @@ class Worker:
             return exc.result
         assert result is not None
         return result
+
+    @staticmethod
+    def _log_result(result: TaskResult) -> None:
+        name = result.envelope.task
+        match result.status:
+            case TaskStatus.FAILED:
+                logger.error(
+                    "task %r (id=%s, attempt=%d) failed",
+                    name,
+                    result.envelope.id,
+                    result.envelope.attempt,
+                    exc_info=result.error,
+                )
+            case TaskStatus.RETRIES_EXCEEDED:
+                logger.warning(
+                    "task %r (id=%s, attempt=%d) exceeded its retries",
+                    name,
+                    result.envelope.id,
+                    result.envelope.attempt,
+                    exc_info=result.error,
+                )
+            case TaskStatus.UNKNOWN_TASK:
+                logger.warning("unknown task %r (id=%s)", name, result.envelope.id)
+            case TaskStatus.SUCCESS:
+                logger.debug("task %r (id=%s) succeeded", name, result.envelope.id)
 
     async def _execute(self, delivery: Delivery) -> TaskResult:
         envelope = delivery.envelope
