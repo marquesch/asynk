@@ -9,6 +9,7 @@ from typing import Any
 
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import TaskFailedError, TaskResult, TaskStatus
+from asynk.probes import ProbeFiles
 from asynk.transport import Consumer, Delivery
 
 _SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
@@ -35,12 +36,29 @@ class Worker:
         self.probe_dir = probe_dir
         self.heartbeat_interval = heartbeat_interval
         self._shutdown = asyncio.Event()
+        self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
+        self._probes_live = False
 
     def request_shutdown(self) -> None:
         """Ask the run loop to stop fetching and drain; idempotent, signal-handler safe."""
         if not self._shutdown.is_set():
             logger.info("worker shutdown requested")
             self._shutdown.set()
+            if self._probes is not None and self._probes_live:
+                # Stop advertising readiness right away, not at the next heartbeat.
+                try:
+                    self._probes.remove_readiness()
+                except OSError:
+                    logger.exception("failed to remove readiness probe")
+
+    async def _heartbeat(self, probes: ProbeFiles) -> None:
+        while True:
+            ready = self.consumer.connected and not self._shutdown.is_set()
+            try:
+                probes.beat(ready=ready)
+            except OSError:
+                logger.exception("failed to write probe files")
+            await asyncio.sleep(self.heartbeat_interval)
 
     async def run_with_signals(self) -> None:
         """Run until SIGTERM/SIGINT; the previous signal handlers are restored on exit."""
@@ -62,6 +80,10 @@ class Worker:
         in_flight: set[asyncio.Task[None]] = set()
         deliveries = aiter(self.consumer.deliveries())
         shutdown = asyncio.ensure_future(self._shutdown.wait())
+        heartbeat: asyncio.Task[None] | None = None
+        if self._probes is not None:
+            self._probes_live = True
+            heartbeat = asyncio.create_task(self._heartbeat(self._probes))
         try:
             while not self._shutdown.is_set():
                 if not await self._race(semaphore.acquire(), shutdown):
@@ -84,10 +106,21 @@ class Worker:
             raise
         finally:
             shutdown.cancel()
-            aclose = getattr(deliveries, "aclose", None)
-            if aclose is not None:
-                await aclose()
-            await self.consumer.stop()
+            try:
+                aclose = getattr(deliveries, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+                await self.consumer.stop()
+            finally:
+                if heartbeat is not None:
+                    heartbeat.cancel()
+                    await asyncio.gather(heartbeat, return_exceptions=True)
+                if self._probes is not None:
+                    self._probes_live = False
+                    try:
+                        self._probes.clear()
+                    except OSError:
+                        logger.exception("failed to clear probe files")
 
     async def _race[T](self, aw: Awaitable[T], shutdown: asyncio.Future[Any]) -> T | None:
         """Await `aw` unless shutdown wins; a result that arrived anyway is still returned."""

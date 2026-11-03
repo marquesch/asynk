@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -323,3 +324,101 @@ async def test_consumer_error_cancels_and_requeues_in_flight() -> None:
     assert events == ["task_exit", "stop"]
     remaining = await _drain(inner)
     assert [d.envelope for d in remaining] == [env]
+
+
+def _listing(path: Path) -> list[Path]:
+    return list(path.iterdir())
+
+
+async def _until(predicate: Any, limit: float = 2.0) -> None:
+    """Poll until `predicate()` is true; fail loudly on timeout."""
+    async with asyncio.timeout(limit):
+        while not predicate():  # noqa: ASYNC110 - polls arbitrary file state
+            await asyncio.sleep(0.005)
+
+
+async def test_worker_writes_probe_files_while_running(tmp_path: Path) -> None:
+    _, _, _, worker = _setup(probe_dir=tmp_path / "p", heartbeat_interval=0.05)
+    run = asyncio.create_task(worker.run())
+    liveness, readiness = tmp_path / "p" / "liveness", tmp_path / "p" / "readiness"
+    await _until(lambda: liveness.exists() and readiness.exists())
+    first = liveness.stat().st_mtime_ns
+    await _until(lambda: liveness.stat().st_mtime_ns > first)
+    second = liveness.stat().st_mtime_ns
+    await _until(lambda: liveness.stat().st_mtime_ns > second)
+    await _stop(worker, run)
+
+
+async def test_readiness_removed_when_shutdown_starts(tmp_path: Path) -> None:
+    app, producer, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.05)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @app.task(name="long")
+    async def long() -> None:
+        started.set()
+        await release.wait()
+
+    await producer.publish(Envelope.create("long", (), {}))
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    await _until((tmp_path / "readiness").exists)
+    worker.request_shutdown()
+    await _until(lambda: not (tmp_path / "readiness").exists())
+    assert not run.done()  # still draining the long task
+    assert (tmp_path / "liveness").exists()
+    # It stays gone across further heartbeats while draining.
+    first = (tmp_path / "liveness").stat().st_mtime_ns
+    await _until(lambda: (tmp_path / "liveness").stat().st_mtime_ns > first)
+    assert not (tmp_path / "readiness").exists()
+    release.set()
+    await asyncio.wait_for(run, 1)
+
+
+async def test_probe_files_cleared_after_exit(tmp_path: Path) -> None:
+    _, _, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.02)
+    run = asyncio.create_task(worker.run())
+    await _until((tmp_path / "liveness").exists)
+    await _stop(worker, run)
+    assert not (tmp_path / "liveness").exists()
+    assert not (tmp_path / "readiness").exists()
+    assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+
+async def test_probe_files_cleared_after_error_exit(tmp_path: Path) -> None:
+    _, _, consumer, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.02)
+    run = asyncio.create_task(worker.run())
+    await _until((tmp_path / "liveness").exists)
+    run.cancel()
+    await asyncio.gather(run, return_exceptions=True)
+    assert not (tmp_path / "liveness").exists()
+    assert not (tmp_path / "readiness").exists()
+    assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+
+async def test_heartbeat_continues_during_sync_task(tmp_path: Path) -> None:
+    app, producer, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.02)
+    started = threading.Event()
+    release = threading.Event()
+
+    @app.task(name="block")
+    def block() -> None:
+        started.set()
+        release.wait(5)
+
+    await producer.publish(Envelope.create("block", (), {}))
+    run = asyncio.create_task(worker.run())
+    await _until(started.is_set)
+    await _until((tmp_path / "liveness").exists)
+    first = (tmp_path / "liveness").stat().st_mtime_ns
+    await _until(lambda: (tmp_path / "liveness").stat().st_mtime_ns > first)
+    release.set()
+    await _stop(worker, run)
+
+
+async def test_no_files_when_probe_dir_is_none(tmp_path: Path) -> None:
+    _, _, _, worker = _setup(heartbeat_interval=0.02)
+    run = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.1)
+    await _stop(worker, run)
+    assert _listing(tmp_path) == []
