@@ -66,7 +66,7 @@ class JsonCodec:
             ensure_json(args, "args")
             ensure_json(kwargs, "kwargs")
             ensure_json(metadata, "metadata")
-        except NonJsonArgumentError as exc:
+        except (NonJsonArgumentError, RecursionError) as exc:
             raise DecodeError(str(exc)) from exc
 
         typed_args: tuple[JSONValue, ...] = tuple(args)

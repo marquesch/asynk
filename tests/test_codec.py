@@ -57,3 +57,25 @@ def test_decode_error_is_value_error() -> None:
 def test_json_codec_satisfies_protocol() -> None:
     c: Codec = JsonCodec()
     assert c.decode(c.encode(make())) == make()
+
+
+@pytest.mark.parametrize("depth", [1100, 2000, 5000])
+def test_decode_deeply_nested_raises_decode_error(depth: int) -> None:
+    nested = "[" * depth + "]" * depth
+    data = (
+        '{"task":"t","args":[' + nested + '],"kwargs":{},"id":"i","attempt":0,"metadata":{}}'
+    ).encode()
+    with pytest.raises(DecodeError):
+        JsonCodec().decode(data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b'{"task":"t","args":[],"kwargs":{},"id":5,"attempt":0,"metadata":{}}',
+        b'{"task":"t","args":[],"kwargs":{},"id":"i","attempt":0,"metadata":{"a":NaN}}',
+    ],
+)
+def test_decode_rejects_bad_id_and_nan_metadata(data: bytes) -> None:
+    with pytest.raises(DecodeError):
+        JsonCodec().decode(data)
