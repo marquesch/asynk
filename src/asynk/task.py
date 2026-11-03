@@ -4,6 +4,8 @@ import inspect
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from asynk.envelope import Envelope
+
 if TYPE_CHECKING:
     from asynk.app import App
 
@@ -29,3 +31,12 @@ class Task[**P, R]:
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         return self.func(*args, **kwargs)
+
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any:
+        from asynk.app import NotConfiguredError
+
+        producer = self.app.producer
+        if producer is None:
+            raise NotConfiguredError(f"app {self.app.name!r} has no producer configured")
+        envelope = Envelope.create(self.name, args, kwargs)
+        return await producer.publish(envelope)
