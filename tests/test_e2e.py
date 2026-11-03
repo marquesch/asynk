@@ -123,12 +123,14 @@ async def test_custom_producer_and_consumer_are_decoupled() -> None:
     wire: list[str] = []
     app = App("custom", producer=ListProducer(wire), consumer=ListConsumer(wire))
     done = asyncio.Event()
+    loop = asyncio.get_running_loop()
     seen: list[str] = []
 
     @app.task()
     def greet(name: str) -> None:
         seen.append(name)
-        done.set()
+        # Sync tasks run in a worker thread; asyncio.Event is not thread-safe.
+        loop.call_soon_threadsafe(done.set)
 
     await greet.delay("ada")
     assert json.loads(wire[0])["task"] == greet.name
