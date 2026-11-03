@@ -11,7 +11,7 @@ from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
 from asynk.hooks import TaskResult, TaskStatus
 from asynk.transport import Delivery
-from asynk.transports.memory import memory_transport
+from asynk.transport.memory import memory_transport
 from asynk.worker import Worker
 
 

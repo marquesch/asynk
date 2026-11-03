@@ -6,7 +6,7 @@ import pytest
 
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
-from asynk.transports.memory import MemoryConsumer, memory_transport
+from asynk.transport.memory import MemoryConsumer, memory_transport
 
 
 async def _first(consumer: MemoryConsumer) -> Delivery:
@@ -111,7 +111,6 @@ async def test_process_rejects_on_exception_and_propagates() -> None:
             raise ValueError("boom")
     assert delivery.settled
     await consumer.stop()
-    # dropped, not requeued: only the stop sentinel remains
     assert [d async for d in it] == []
 
 

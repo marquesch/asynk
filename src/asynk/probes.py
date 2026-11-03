@@ -8,10 +8,17 @@ from pathlib import Path
 
 
 def default_probe_dir() -> Path:
+    """Returns the default directory for probe files."""
     return Path(tempfile.gettempdir()) / "asynk"
 
 
 class ProbeFiles:
+    """Liveness and readiness marker files whose mtime is the heartbeat.
+
+    Attributes:
+        directory: Directory holding the files.
+    """
+
     def __init__(self, directory: Path) -> None:
         self.directory = directory
 
@@ -24,6 +31,11 @@ class ProbeFiles:
         return self.directory / "readiness"
 
     def beat(self, *, ready: bool) -> None:
+        """Refreshes the liveness file and sets or clears the readiness file.
+
+        Args:
+            ready: Whether to advertise readiness.
+        """
         self.directory.mkdir(parents=True, exist_ok=True)
         self._write(self.liveness)
         if ready:
@@ -32,14 +44,16 @@ class ProbeFiles:
             self.remove_readiness()
 
     def remove_readiness(self) -> None:
+        """Removes the readiness file if present."""
         self.readiness.unlink(missing_ok=True)
 
     def clear(self) -> None:
+        """Removes both files if present."""
         self.readiness.unlink(missing_ok=True)
         self.liveness.unlink(missing_ok=True)
 
     def _write(self, path: Path) -> None:
-        # Temp file in the same directory so os.replace is an atomic rename.
+        # Same directory as the target so os.replace is an atomic rename.
         fd, tmp = tempfile.mkstemp(dir=self.directory, prefix=f".{path.name}.")
         try:
             with os.fdopen(fd, "w") as f:
@@ -52,6 +66,16 @@ class ProbeFiles:
 
 
 def check_probe(path: Path, max_age: float, now: float | None = None) -> tuple[bool, str]:
+    """Checks that a probe file exists and was modified recently. Never raises.
+
+    Args:
+        path: The probe file.
+        max_age: Maximum acceptable age in seconds.
+        now: Current time as a Unix timestamp; defaults to the system clock.
+
+    Returns:
+        A `(healthy, message)` tuple.
+    """
     try:
         mtime = path.stat().st_mtime
     except FileNotFoundError:

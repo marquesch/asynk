@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import asynk
 from asynk import App, Delivery, Envelope, JsonCodec, Worker
-from asynk.transports.memory import memory_transport
+from asynk.transport.memory import memory_transport
 
 NAMES = [
     "App",
