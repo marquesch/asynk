@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import tempfile
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -416,11 +417,26 @@ async def test_heartbeat_continues_during_sync_task(tmp_path: Path) -> None:
     await _stop(worker, run)
 
 
-async def test_no_files_when_probe_dir_is_none(tmp_path: Path) -> None:
+async def test_no_files_when_probe_dir_is_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed: list[Path] = []
+
+    class RecordingProbeFiles:
+        def __init__(self, directory: Path) -> None:
+            constructed.append(directory)
+
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: None
+
+    # Any default location derived from the temp dir would land in tmp_path.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr("asynk.worker.ProbeFiles", RecordingProbeFiles)
     _, _, _, worker = _setup(heartbeat_interval=0.02)
     run = asyncio.create_task(worker.run())
     await asyncio.sleep(0.1)
     await _stop(worker, run)
+    assert constructed == []
     assert _listing(tmp_path) == []
 
 
