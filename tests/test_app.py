@@ -11,10 +11,21 @@ def test_task_registers_with_default_name() -> None:
     @app.task()
     def fn() -> None: ...
 
-    expected = f"{fn.func.__module__}.{fn.func.__qualname__}"
+    expected = f"t.{fn.func.__qualname__}"
     assert fn.name == expected
     assert app.get_task(expected) is fn
     assert app.tasks[expected] is fn
+
+
+def test_default_name_ignores_module() -> None:
+    app = App("t")
+
+    def fn() -> None: ...
+
+    fn.__module__ = "__main__"
+    task = app.task()(fn)
+
+    assert task.name == f"t.{fn.__qualname__}"
 
 
 def test_explicit_name_and_options() -> None:

@@ -69,7 +69,7 @@ class App:
         """Decorator that registers a function as a task.
 
         Args:
-            name: Task name; defaults to the function's module and qualified name.
+            name: Task name; defaults to the app name and the function's qualified name.
             max_retries: Attempts after which failures stop being retried; None for no limit.
             **options: Extra options stored on the task.
 
@@ -109,7 +109,7 @@ class App:
             tz: IANA timezone for the expression; defaults to the app's.
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
-            name: Task name; defaults to the function's module and qualified name.
+            name: Task name; defaults to the app name and the function's qualified name.
             max_retries: Attempts after which failures stop being retried; None for no limit.
             **options: Extra options stored on the task.
 
@@ -139,7 +139,7 @@ class App:
         return decorator
 
     def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
-        task_name = name or f"{func.__module__}.{func.__qualname__}"
+        task_name = name or f"{self.name}.{func.__qualname__}"
         if task_name in self._tasks:
             raise ValueError(f"task {task_name!r} is already registered")
         return task_name

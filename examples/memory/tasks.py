@@ -23,3 +23,16 @@ async def add(a: int, b: int) -> int:
 @app.task()
 def shout(text: str) -> None:
     print(text.upper())
+
+
+# A scheduled task is an ordinary task that a Scheduler also publishes on a cron
+# schedule, with fixed args and kwargs. A Worker still runs it.
+@app.scheduled_task(cron="* * * * *", args=["tick"])
+async def tick(label: str) -> None:
+    print(label)
+
+
+# `tz` sets the zone the expression is evaluated in (default: the app's `tz`).
+@app.scheduled_task(cron="30 8 * * mon-fri", kwargs={"region": "eu"}, tz="UTC")
+def morning_report(*, region: str) -> None:
+    print(f"morning report for {region}")

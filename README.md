@@ -66,7 +66,7 @@ The unix socket transport connects a separate producer and worker on one
 machine, with no broker:
 
 ```python
-# app.py
+# unix.py
 from asynk import App
 from asynk.transport.unix import unix_transport
 
@@ -82,10 +82,10 @@ async def add(a: int, b: int) -> int:
 
 ```
 # terminal 1: the worker creates and listens on the socket
-python -m asynk.cli worker app:app
+python -m asynk.cli worker unix:app
 
 # terminal 2: publish a task
-python -c "import asyncio; from app import add; asyncio.run(add.delay(2, 3))"
+python -c "import asyncio; from unix import add; asyncio.run(add.delay(2, 3))"
 ```
 
 `python -m asynk.cli` is used so the current directory is importable; the
@@ -97,8 +97,10 @@ lost. Publishing fails while no worker is listening. Pass a codec as the second
 argument to `unix_transport` to change the wire format (it must not emit
 newlines, which delimit messages).
 
-Runnable versions, including a custom codec, are in `examples/memory` and
-`examples/unix`.
+Runnable versions are in `examples/memory/` (a worker and a scheduler in one
+process, with a fast virtual clock) and `examples/unix.py` (a single file with a
+custom codec, scheduled tasks and a deduplicating hook; its docstring lists the
+commands for the worker, the scheduler and the producer).
 
 ## Scheduled tasks (scheduler)
 
