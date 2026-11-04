@@ -207,22 +207,17 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
 
 
-async def test_catch_up_fires_all_missed_in_order_with_own_keys() -> None:
+async def test_catch_up_option_does_not_fire_missed_slots() -> None:
     app, consumer = _app()
 
+    # `catch_up` is no longer a tick feature: it is just an opaque task option.
     @app.tick(cron="0 * * * *", tz="UTC", catch_up=True, name="job")
     def job() -> None: ...
 
-    clock = FakeClock(_at("2026-11-04T10:59:00"), until=_at("2026-11-04T14:31:00"))
-    clock.warps[0] = timedelta(hours=3, minutes=30)  # first wake lands at 14:29:30
+    clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:01:00"))
+    clock.warps[0] = timedelta(hours=3, minutes=30)  # first wake lands at 14:29:35
     await _run(app, clock)
-    envs = await _published(consumer)
-    assert [e.metadata["idempotency_key"] for e in envs] == [
-        "job:2026-11-04T11:00:00+00:00",
-        "job:2026-11-04T12:00:00+00:00",
-        "job:2026-11-04T13:00:00+00:00",
-        "job:2026-11-04T14:00:00+00:00",
-    ]
+    assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
 
 
 async def test_clock_step_back_does_not_refire() -> None:
@@ -329,24 +324,6 @@ async def test_shutdown_interrupts_hung_publish(
     assert "2026-11-04T11:30:00+00:00" in record.getMessage()
 
 
-async def test_shutdown_stops_catch_up_burst(tmp_path: Path) -> None:
-    app, consumer = _app()
-    producer = HangingProducer(app.producer, ok=2)
-    app.producer = producer
-
-    @app.tick(cron="* * * * *", tz="UTC", catch_up=True, name="job")
-    def job() -> None: ...
-
-    clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:00:00"))
-    clock.warps[0] = timedelta(hours=3)  # about 180 missed slots
-    await _shutdown_while_hanging(app, producer, clock, tmp_path)
-    assert producer.calls == 3
-    assert _slots(await _published(consumer)) == [
-        ("job", "2026-11-04T11:00:00+00:00"),
-        ("job", "2026-11-04T11:01:00+00:00"),
-    ]
-
-
 async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 
@@ -360,19 +337,6 @@ async def test_shutdown_interrupts_sleep() -> None:
     ticker.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert await _published(consumer) == []
-
-
-async def test_sleep_is_capped_by_max_sleep() -> None:
-    app, consumer = _app()
-
-    @app.tick(cron="0 12 * * *", tz="UTC", name="job")
-    def job() -> None: ...
-
-    clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T12:00:30"))
-    await _run(app, clock, max_sleep=50, heartbeat_interval=100)
-    assert clock.sleeps[:3] == [50, 50, 20]
-    assert max(clock.sleeps) == 50
-    assert _slots(await _published(consumer)) == [("job", "2026-11-04T12:00:00+00:00")]
 
 
 async def test_probe_file_written_and_cleared(tmp_path: Path) -> None:
@@ -432,8 +396,6 @@ def test_requires_ticks() -> None:
     ("kwargs", "match"),
     [
         ({"heartbeat_interval": 0}, "heartbeat_interval"),
-        ({"max_sleep": 0}, "max_sleep"),
-        ({"max_sleep": -1}, "max_sleep"),
         ({"grace": -1}, "grace"),
         ({"grace": 60}, "grace"),
     ],
@@ -446,6 +408,16 @@ def test_rejects_bad_numbers(kwargs: dict[str, Any], match: str) -> None:
 
     with pytest.raises(ValueError, match=match):
         Ticker(app, **kwargs)
+
+
+def test_max_sleep_is_not_a_parameter() -> None:
+    app, _ = _app()
+
+    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    with pytest.raises(TypeError):
+        Ticker(app, max_sleep=1)  # type: ignore[call-arg]
 
 
 def test_system_clock_now_is_aware_utc() -> None:
@@ -482,7 +454,7 @@ async def test_sleep_is_capped_by_heartbeat_interval() -> None:
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T11:59:00"))
-    await _run(app, clock, max_sleep=50, heartbeat_interval=7)
+    await _run(app, clock, heartbeat_interval=7)
     assert clock.sleeps[:3] == [7, 7, 7]
     assert max(clock.sleeps) == 7
 

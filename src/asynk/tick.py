@@ -27,9 +27,6 @@ class Schedule:
         tz: Timezone in which the expression is evaluated.
         args: Positional arguments for each published call.
         kwargs: Keyword arguments for each published call.
-        catch_up: Whether slots missed while the ticker process is running (for
-            example during a stall) are published late; slots missed while it
-            was down are not recovered.
     """
 
     cron: CronExpression
@@ -37,7 +34,6 @@ class Schedule:
     tz: tzinfo
     args: tuple[JSONValue, ...]
     kwargs: dict[str, JSONValue]
-    catch_up: bool
 
     @classmethod
     def build(
@@ -47,7 +43,6 @@ class Schedule:
         tz: tzinfo,
         args: Sequence[object] = (),
         kwargs: Mapping[str, object] | None = None,
-        catch_up: bool = False,
     ) -> Schedule:
         """Parses a cron expression and checks the arguments into a schedule.
 
@@ -56,7 +51,6 @@ class Schedule:
             tz: Timezone in which the expression is evaluated.
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
-            catch_up: Whether slots missed while the ticker is running are published late.
 
         Returns:
             The schedule.
@@ -76,7 +70,6 @@ class Schedule:
             tz,
             cast("tuple[JSONValue, ...]", call_args),
             cast("dict[str, JSONValue]", call_kwargs),
-            catch_up,
         )
 
     @property

@@ -95,7 +95,6 @@ class App:
         tz: str | None = None,
         args: Sequence[object] = (),
         kwargs: Mapping[str, object] | None = None,
-        catch_up: bool = False,
         name: str | None = None,
         max_retries: int | None = None,
         **options: Any,
@@ -110,9 +109,6 @@ class App:
             tz: IANA timezone for the expression; defaults to the app's.
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
-            catch_up: Whether to publish slots missed while the ticker process is
-                running (for example during a stall); slots missed while it was
-                down are not recovered.
             name: Task name; defaults to the function's module and qualified name.
             max_retries: Attempts after which failures stop being retried; None for no limit.
             **options: Extra options stored on the task.
@@ -125,9 +121,8 @@ class App:
             ValueError: If the timezone is unknown, or the name is already registered.
             NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
         """
-        # Built now so a bad expression or argument fails at the call; the
-        # timezone is filled in when decorating.
-        schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs, catch_up=catch_up)
+        # Built now so a bad expression or argument fails at the call.
+        schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
         if tz is not None and name is not None:
             resolve_timezone(tz, f"tick {name!r}")
 

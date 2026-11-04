@@ -110,7 +110,7 @@ The ticker only publishes; a worker runs the tasks, as for any other message:
 async def morning_report() -> None: ...
 
 
-@app.tick(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100}, catch_up=True)
+@app.tick(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100})
 def sync(region: str, *, limit: int) -> None: ...
 ```
 
@@ -167,12 +167,11 @@ gap) is skipped for that day. A local time that occurs twice fires only on its
 first occurrence, so an every-minute schedule does not fire during the repeated
 hour.
 
-**Missed runs.** The ticker keeps no state across restarts. A slot handled more
-than `grace` seconds late (default 30 s) is skipped, so a stalled or restarted
-ticker does not replay the past. Grace is set with `Ticker(app, grace=...)`;
-`asynk ticker` uses the default. With `catch_up=True` every missed slot is fired,
-in order, but only within the running process: slots missed while the ticker was
-down are not recovered.
+**Missed runs.** The ticker keeps no state and never replays the past. A due
+slot fires if it is at most `grace` seconds late (default 30 s); an older one
+(after a stall) is skipped with a warning and the ticker resumes at the next
+slot. Slots that passed while the ticker was down are not published. Grace is set with `Ticker(app, grace=...)`;
+`asynk ticker` uses the default.
 
 **Clock changes.** If the wall clock steps backwards, the ticker never fires a
 slot twice in one process: it waits for the next slot after the last one handled.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -65,11 +64,10 @@ class Ticker:
         probe_dir: Directory for the liveness probe file; None disables it.
         heartbeat_interval: Seconds between probe file updates. The main loop
             writes the probe, so a loop stuck in a hung publish stops beating
-            and its liveness probe goes stale.
+            and its liveness probe goes stale. It is also the longest single
+            sleep, so the wall clock is re-read at least this often.
         grace: Seconds a slot may be late and still fire; older slots are
-            skipped unless the tick has `catch_up`.
-        max_sleep: Longest single sleep, in seconds, before the clock is re-read;
-            sleeps are also capped at `heartbeat_interval`.
+            skipped with a warning.
     """
 
     def __init__(
@@ -80,7 +78,6 @@ class Ticker:
         probe_dir: Path | None = None,
         heartbeat_interval: float = 5.0,
         grace: float = 30.0,
-        max_sleep: float = 30.0,
     ) -> None:
         """Initializes the ticker.
 
@@ -88,15 +85,14 @@ class Ticker:
             app: The app to publish for; it must have a producer and ticks.
             clock: Source of time and sleeping; defaults to `SystemClock`.
             probe_dir: Directory for the liveness probe file; None disables it.
-            heartbeat_interval: Seconds between probe file updates.
+            heartbeat_interval: Seconds between probe file updates, and the
+                longest single sleep.
             grace: Seconds a slot may be late and still fire.
-            max_sleep: Longest single sleep, in seconds, before the clock is re-read;
-                sleeps are also capped at `heartbeat_interval`.
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            ValueError: If the app has no ticks, `heartbeat_interval` <= 0,
-                `max_sleep` <= 0, or `grace` is not in [0, 60).
+            ValueError: If the app has no ticks, `heartbeat_interval` <= 0, or
+                `grace` is not in [0, 60).
         """
         if app.producer is None:
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
@@ -104,8 +100,6 @@ class Ticker:
             raise ValueError(f"app {app.name!r} has no ticks")
         if heartbeat_interval <= 0:
             raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
-        if max_sleep <= 0:
-            raise ValueError(f"max_sleep must be > 0, got {max_sleep}")
         if not 0 <= grace < _MAX_GRACE:
             raise ValueError(f"grace must be in [0, {_MAX_GRACE:g}), got {grace}")
         self.app = app
@@ -113,10 +107,8 @@ class Ticker:
         self.probe_dir = probe_dir
         self.heartbeat_interval = heartbeat_interval
         self.grace = grace
-        self.max_sleep = max_sleep
         self._shutdown = asyncio.Event()
         self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
-        self._last_beat = 0.0
 
     def request_shutdown(self) -> None:
         """Asks `run` to stop; idempotent and safe in signal handlers."""
@@ -145,14 +137,11 @@ class Ticker:
                 for tick in self.app.ticks
             }
             logger.info("ticker started with %d tick(s)", len(pending))
-            cap = min(self.max_sleep, self.heartbeat_interval)
             while not self._shutdown.is_set():
                 now = self._now()
                 await self._handle_due(pending, now, shutdown)
-                if self._shutdown.is_set():
-                    break
                 earliest = min(pending.values())
-                delay = min(max((earliest - now).total_seconds(), 0.0), cap)
+                delay = min(max((earliest - now).total_seconds(), 0.0), self.heartbeat_interval)
                 await self._sleep(delay, shutdown)
                 self._beat()
         finally:
@@ -171,19 +160,16 @@ class Ticker:
         shutdown: asyncio.Future[Any],
     ) -> None:
         grace = timedelta(seconds=self.grace)
-        while not self._shutdown.is_set():
+        while True:
             # Oldest slot first; ties keep registration order.
             tick = min(pending, key=pending.__getitem__)
             slot = pending[tick]
             if slot > now:
                 return
-            if now - slot <= grace or tick.schedule.catch_up:
+            if now - slot <= grace:
                 if not await self._fire(tick, slot, shutdown):
                     return
                 pending[tick] = tick.schedule.cron.next_after(slot)
-                # Keep liveness fresh through a long catch-up burst.
-                if time.monotonic() - self._last_beat >= self.heartbeat_interval:
-                    self._beat()
                 continue
             # `now` is UTC and `slot` is zoned, so `max` compares instants.
             resume_after = max(slot, now - grace - _EPSILON)
@@ -209,10 +195,6 @@ class Ticker:
             finished = await self._race(publish, shutdown)
         except Exception:
             logger.exception("failed to publish tick %r for slot %s", tick.name, scheduled_at)
-            return True
-        if not finished and not shutdown.done():
-            # The publish cancelled itself; treat it like a failed publish.
-            logger.error("publish of tick %r for slot %s was cancelled", tick.name, scheduled_at)
             return True
         if not finished:
             logger.warning(
@@ -255,7 +237,6 @@ class Ticker:
     def _beat(self) -> None:
         if self._probes is None:
             return
-        self._last_beat = time.monotonic()
         try:
             self._probes.beat(ready=False)
         except OSError:

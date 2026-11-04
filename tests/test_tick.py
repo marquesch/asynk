@@ -1,3 +1,4 @@
+from dataclasses import fields
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -7,6 +8,7 @@ from asynk import Task, Tick
 from asynk.app import App
 from asynk.cron import CronError
 from asynk.envelope import Envelope, NonJsonArgumentError
+from asynk.tick import Schedule
 
 
 class FakeProducer:
@@ -97,7 +99,7 @@ def test_tick_tz_overrides_app_tz() -> None:
 def test_schedule_fields() -> None:
     app = App("t")
 
-    @app.tick(cron="*/5 * * * *", args=[1, "a"], kwargs={"k": [1]}, catch_up=True)
+    @app.tick(cron="*/5 * * * *", args=[1, "a"], kwargs={"k": [1]})
     def f(*args: object, **kwargs: object) -> None: ...
 
     s = f.schedule
@@ -105,7 +107,6 @@ def test_schedule_fields() -> None:
     assert s.cron.parse("*/5 * * * *") == s.cron
     assert s.args == (1, "a")
     assert s.kwargs == {"k": [1]}
-    assert s.catch_up is True
     assert list(app.ticks) == [f]
 
 
@@ -117,7 +118,12 @@ def test_schedule_defaults() -> None:
 
     assert f.schedule.args == ()
     assert f.schedule.kwargs == {}
-    assert f.schedule.catch_up is False
+
+
+def test_schedule_has_no_catch_up() -> None:
+    assert "catch_up" not in {f.name for f in fields(Schedule)}
+    with pytest.raises(TypeError):
+        Schedule.build("* * * * *", tz=timezone.utc, catch_up=True)  # type: ignore[call-arg]
 
 
 def test_invalid_cron_raises_at_decoration() -> None:
