@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import signal
 from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any, TypeVar
@@ -11,9 +10,8 @@ from typing import Any, TypeVar
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
+from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
-
-_SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
 T = TypeVar("T")
 
@@ -97,16 +95,8 @@ class Worker:
 
     async def run_with_signals(self) -> None:
         """Runs like `run`, with SIGTERM and SIGINT requesting a graceful shutdown."""
-        loop = asyncio.get_running_loop()
-        previous = {sig: signal.getsignal(sig) for sig in _SHUTDOWN_SIGNALS}
-        for sig in _SHUTDOWN_SIGNALS:
-            loop.add_signal_handler(sig, self.request_shutdown)
-        try:
+        with shutdown_signals(self.request_shutdown):
             await self.run()
-        finally:
-            for sig, handler in previous.items():
-                loop.remove_signal_handler(sig)
-                signal.signal(sig, handler)
 
     async def run(self) -> None:
         """Consumes and runs tasks until shutdown is requested or deliveries end.
