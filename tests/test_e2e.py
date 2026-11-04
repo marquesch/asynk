@@ -26,6 +26,7 @@ NAMES = [
     "TaskFailedError",
     "DecodeError",
     "SkipTask",
+    "Tick",
 ]
 
 

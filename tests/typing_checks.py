@@ -13,6 +13,11 @@ async def add(a: int, b: int = 0) -> int:
     return a + b
 
 
+@app.tick(cron="* * * * *")
+async def ticked(a: int, b: int = 0) -> int:
+    return a + b
+
+
 async def _checks() -> None:
     await add.delay(1, b=2)
     await add.delay("x")  # type: ignore[arg-type]
@@ -20,6 +25,8 @@ async def _checks() -> None:
     await add.delay(1, c=3)  # type: ignore[call-arg]
     await add.with_metadata(a=1).delay(1, b=2)
     await add.with_metadata(a=1).delay("x")  # type: ignore[arg-type]
+    await ticked.delay(1, b=2)
+    await ticked.delay("x")  # type: ignore[arg-type]
 
 
 @app.after_task
