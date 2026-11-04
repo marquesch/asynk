@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -128,3 +130,98 @@ def test_worker_invalid_argument_returns_2_without_traceback(
     err = capsys.readouterr().err
     assert "asynk:" in err
     assert "Traceback" not in err
+
+
+def test_scheduler_requires_scheduled_tasks(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_app:app"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("asynk:")
+    assert "no scheduled tasks" in err
+    assert "Traceback" not in err
+
+
+def test_scheduler_requires_producer(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_scheduler_app:no_producer"]) == 2
+    err = capsys.readouterr().err
+    assert "no producer" in err
+    assert "Traceback" not in err
+
+
+def test_scheduler_parses_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from asynk.scheduler import Scheduler
+
+    built: list[Scheduler] = []
+
+    async def fake_run(self: Scheduler) -> None:
+        built.append(self)
+
+    monkeypatch.setattr(Scheduler, "run_with_signals", fake_run)
+    code = main(
+        [
+            "scheduler",
+            "tests.fixture_scheduler_app:app",
+            "--heartbeat-interval",
+            "0.5",
+            "--probe-dir",
+            str(tmp_path),
+            "--log-level",
+            "warning",
+        ]
+    )
+    assert code == 0
+    [scheduler] = built
+    assert scheduler.heartbeat_interval == 0.5
+    assert scheduler.probe_dir == tmp_path
+
+
+def test_scheduler_logs_default_tz_scheduled_task(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from asynk.scheduler import Scheduler
+
+    async def fake_run(self: Scheduler) -> None:
+        return None
+
+    monkeypatch.setattr(Scheduler, "run_with_signals", fake_run)
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        assert main(["scheduler", "tests.fixture_scheduler_app:app"]) == 0
+    assert "(0 0 1 1 *, UTC)" in caplog.text
+
+
+def test_scheduler_bad_heartbeat_returns_2(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_scheduler_app:app", "--heartbeat-interval", "0"]) == 2
+    assert "heartbeat_interval" in capsys.readouterr().err
+
+
+def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "asynk.cli",
+            "scheduler",
+            "tests.fixture_scheduler_app:app",
+            "--probe-dir",
+            str(tmp_path),
+            "--heartbeat-interval",
+            "0.05",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+    )
+    try:
+        liveness = tmp_path / "liveness"
+        deadline = time.monotonic() + 10
+        while not liveness.exists():
+            assert proc.poll() is None, "scheduler exited early"
+            assert time.monotonic() < deadline, "liveness file never appeared"
+            time.sleep(0.05)
+        assert not (tmp_path / "readiness").exists()
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=10) == 0
+        assert not liveness.exists()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()

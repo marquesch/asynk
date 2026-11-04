@@ -10,7 +10,7 @@ from asynk.envelope import Envelope
 from asynk.transport import Delivery
 
 if TYPE_CHECKING:
-    from asynk.worker import Worker
+    from asynk.runner import Runner
 
 
 class TaskStatus(enum.Enum):
@@ -40,8 +40,8 @@ class TaskResult:
     error: BaseException | None = None
 
 
-LifecycleHook: TypeAlias = Callable[["Worker"], Awaitable[None] | None]
-"""Hook for the worker lifecycle events; sync or async, receives the worker."""
+LifecycleHook: TypeAlias = Callable[["Runner"], Awaitable[None] | None]
+"""Hook for the lifecycle events of a worker or scheduler; sync or async, receives the runner."""
 
 BeforeTaskHook: TypeAlias = Callable[[Envelope, Delivery], Awaitable[None] | None]
 """Hook run before a task. Raise `SkipTask` to veto the task."""

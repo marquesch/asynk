@@ -49,6 +49,17 @@ asynk worker tasks:app --concurrency 10 --shutdown-timeout 30 --heartbeat-interv
 The in-memory queue is per process, so `asynk worker` only helps with a
 transport whose producer and consumer talk through an external system.
 
+## Publishing with metadata
+
+Attach metadata, data carried alongside the call, to a published call with
+`with_metadata`. It returns an immutable bound task, so calls can be chained and
+later keys override earlier ones:
+
+```python
+await add.with_metadata(source="api", trace="x").with_metadata(trace="y").delay(1, b=2)
+# envelope.metadata == {"source": "api", "trace": "y"}
+```
+
 ## Running a worker in another process
 
 The unix socket transport connects a separate producer and worker on one
@@ -88,6 +99,88 @@ newlines, which delimit messages).
 
 Runnable versions, including a custom codec, are in `examples/memory` and
 `examples/unix`.
+
+## Scheduled tasks (scheduler)
+
+`@app.scheduled_task` registers a task that `asynk scheduler` publishes on a cron schedule.
+The scheduler only publishes; a worker runs the tasks, as for any other message:
+
+```python
+@app.scheduled_task(cron="30 8 * * mon-fri", tz="America/Sao_Paulo")
+async def morning_report() -> None: ...
+
+
+@app.scheduled_task(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100})
+def sync(region: str, *, limit: int) -> None: ...
+```
+
+```
+asynk scheduler tasks:app --heartbeat-interval 5
+```
+
+A scheduled task is an ordinary task (it also accepts `name` and `max_retries`) with
+fixed `args` and `kwargs`. `tz` defaults to the app's `tz` (`App(name, tz="UTC")`).
+Expressions have five fields, with a resolution of one minute; month and weekday
+names are accepted, and macros such as `@daily` and a seconds field are not.
+When both day-of-month and day-of-week are restricted, a slot matches if either
+does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
+Nothing fires at startup: the first slot is the first one after the scheduler starts.
+
+The scheduler publishes with the app's producer and runs the app's startup and
+shutdown hooks (see [Hooks](#hooks)); `runner.role` is `"scheduler"` there. Keep
+those hooks quick: the scheduler does not refresh its liveness probe while one
+runs, so a hook slower than your probe's staleness limit gets the process killed,
+and a slow hook delays shutdown by its full duration. On shutdown (SIGTERM or
+SIGINT) an in-flight publish is cancelled. It writes the `liveness` probe file (never `readiness`), so use
+the liveness probe from [Probes](#probes) with the same `--probe-dir`. The probe
+is refreshed by the scheduler's main loop, so a scheduler stuck in a hung publish (for
+example on a half-open connection) stops refreshing it and `asynk health
+liveness` fails. That is intended: run the scheduler under a supervisor (such as a
+Kubernetes liveness probe) that restarts it.
+
+**Run exactly one scheduler.** There is no locking or coordination, so a second
+scheduler publishes every slot twice. Duplicates are also possible around restarts
+and failovers. Each publish carries `metadata["idempotency_key"]`, which is
+`"<task name>:<slot as UTC ISO instant>"`, and `metadata["scheduled_at"]`, the
+slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
+can, given a store shared by all workers (a set in memory only works for one):
+
+```python
+from asynk import App, Delivery, Envelope, SkipTask
+
+app = App("myapp")  # or the app from the snippets above
+seen: set[str] = set()  # use a shared store (a database, Redis) in production
+
+
+@app.before_task
+def dedupe(envelope: Envelope, delivery: Delivery) -> None:
+    key = envelope.metadata.get("idempotency_key")
+    if key is not None:
+        if key in seen:
+            raise SkipTask
+        seen.add(str(key))
+```
+
+There is no guard: every slot is published, and a scheduled task decides for
+itself whether there is work to do (a synchronous guard inside the scheduler could
+stall the other scheduled tasks).
+
+**Daylight saving time.** A local time that does not exist (the spring-forward
+gap) is skipped for that day. A local time that occurs twice fires only on its
+first occurrence, so an every-minute schedule does not fire during the repeated
+hour.
+
+**Missed runs.** The scheduler keeps no state and never replays the past. A due
+slot fires if it is at most `grace` seconds late (default 30 s); an older one
+(after a stall) is skipped with a warning and the scheduler resumes at the next
+slot. Slots that passed while the scheduler was down are not published. Grace is
+set with `Scheduler(app, grace=...)`; `asynk scheduler` uses the default.
+
+**Clock changes.** If the wall clock steps backwards, the scheduler never fires a
+slot twice in one process: it waits for the next slot after the last one handled.
+
+Only non-UTC timezones need a time zone database. On systems without one (slim
+containers, Windows) install the `tzdata` package; UTC works without it.
 
 ## Producer and consumer protocols
 
@@ -159,7 +252,7 @@ need distinct directories.
 
 ## Hooks
 
-Hooks extend a worker without subclassing it. Each decorator on `App` appends to
+Hooks extend a worker or scheduler without subclassing it. Each decorator on `App` appends to
 an ordered list, and hooks run in registration order. Hooks may be `def` or
 `async def`, and sync hooks run on the event loop, so keep them cheap.
 Registering the same function twice (same `module.qualname`) is a no-op, so
@@ -167,20 +260,27 @@ importing a module twice does not run its hooks twice.
 
 | Decorator | Runs | Receives |
 |---|---|---|
-| `before_startup` | before the consumer starts | `Worker` |
-| `after_startup` | once the consumer has started | `Worker` |
+| `before_startup` | before the consumer starts (worker) or the loop starts (scheduler) | `Runner` |
+| `after_startup` | once the consumer has started (worker) or the loop is about to start (scheduler) | `Runner` |
 | `before_task` | before each known task | `Envelope`, `Delivery` |
 | `after_task` | after each task, before settlement | `TaskResult`, `Delivery` |
-| `before_shutdown` | when the worker stops fetching, before draining | `Worker` |
-| `after_shutdown` | after draining, with the consumer stopped | `Worker` |
+| `before_shutdown` | when the worker stops fetching, before draining; when the scheduler stops | `Runner` |
+| `after_shutdown` | last: after draining with the consumer stopped (worker); after the loop ended (scheduler) | `Runner` |
+
+The four lifecycle hooks run in every asynk process, `Worker` and `Scheduler`, and
+receive a `Runner`. `runner.role` is `"worker"` or `"scheduler"`, so a hook can
+branch where the processes differ. A hook annotated `Worker` is rejected by mypy,
+since it would not accept a scheduler; annotate it `Runner`.
 
 ```python
-from asynk import Delivery, Envelope, SkipTask, Worker
+from asynk import Delivery, Envelope, Runner, SkipTask
 
 
 @app.before_startup
-async def connect(worker: Worker) -> None:
-    await database.connect()
+async def startup(runner: Runner) -> None:
+    sentry_sdk.init()  # telemetry in every process: workers and the scheduler
+    if runner.role == "worker":
+        await database.connect()  # only workers need the database
 
 
 @app.before_task
@@ -193,8 +293,8 @@ A skipped task has status `SKIPPED`, and `after_task` hooks still run for it. Th
 also run for unknown tasks, which skip `before_task`.
 
 Hooks fail loudly. A startup or shutdown hook that raises stops the remaining
-hooks of that event and makes `Worker.run()` raise; the worker still drains
-tasks and cleans up first. If a `before_task` or `after_task` hook raises
+hooks of that event and makes `Worker.run()` or `Scheduler.run()` raise; the
+process still drains tasks (worker) and cleans up first. If a `before_task` or `after_task` hook raises
 anything but `SkipTask`, the error is logged and the message is redelivered:
 the worker publishes `envelope.retry()` through `app.producer` and acks the
 original, so the failure counts towards `max_retries`. Once

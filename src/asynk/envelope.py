@@ -53,7 +53,7 @@ class Envelope:
         kwargs: Keyword arguments for the task.
         id: Unique message id.
         attempt: Zero-based delivery attempt counter.
-        metadata: Free-form JSON data carried alongside the task call.
+        metadata: Free-form data carried alongside the task call.
     """
 
     task: str
@@ -64,13 +64,20 @@ class Envelope:
     metadata: dict[str, JSONValue] = field(default_factory=dict)
 
     @classmethod
-    def create(cls, task: str, args: Sequence[object], kwargs: Mapping[str, object]) -> Envelope:
+    def create(
+        cls,
+        task: str,
+        args: Sequence[object],
+        kwargs: Mapping[str, object],
+        metadata: Mapping[str, object] | None = None,
+    ) -> Envelope:
         """Builds a new envelope with a fresh id, validating the arguments.
 
         Args:
             task: Registered name of the task to run.
             args: Positional arguments for the task.
             kwargs: Keyword arguments for the task.
+            metadata: Optional data carried alongside the call.
 
         Returns:
             A new envelope at attempt 0.
@@ -84,12 +91,18 @@ class Envelope:
             if not isinstance(key, str):
                 raise NonJsonArgumentError(f"kwargs: key {key!r} is not a str")
             ensure_json(val, f"kwargs.{key}")
+        meta = dict(metadata) if metadata is not None else {}
+        for key, val in meta.items():
+            if not isinstance(key, str):
+                raise NonJsonArgumentError(f"metadata: key {key!r} is not a str")
+            ensure_json(val, f"metadata.{key}")
         return cls(
             task=task,
             args=tuple(args),  # type: ignore[arg-type]
             kwargs=dict(kwargs),  # type: ignore[arg-type]
             id=str(uuid.uuid4()),
             attempt=0,
+            metadata=meta,  # type: ignore[arg-type]
         )
 
     def retry(self) -> Envelope:

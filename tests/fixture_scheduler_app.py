@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from asynk.app import App
+from asynk.transport.memory import memory_transport
+
+_producer, _consumer = memory_transport()
+app = App("fixture-scheduler", producer=_producer, consumer=_consumer)
+no_producer = App("fixture-no-producer")
+
+
+@app.scheduled_task(cron="0 0 1 1 *")
+def yearly() -> None:
+    return None
+
+
+@no_producer.scheduled_task(cron="0 0 1 1 *")
+def orphan() -> None:
+    return None

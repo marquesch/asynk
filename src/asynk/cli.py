@@ -11,6 +11,7 @@ from typing import Any
 
 from asynk.app import App, NotConfiguredError
 from asynk.probes import check_probe, default_probe_dir
+from asynk.scheduler import Scheduler
 from asynk.worker import Worker
 
 
@@ -63,7 +64,18 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
 
-    health = commands.add_parser("health", help="check a worker probe file")
+    scheduler = commands.add_parser("scheduler", help="publish an app's cron scheduled tasks")
+    scheduler.add_argument("app", metavar="MODULE:APP")
+    scheduler.add_argument("--heartbeat-interval", type=float)
+    scheduler.add_argument("--probe-dir", type=Path, default=default_probe_dir())
+    scheduler.add_argument(
+        "--log-level",
+        default="INFO",
+        type=str.upper,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
+
+    health = commands.add_parser("health", help="check a worker or scheduler probe file")
     health.add_argument("probe", choices=["liveness", "readiness"])
     health.add_argument("--max-age", type=float, required=True)
     health.add_argument("--probe-dir", type=Path, default=default_probe_dir())
@@ -97,6 +109,32 @@ def _run_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_scheduler(args: argparse.Namespace) -> int:
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    app = load_app(args.app)
+    options: dict[str, Any] = {}
+    if args.heartbeat_interval is not None:
+        options["heartbeat_interval"] = args.heartbeat_interval
+    try:
+        scheduler = Scheduler(app, probe_dir=args.probe_dir, **options)
+    except (NotConfiguredError, ValueError) as exc:
+        raise CliError(str(exc)) from exc
+    logging.getLogger("asynk").info(
+        "starting scheduler for app %r: scheduled_tasks=[%s] probe_dir=%s",
+        app.name,
+        ", ".join(
+            f"{t.name} ({t.schedule.expression}, {t.schedule.tz_name})" for t in app.scheduled_tasks
+        ),
+        scheduler.probe_dir,
+    )
+    asyncio.run(scheduler.run_with_signals())
+    return 0
+
+
 def _run_health(args: argparse.Namespace) -> int:
     healthy, message = check_probe(args.probe_dir / args.probe, args.max_age)
     print(message)
@@ -116,6 +154,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "worker":
             return _run_worker(args)
+        if args.command == "scheduler":
+            return _run_scheduler(args)
         return _run_health(args)
     except CliError as exc:
         print(f"asynk: {exc}", file=sys.stderr)

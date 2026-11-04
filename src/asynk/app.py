@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, ParamSpec, TypeVar
 
@@ -10,6 +11,7 @@ from asynk.hooks import (
     Hooks,
     LifecycleHook,
 )
+from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
 
@@ -28,6 +30,7 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
+        tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
 
@@ -37,16 +40,24 @@ class App:
         *,
         producer: Producer | None = None,
         consumer: Consumer | None = None,
+        tz: str = "UTC",
     ) -> None:
         self.name = name
+        self.tz = resolve_timezone(tz, f"app {name!r}")
         self.producer = producer
         self.consumer = consumer
         self._tasks: dict[str, Task[..., Any]] = {}
+        self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
         return MappingProxyType(self._tasks)
+
+    @property
+    def scheduled_tasks(self) -> Sequence[ScheduledTask[..., Any]]:
+        """The registered scheduled tasks, in registration order."""
+        return tuple(self._scheduled_tasks)
 
     def task(
         self,
@@ -70,14 +81,68 @@ class App:
         """
 
         def decorator(func: Callable[P, R]) -> Task[P, R]:
-            task_name = name or f"{func.__module__}.{func.__qualname__}"
-            if task_name in self._tasks:
-                raise ValueError(f"task {task_name!r} is already registered")
+            task_name = self._claim_name(name, func)
             task = Task(self, func, task_name, max_retries, options)
             self._tasks[task_name] = task
             return task
 
         return decorator
+
+    def scheduled_task(
+        self,
+        *,
+        cron: str,
+        tz: str | None = None,
+        args: Sequence[object] = (),
+        kwargs: Mapping[str, object] | None = None,
+        name: str | None = None,
+        max_retries: int | None = None,
+        **options: Any,
+    ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
+        """Decorator that registers a function as a task published on a cron schedule.
+
+        The cron expression, arguments and (when `name` is given) timezone are
+        checked immediately; the timezone is otherwise checked when decorating.
+
+        Args:
+            cron: Five-field cron expression.
+            tz: IANA timezone for the expression; defaults to the app's.
+            args: Positional arguments for each published call.
+            kwargs: Keyword arguments for each published call.
+            name: Task name; defaults to the function's module and qualified name.
+            max_retries: Attempts after which failures stop being retried; None for no limit.
+            **options: Extra options stored on the task.
+
+        Returns:
+            A decorator producing a `ScheduledTask`.
+
+        Raises:
+            CronError: If the cron expression is invalid.
+            ValueError: If the timezone is unknown, or the name is already registered.
+            NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
+        """
+        # Built now so a bad expression or argument fails at the call.
+        schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
+        if tz is not None and name is not None:
+            resolve_timezone(tz, f"scheduled task {name!r}")
+
+        def decorator(func: Callable[P, R]) -> ScheduledTask[P, R]:
+            task_name = self._claim_name(name, func)
+            zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
+            task = ScheduledTask(
+                self, func, task_name, max_retries, options, replace(schedule, tz=zone)
+            )
+            self._tasks[task_name] = task
+            self._scheduled_tasks.append(task)
+            return task
+
+        return decorator
+
+    def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
+        task_name = name or f"{func.__module__}.{func.__qualname__}"
+        if task_name in self._tasks:
+            raise ValueError(f"task {task_name!r} is already registered")
+        return task_name
 
     def get_task(self, name: str) -> Task[..., Any]:
         """Looks up a registered task.
@@ -94,10 +159,23 @@ class App:
         return self._tasks[name]
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run before the worker starts its consumer.
+        """Registers a hook run before a worker starts its consumer or a scheduler its loop.
 
-        Hooks may be sync or async and receive the `Worker`. Registering the same
-        function twice has no effect. A hook that raises stops `Worker.run`.
+        Lifecycle hooks run in every asynk process, worker and scheduler alike.
+        They may be sync or async and receive the `Runner` (the `Worker` or
+        `Scheduler`); `runner.role` is "worker" or "scheduler". Registering the
+        same function twice has no effect. A hook that raises stops `Worker.run`
+        or `Scheduler.run`.
+
+        Example:
+            Initialize telemetry in every process, but open a database pool only
+            in workers::
+
+                @app.before_startup
+                async def startup(runner: Runner) -> None:
+                    init_sentry()
+                    if runner.role == "worker":
+                        await database.connect()
 
         Args:
             hook: The hook to register.
@@ -108,7 +186,7 @@ class App:
         return self.hooks.before_startup.add(hook)
 
     def after_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run once the consumer has started.
+        """Registers a hook run once the consumer (worker) or the scheduler loop has started.
 
         Same rules as `before_startup`.
 
@@ -121,10 +199,11 @@ class App:
         return self.hooks.after_startup.add(hook)
 
     def before_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run when the worker stops fetching, before it drains tasks.
+        """Registers a hook run when a worker stops fetching (before draining) or a scheduler stops.
 
         Same rules as `before_startup`. If a hook raises, the worker still drains
-        and cleans up, then `Worker.run` raises.
+        and cleans up, then `Worker.run` raises; the scheduler cleans up and
+        `Scheduler.run` raises.
 
         Args:
             hook: The hook to register.
@@ -135,7 +214,7 @@ class App:
         return self.hooks.before_shutdown.add(hook)
 
     def after_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run after tasks are drained and the consumer has stopped.
+        """Registers a hook run last: after a worker drained and stopped, or a scheduler stopped.
 
         Same rules as `before_startup`.
 
