@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -196,9 +197,9 @@ def test_ticker_subprocess_lifecycle(tmp_path: Path) -> None:
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
     proc = subprocess.Popen(
         [
-            "uv",
-            "run",
-            "asynk",
+            sys.executable,
+            "-m",
+            "asynk.cli",
             "ticker",
             "tests.fixture_ticker_app:app",
             "--probe-dir",

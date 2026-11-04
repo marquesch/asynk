@@ -48,7 +48,7 @@ class Task(Generic[P, R]):
         """Runs the wrapped function in-process."""
         return self.func(*args, **kwargs)
 
-    def with_metadata(self, **metadata: object) -> BoundTask[P, R]:
+    def with_metadata(self, /, **metadata: object) -> BoundTask[P, R]:
         """Returns a publisher that attaches metadata to the envelopes it sends.
 
         Args:
@@ -83,7 +83,7 @@ class BoundTask(Generic[P, R]):
         self._task = task
         self._metadata = metadata
 
-    def with_metadata(self, **metadata: object) -> BoundTask[P, R]:
+    def with_metadata(self, /, **metadata: object) -> BoundTask[P, R]:
         """Returns a new `BoundTask` with more metadata; later keys override earlier ones.
 
         Args:

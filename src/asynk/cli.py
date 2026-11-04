@@ -75,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
 
-    health = commands.add_parser("health", help="check a worker probe file")
+    health = commands.add_parser("health", help="check a worker or ticker probe file")
     health.add_argument("probe", choices=["liveness", "readiness"])
     health.add_argument("--max-age", type=float, required=True)
     health.add_argument("--probe-dir", type=Path, default=default_probe_dir())

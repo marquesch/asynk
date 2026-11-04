@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from types import MappingProxyType
-from typing import Any, ParamSpec, TypeVar, cast
+from typing import Any, ParamSpec, TypeVar
 
-from asynk.cron import CronExpression
-from asynk.envelope import JSONValue, ensure_json
 from asynk.hooks import (
     AfterTaskHook,
     BeforeTaskHook,
@@ -111,7 +110,9 @@ class App:
             tz: IANA timezone for the expression; defaults to the app's.
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
-            catch_up: Whether to publish occurrences missed during downtime.
+            catch_up: Whether to publish slots missed while the ticker process is
+                running (for example during a stall); slots missed while it was
+                down are not recovered.
             name: Task name; defaults to the function's module and qualified name.
             max_retries: Attempts after which failures stop being retried; None for no limit.
             **options: Extra options stored on the task.
@@ -124,26 +125,16 @@ class App:
             ValueError: If the timezone is unknown, or the name is already registered.
             NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
         """
-        expression = CronExpression.parse(cron)
-        call_args = tuple(args)
-        call_kwargs = dict(kwargs or {})
-        ensure_json(list(call_args), "args")
-        ensure_json(call_kwargs, "kwargs")
+        # Built now so a bad expression or argument fails at the call; the
+        # timezone is filled in when decorating.
+        schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs, catch_up=catch_up)
         if tz is not None and name is not None:
             resolve_timezone(tz, f"tick {name!r}")
 
         def decorator(func: Callable[P, R]) -> Tick[P, R]:
             tick_name = self._claim_name(name, func)
             zone = self.tz if tz is None else resolve_timezone(tz, f"tick {tick_name!r}")
-            schedule = Schedule(
-                expression,
-                cron,
-                zone,
-                cast("tuple[JSONValue, ...]", call_args),
-                cast("dict[str, JSONValue]", call_kwargs),
-                catch_up,
-            )
-            tick = Tick(self, func, tick_name, max_retries, options, schedule)
+            tick = Tick(self, func, tick_name, max_retries, options, replace(schedule, tz=zone))
             self._tasks[tick_name] = tick
             self._ticks.append(tick)
             return tick

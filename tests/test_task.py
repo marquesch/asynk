@@ -140,3 +140,15 @@ async def test_with_metadata_rejects_non_json() -> None:
     with pytest.raises(NonJsonArgumentError):
         await noop.with_metadata(a=object()).delay()
     assert producer.published == []
+
+
+async def test_with_metadata_accepts_self_as_a_key() -> None:
+    producer, consumer = memory_transport()
+    app = App("t", producer=producer, consumer=consumer)
+
+    @app.task()
+    async def noop() -> None: ...
+
+    await noop.with_metadata(self=1).with_metadata(self=2, other=3).delay()
+
+    assert (await _next_envelope(consumer)).metadata == {"self": 2, "other": 3}

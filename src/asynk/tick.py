@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timezone, tzinfo
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from asynk.cron import CronExpression
-from asynk.envelope import JSONValue
+from asynk.envelope import JSONValue, ensure_json
 from asynk.task import Task
 
 if TYPE_CHECKING:
@@ -27,7 +27,9 @@ class Schedule:
         tz: Timezone in which the expression is evaluated.
         args: Positional arguments for each published call.
         kwargs: Keyword arguments for each published call.
-        catch_up: Whether missed occurrences are published after downtime.
+        catch_up: Whether slots missed while the ticker process is running (for
+            example during a stall) are published late; slots missed while it
+            was down are not recovered.
     """
 
     cron: CronExpression
@@ -36,6 +38,46 @@ class Schedule:
     args: tuple[JSONValue, ...]
     kwargs: dict[str, JSONValue]
     catch_up: bool
+
+    @classmethod
+    def build(
+        cls,
+        expression: str,
+        *,
+        tz: tzinfo,
+        args: Sequence[object] = (),
+        kwargs: Mapping[str, object] | None = None,
+        catch_up: bool = False,
+    ) -> Schedule:
+        """Parses a cron expression and checks the arguments into a schedule.
+
+        Args:
+            expression: Five-field cron expression.
+            tz: Timezone in which the expression is evaluated.
+            args: Positional arguments for each published call.
+            kwargs: Keyword arguments for each published call.
+            catch_up: Whether slots missed while the ticker is running are published late.
+
+        Returns:
+            The schedule.
+
+        Raises:
+            CronError: If the cron expression is invalid.
+            NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
+        """
+        cron = CronExpression.parse(expression)
+        call_args = tuple(args)
+        call_kwargs = dict(kwargs or {})
+        ensure_json(list(call_args), "args")
+        ensure_json(call_kwargs, "kwargs")
+        return cls(
+            cron,
+            expression,
+            tz,
+            cast("tuple[JSONValue, ...]", call_args),
+            cast("dict[str, JSONValue]", call_kwargs),
+            catch_up,
+        )
 
     @property
     def tz_name(self) -> str:
