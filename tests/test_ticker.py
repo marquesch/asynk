@@ -266,6 +266,83 @@ async def test_publish_failure_is_logged_and_loop_continues(
     assert isinstance(record.exc_info[1], ConnectionError)
 
 
+class HangingProducer:
+    """Publishes normally `ok` times, then every publish hangs until cancelled."""
+
+    def __init__(self, inner: Any, ok: int) -> None:
+        self.inner = inner
+        self.ok = ok
+        self.calls = 0
+        self.hanging = asyncio.Event()
+        self.cancelled = 0
+
+    async def publish(self, envelope: Envelope) -> Any:
+        self.calls += 1
+        if self.calls > self.ok:
+            self.hanging.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
+        return await self.inner.publish(envelope)
+
+
+def _leaked_tasks() -> list[asyncio.Task[Any]]:
+    return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+
+async def _shutdown_while_hanging(
+    app: App, producer: HangingProducer, clock: FakeClock, probe_dir: Path
+) -> None:
+    ticker = Ticker(app, clock=clock, probe_dir=probe_dir)
+    run = asyncio.create_task(ticker.run())
+    await asyncio.wait_for(producer.hanging.wait(), 1)
+    ticker.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    assert producer.cancelled == 1
+    assert _leaked_tasks() == []
+    assert not (probe_dir / "liveness").exists()
+
+
+async def test_shutdown_interrupts_hung_publish(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app, consumer = _app()
+    producer = HangingProducer(app.producer, ok=0)
+    app.producer = producer
+
+    @app.tick(cron="30 * * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T12:00:00"))
+    with caplog.at_level(logging.WARNING, logger="asynk"):
+        await _shutdown_while_hanging(app, producer, clock, tmp_path)
+    assert await _published(consumer) == []
+    [record] = [r for r in caplog.records if "cancel" in r.getMessage()]
+    assert record.levelno == logging.WARNING
+    assert "'job'" in record.getMessage()
+    assert "2026-11-04T11:30:00+00:00" in record.getMessage()
+
+
+async def test_shutdown_stops_catch_up_burst(tmp_path: Path) -> None:
+    app, consumer = _app()
+    producer = HangingProducer(app.producer, ok=2)
+    app.producer = producer
+
+    @app.tick(cron="* * * * *", tz="UTC", catch_up=True, name="job")
+    def job() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:00:00"))
+    clock.warps[0] = timedelta(hours=3)  # about 180 missed slots
+    await _shutdown_while_hanging(app, producer, clock, tmp_path)
+    assert producer.calls == 3
+    assert _slots(await _published(consumer)) == [
+        ("job", "2026-11-04T11:00:00+00:00"),
+        ("job", "2026-11-04T11:01:00+00:00"),
+    ]
+
+
 async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 

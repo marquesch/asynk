@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -143,7 +144,7 @@ class Ticker:
             logger.info("ticker started with %d tick(s)", len(pending))
             while not self._shutdown.is_set():
                 now = self.clock.now()
-                await self._handle_due(pending, now)
+                await self._handle_due(pending, now, shutdown)
                 if self._shutdown.is_set():
                     break
                 earliest = min(pending.values())
@@ -161,7 +162,12 @@ class Ticker:
                 except OSError:
                     logger.exception("failed to clear probe files")
 
-    async def _handle_due(self, pending: dict[Tick[..., Any], datetime], now: datetime) -> None:
+    async def _handle_due(
+        self,
+        pending: dict[Tick[..., Any], datetime],
+        now: datetime,
+        shutdown: asyncio.Future[Any],
+    ) -> None:
         grace = timedelta(seconds=self.grace)
         while not self._shutdown.is_set():
             # Oldest slot first; ties keep registration order.
@@ -170,7 +176,8 @@ class Ticker:
             if slot > now:
                 return
             if now - slot <= grace or tick.schedule.catch_up:
-                await self._fire(tick, slot)
+                if not await self._fire(tick, slot, shutdown):
+                    return
                 pending[tick] = tick.schedule.cron.next_after(slot)
                 continue
             resume_after = max(slot, (now - grace - _EPSILON).astimezone(tick.schedule.tz))
@@ -182,29 +189,57 @@ class Ticker:
                 _utc_iso(pending[tick]),
             )
 
-    async def _fire(self, tick: Tick[..., Any], slot: datetime) -> None:
+    async def _fire(
+        self, tick: Tick[..., Any], slot: datetime, shutdown: asyncio.Future[Any]
+    ) -> bool:
+        """Publishes one slot; returns False if shutdown cancelled the publish."""
         scheduled_at = _utc_iso(slot)
         schedule = tick.schedule
+        publish = tick.with_metadata(
+            idempotency_key=f"{tick.name}:{scheduled_at}",
+            scheduled_at=scheduled_at,
+        ).delay(*schedule.args, **schedule.kwargs)
         try:
-            await tick.with_metadata(
-                idempotency_key=f"{tick.name}:{scheduled_at}",
-                scheduled_at=scheduled_at,
-            ).delay(*schedule.args, **schedule.kwargs)
+            finished = await self._race(publish, shutdown)
         except Exception:
             logger.exception("failed to publish tick %r for slot %s", tick.name, scheduled_at)
-        else:
-            logger.debug("published tick %r for slot %s", tick.name, scheduled_at)
+            return True
+        if not finished and not shutdown.done():
+            # The publish cancelled itself; treat it like a failed publish.
+            logger.error("publish of tick %r for slot %s was cancelled", tick.name, scheduled_at)
+            return True
+        if not finished:
+            logger.warning(
+                "shutdown cancelled the publish of tick %r for slot %s; slot not published",
+                tick.name,
+                scheduled_at,
+            )
+            return False
+        logger.debug("published tick %r for slot %s", tick.name, scheduled_at)
+        return True
 
     async def _sleep(self, seconds: float, shutdown: asyncio.Future[Any]) -> None:
-        sleeper = asyncio.ensure_future(self.clock.sleep(seconds))
+        await self._race(self.clock.sleep(seconds), shutdown)
+
+    @staticmethod
+    async def _race(aw: Awaitable[Any], shutdown: asyncio.Future[Any]) -> bool:
+        """Awaits `aw` unless shutdown comes first, then cancels it.
+
+        Returns:
+            True if `aw` finished (its exception, if any, is re-raised); False if
+            shutdown cancelled it.
+        """
+        fut = asyncio.ensure_future(aw)
         try:
-            await asyncio.wait({sleeper, shutdown}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({fut, shutdown}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            if not sleeper.done():
-                sleeper.cancel()
-                await asyncio.wait({sleeper})
-        if not sleeper.cancelled():
-            sleeper.result()
+            if not fut.done():
+                fut.cancel()
+                await asyncio.wait({fut})
+        if fut.cancelled():
+            return False
+        fut.result()
+        return True
 
     async def _heartbeat(self, probes: ProbeFiles) -> None:
         while True:
