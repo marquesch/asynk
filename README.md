@@ -139,6 +139,9 @@ slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
 can, given a store shared by all workers (a set in memory only works for one):
 
 ```python
+from asynk import App, Delivery, Envelope, SkipTask
+
+app = App("myapp")  # or the app from the snippets above
 seen: set[str] = set()  # use a shared store (a database, Redis) in production
 
 
@@ -166,8 +169,8 @@ ticker does not replay the past. With `catch_up=True` every missed slot is fired
 in order, but only within the running process: slots missed while the ticker was
 down are not recovered.
 
-On systems without a time zone database (slim containers, Windows) install the
-`tzdata` package, or creating the `App` fails with an unknown timezone error.
+Only non-UTC timezones need a time zone database. On systems without one (slim
+containers, Windows) install the `tzdata` package; UTC works without it.
 
 ## Producer and consumer protocols
 

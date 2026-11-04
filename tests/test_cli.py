@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -170,6 +171,20 @@ def test_ticker_parses_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     [ticker] = built
     assert ticker.heartbeat_interval == 0.5
     assert ticker.probe_dir == tmp_path
+
+
+def test_ticker_logs_default_tz_tick(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from asynk.ticker import Ticker
+
+    async def fake_run(self: Ticker) -> None:
+        return None
+
+    monkeypatch.setattr(Ticker, "run_with_signals", fake_run)
+    with caplog.at_level(logging.INFO, logger="asynk"):
+        assert main(["ticker", "tests.fixture_ticker_app:app"]) == 0
+    assert "(0 0 1 1 *, UTC)" in caplog.text
 
 
 def test_ticker_bad_heartbeat_returns_2(capsys: pytest.CaptureFixture[str]) -> None:

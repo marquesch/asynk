@@ -126,7 +126,7 @@ def _run_ticker(args: argparse.Namespace) -> int:
     logging.getLogger("asynk").info(
         "starting ticker for app %r: ticks=[%s] probe_dir=%s",
         app.name,
-        ", ".join(f"{t.name} ({t.schedule.expression}, {t.schedule.tz.key})" for t in app.ticks),
+        ", ".join(f"{t.name} ({t.schedule.expression}, {t.schedule.tz_name})" for t in app.ticks),
         ticker.probe_dir,
     )
     asyncio.run(ticker.run_with_signals())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timezone, tzinfo
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -31,10 +32,15 @@ class Schedule:
 
     cron: CronExpression
     expression: str
-    tz: ZoneInfo
+    tz: tzinfo
     args: tuple[JSONValue, ...]
     kwargs: dict[str, JSONValue]
     catch_up: bool
+
+    @property
+    def tz_name(self) -> str:
+        """A stable human-readable name of `tz`: the IANA key, or "UTC"."""
+        return getattr(self.tz, "key", None) or str(self.tz)
 
 
 class Tick(Task[P, R]):
@@ -57,8 +63,11 @@ class Tick(Task[P, R]):
         self.schedule = schedule
 
 
-def resolve_timezone(key: str, owner: str) -> ZoneInfo:
+def resolve_timezone(key: str, owner: str) -> tzinfo:
     """Loads a timezone by IANA name.
+
+    "UTC" resolves to `datetime.timezone.utc` without touching the tz database;
+    any other name needs one (install `tzdata` where the system has none).
 
     Args:
         key: The timezone name.
@@ -70,6 +79,8 @@ def resolve_timezone(key: str, owner: str) -> ZoneInfo:
     Raises:
         ValueError: If the timezone is unknown or malformed.
     """
+    if key == "UTC":
+        return timezone.utc
     try:
         return ZoneInfo(key)
     except (ZoneInfoNotFoundError, ValueError) as exc:
