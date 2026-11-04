@@ -3,7 +3,8 @@
 asynk is a small asyncio task framework (Python 3.10+, standard library only).
 Producers and consumers are decoupled: the core only knows an `Envelope`, a
 `Codec` and two protocols, so any broker can sit behind them. An in-memory
-transport ships for demos and tests.
+transport and a unix socket transport ship for demos and tests, neither meant
+for production.
 
 ## Example
 
@@ -47,6 +48,46 @@ asynk worker tasks:app --concurrency 10 --shutdown-timeout 30 --heartbeat-interv
 
 The in-memory queue is per process, so `asynk worker` only helps with a
 transport whose producer and consumer talk through an external system.
+
+## Running a worker in another process
+
+The unix socket transport connects a separate producer and worker on one
+machine, with no broker:
+
+```python
+# app.py
+from asynk import App
+from asynk.transport.unix import unix_transport
+
+producer, consumer = unix_transport("/tmp/asynk.sock")
+app = App("demo", producer=producer, consumer=consumer)
+
+
+@app.task()
+async def add(a: int, b: int) -> int:
+    print(f"{a} + {b} = {a + b}")
+    return a + b
+```
+
+```
+# terminal 1: the worker creates and listens on the socket
+python -m asynk.cli worker app:app
+
+# terminal 2: publish a task
+python -c "import asyncio; from app import add; asyncio.run(add.delay(2, 3))"
+```
+
+`python -m asynk.cli` is used so the current directory is importable; the
+`asynk` command works the same when the module is on `sys.path`.
+
+This transport is for learning and testing only. Messages are held in memory,
+nothing is retried, and anything unsettled when the worker stops or crashes is
+lost. Publishing fails while no worker is listening. Pass a codec as the second
+argument to `unix_transport` to change the wire format (it must not emit
+newlines, which delimit messages).
+
+Runnable versions, including a custom codec, are in `examples/memory` and
+`examples/unix`.
 
 ## Producer and consumer protocols
 
