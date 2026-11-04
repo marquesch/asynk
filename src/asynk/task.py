@@ -48,6 +48,17 @@ class Task(Generic[P, R]):
         """Runs the wrapped function in-process."""
         return self.func(*args, **kwargs)
 
+    def with_metadata(self, **metadata: object) -> BoundTask[P, R]:
+        """Returns a publisher that attaches metadata to the envelopes it sends.
+
+        Args:
+            **metadata: JSON-friendly metadata for the envelope.
+
+        Returns:
+            A `BoundTask` carrying the metadata; this task is left unchanged.
+        """
+        return BoundTask(self, dict(metadata))
+
     async def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any:
         """Publishes a call to this task for a worker to run.
 
@@ -62,10 +73,46 @@ class Task(Generic[P, R]):
             NotConfiguredError: If the app has no producer.
             NonJsonArgumentError: If any argument is not JSON-friendly.
         """
+        return await self.with_metadata().delay(*args, **kwargs)
+
+
+class BoundTask(Generic[P, R]):
+    """An immutable view of a task that publishes with fixed metadata."""
+
+    def __init__(self, task: Task[P, R], metadata: dict[str, object]) -> None:
+        self._task = task
+        self._metadata = metadata
+
+    def with_metadata(self, **metadata: object) -> BoundTask[P, R]:
+        """Returns a new `BoundTask` with more metadata; later keys override earlier ones.
+
+        Args:
+            **metadata: JSON-friendly metadata to add.
+
+        Returns:
+            A new `BoundTask`; this one is left unchanged.
+        """
+        return BoundTask(self._task, {**self._metadata, **metadata})
+
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any:
+        """Publishes a call to the task with this object's metadata.
+
+        Args:
+            *args: Positional arguments for the task.
+            **kwargs: Keyword arguments for the task.
+
+        Returns:
+            The producer's receipt.
+
+        Raises:
+            NotConfiguredError: If the app has no producer.
+            NonJsonArgumentError: If any argument or metadata value is not JSON-friendly.
+        """
         from asynk.app import NotConfiguredError
 
-        producer = self.app.producer
+        app = self._task.app
+        producer = app.producer
         if producer is None:
-            raise NotConfiguredError(f"app {self.app.name!r} has no producer configured")
-        envelope = Envelope.create(self.name, args, kwargs)
+            raise NotConfiguredError(f"app {app.name!r} has no producer configured")
+        envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
         return await producer.publish(envelope)

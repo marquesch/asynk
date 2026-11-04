@@ -49,6 +49,17 @@ asynk worker tasks:app --concurrency 10 --shutdown-timeout 30 --heartbeat-interv
 The in-memory queue is per process, so `asynk worker` only helps with a
 transport whose producer and consumer talk through an external system.
 
+## Publishing with metadata
+
+Attach JSON-friendly metadata to a published call with `with_metadata`. It
+returns an immutable bound task, so calls can be chained and later keys
+override earlier ones:
+
+```python
+await add.with_metadata(source="api", trace="x").with_metadata(trace="y").delay(1, b=2)
+# envelope.metadata == {"source": "api", "trace": "y"}
+```
+
 ## Running a worker in another process
 
 The unix socket transport connects a separate producer and worker on one

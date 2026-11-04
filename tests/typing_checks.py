@@ -18,6 +18,8 @@ async def _checks() -> None:
     await add.delay("x")  # type: ignore[arg-type]
     await add.delay()  # type: ignore[call-arg]
     await add.delay(1, c=3)  # type: ignore[call-arg]
+    await add.with_metadata(a=1).delay(1, b=2)
+    await add.with_metadata(a=1).delay("x")  # type: ignore[arg-type]
 
 
 @app.after_task
