@@ -52,7 +52,7 @@ class Task(Generic[P, R]):
         """Returns a publisher that attaches metadata to the envelopes it sends.
 
         Args:
-            **metadata: JSON-friendly metadata for the envelope.
+            **metadata: Data carried alongside the call.
 
         Returns:
             A `BoundTask` carrying the metadata; this task is left unchanged.
@@ -87,7 +87,7 @@ class BoundTask(Generic[P, R]):
         """Returns a new `BoundTask` with more metadata; later keys override earlier ones.
 
         Args:
-            **metadata: JSON-friendly metadata to add.
+            **metadata: More data carried alongside the call.
 
         Returns:
             A new `BoundTask`; this one is left unchanged.
@@ -106,7 +106,8 @@ class BoundTask(Generic[P, R]):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            NonJsonArgumentError: If any argument or metadata value is not JSON-friendly.
+            NonJsonArgumentError: If any argument is not JSON-friendly, or the envelope
+                rejects a metadata value.
         """
         from asynk.app import NotConfiguredError
 

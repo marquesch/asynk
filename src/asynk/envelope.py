@@ -53,7 +53,7 @@ class Envelope:
         kwargs: Keyword arguments for the task.
         id: Unique message id.
         attempt: Zero-based delivery attempt counter.
-        metadata: Free-form JSON data carried alongside the task call.
+        metadata: Free-form data carried alongside the task call.
     """
 
     task: str
@@ -77,7 +77,7 @@ class Envelope:
             task: Registered name of the task to run.
             args: Positional arguments for the task.
             kwargs: Keyword arguments for the task.
-            metadata: Optional JSON data carried alongside the call.
+            metadata: Optional data carried alongside the call.
 
         Returns:
             A new envelope at attempt 0.

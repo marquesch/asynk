@@ -51,9 +51,9 @@ transport whose producer and consumer talk through an external system.
 
 ## Publishing with metadata
 
-Attach JSON-friendly metadata to a published call with `with_metadata`. It
-returns an immutable bound task, so calls can be chained and later keys
-override earlier ones:
+Attach metadata, data carried alongside the call, to a published call with
+`with_metadata`. It returns an immutable bound task, so calls can be chained and
+later keys override earlier ones:
 
 ```python
 await add.with_metadata(source="api", trace="x").with_metadata(trace="y").delay(1, b=2)
