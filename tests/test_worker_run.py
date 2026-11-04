@@ -456,19 +456,19 @@ def test_worker_accepts_zero_shutdown_timeout() -> None:
 
 def _lifecycle(app: App, consumer: MemoryConsumer, events: list[str]) -> None:
     @app.before_startup
-    async def before_startup(worker: Runner) -> None:
+    async def before_startup(runner: Runner) -> None:
         events.append(f"before_startup connected={consumer.connected}")
 
     @app.after_startup
-    def after_startup(worker: Runner) -> None:
+    def after_startup(runner: Runner) -> None:
         events.append(f"after_startup connected={consumer.connected}")
 
     @app.before_shutdown
-    async def before_shutdown(worker: Runner) -> None:
+    async def before_shutdown(runner: Runner) -> None:
         events.append(f"before_shutdown connected={consumer.connected}")
 
     @app.after_shutdown
-    async def after_shutdown(worker: Runner) -> None:
+    async def after_shutdown(runner: Runner) -> None:
         events.append(f"after_shutdown connected={consumer.connected}")
 
 

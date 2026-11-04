@@ -127,8 +127,11 @@ does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
 Nothing fires at startup: the first slot is the first one after the scheduler starts.
 
 The scheduler publishes with the app's producer and runs the app's startup and
-shutdown hooks (see [Hooks](#hooks)); `runner.role` is `"scheduler"` there. On shutdown (SIGTERM or SIGINT) an in-flight publish
-is cancelled. It writes the `liveness` probe file (never `readiness`), so use
+shutdown hooks (see [Hooks](#hooks)); `runner.role` is `"scheduler"` there. Keep
+those hooks quick: the scheduler does not refresh its liveness probe while one
+runs, so a hook slower than your probe's staleness limit gets the process killed,
+and a slow hook delays shutdown by its full duration. On shutdown (SIGTERM or
+SIGINT) an in-flight publish is cancelled. It writes the `liveness` probe file (never `readiness`), so use
 the liveness probe from [Probes](#probes) with the same `--probe-dir`. The probe
 is refreshed by the scheduler's main loop, so a scheduler stuck in a hung publish (for
 example on a half-open connection) stops refreshing it and `asynk health
