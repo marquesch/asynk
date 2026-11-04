@@ -100,6 +100,75 @@ newlines, which delimit messages).
 Runnable versions, including a custom codec, are in `examples/memory` and
 `examples/unix`.
 
+## Periodic tasks (ticker)
+
+`@app.tick` registers a task that `asynk ticker` publishes on a cron schedule.
+The ticker only publishes; a worker runs the tasks, as for any other message:
+
+```python
+@app.tick(cron="30 8 * * mon-fri", tz="America/Sao_Paulo")
+async def morning_report() -> None: ...
+
+
+@app.tick(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100}, catch_up=True)
+def sync(region: str, *, limit: int) -> None: ...
+```
+
+```
+asynk ticker tasks:app --heartbeat-interval 5
+```
+
+A tick is an ordinary task (it also accepts `name` and `max_retries`) with
+fixed `args` and `kwargs`. `tz` defaults to the app's `tz` (`App(name, tz="UTC")`).
+Expressions have five fields, with a resolution of one minute; month and weekday
+names are accepted, and macros such as `@daily` and a seconds field are not.
+When both day-of-month and day-of-week are restricted, a slot matches if either
+does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
+Nothing fires at startup: the first slot is the first one after the ticker starts.
+
+The ticker publishes with the app's producer and does not run the app's
+startup or shutdown hooks. On shutdown (SIGTERM or SIGINT) an in-flight publish
+is cancelled. It writes the `liveness` probe file (never `readiness`), so use
+the liveness probe from [Probes](#probes) with the same `--probe-dir`.
+
+**Run exactly one ticker.** There is no locking or coordination, so a second
+ticker publishes every slot twice. Duplicates are also possible around restarts
+and failovers. Each publish carries `metadata["idempotency_key"]`, which is
+`"<task name>:<slot as UTC ISO instant>"`, and `metadata["scheduled_at"]`, the
+slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
+can, given a store shared by all workers (a set in memory only works for one):
+
+```python
+seen: set[str] = set()  # use a shared store (a database, Redis) in production
+
+
+@app.before_task
+def dedupe(envelope: Envelope, delivery: Delivery) -> None:
+    key = envelope.metadata.get("idempotency_key")
+    if key is not None:
+        if key in seen:
+            raise SkipTask
+        seen.add(str(key))
+```
+
+There is no guard: every slot is published, and a tick's task decides for
+itself whether there is work to do (a synchronous guard inside the ticker could
+stall the other ticks).
+
+**Daylight saving time.** A local time that does not exist (the spring-forward
+gap) is skipped for that day. A local time that occurs twice fires only on its
+first occurrence, so an every-minute schedule does not fire during the repeated
+hour.
+
+**Missed runs.** The ticker keeps no state across restarts. A slot handled more
+than `grace` seconds late (default 30 s) is skipped, so a stalled or restarted
+ticker does not replay the past. With `catch_up=True` every missed slot is fired,
+in order, but only within the running process: slots missed while the ticker was
+down are not recovered.
+
+On systems without a time zone database (slim containers, Windows) install the
+`tzdata` package, or creating the `App` fails with an unknown timezone error.
+
 ## Producer and consumer protocols
 
 ```python

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 import asynk
-from asynk import App, Delivery, Envelope, JsonCodec, Worker
+from asynk import App, Delivery, Envelope, JsonCodec, SkipTask, TaskResult, Worker
+from asynk.ticker import Ticker
 from asynk.transport.memory import memory_transport
 
 NAMES = [
@@ -146,3 +148,67 @@ async def test_custom_producer_and_consumer_are_decoupled() -> None:
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
     assert seen == ["ada"]
+
+
+class _StepClock:
+    """Fake clock: `sleep` advances time; stops the ticker once `until` is reached."""
+
+    def __init__(self, start: datetime, until: datetime) -> None:
+        self.value = start
+        self.until = until
+        self.on_limit: Callable[[], None] = lambda: None
+
+    def now(self) -> datetime:
+        return self.value
+
+    async def sleep(self, seconds: float) -> None:
+        if self.value >= self.until:
+            self.on_limit()
+            await asyncio.Event().wait()
+        self.value += timedelta(seconds=seconds)
+        await asyncio.sleep(0)
+
+
+async def test_ticker_publishes_and_worker_runs() -> None:
+    producer, consumer = memory_transport()
+    app = App("e2e-tick", producer=producer, consumer=consumer)
+    runs: list[int] = []
+    seen_keys: set[str] = set()
+    keys: list[str] = []
+    done = asyncio.Event()
+
+    @app.before_task
+    def dedupe(envelope: Envelope, delivery: Delivery) -> None:
+        key = str(envelope.metadata["idempotency_key"])
+        keys.append(key)
+        if key in seen_keys:
+            raise SkipTask
+        seen_keys.add(key)
+
+    @app.tick(cron="30 * * * *", tz="UTC", args=[7], name="job")
+    def job(n: int) -> None:
+        runs.append(n)
+
+    @app.after_task
+    def finished(result: TaskResult, delivery: Delivery) -> None:
+        if len(keys) == 2:
+            done.set()
+
+    worker = Worker(app)
+    run = asyncio.create_task(worker.run())
+    # Two tickers over the same app simulate an accidental duplicate ticker.
+    tickers = []
+    for _ in range(2):
+        clock = _StepClock(
+            datetime(2026, 11, 4, 11, 29, tzinfo=timezone.utc),
+            datetime(2026, 11, 4, 11, 31, tzinfo=timezone.utc),
+        )
+        ticker = Ticker(app, clock=clock)
+        clock.on_limit = ticker.request_shutdown
+        tickers.append(ticker)
+    await asyncio.wait_for(asyncio.gather(*(t.run() for t in tickers)), 5)
+    await asyncio.wait_for(done.wait(), 5)
+    worker.request_shutdown()
+    await asyncio.wait_for(run, 5)
+    assert keys == ["job:2026-11-04T11:30:00+00:00"] * 2
+    assert runs == [7]
