@@ -27,6 +27,7 @@ NAMES = [
     "DecodeError",
     "SkipTask",
     "Tick",
+    "Ticker",
 ]
 
 
