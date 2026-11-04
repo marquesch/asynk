@@ -170,8 +170,8 @@ hour.
 **Missed runs.** The ticker keeps no state and never replays the past. A due
 slot fires if it is at most `grace` seconds late (default 30 s); an older one
 (after a stall) is skipped with a warning and the ticker resumes at the next
-slot. Slots that passed while the ticker was down are not published. Grace is set with `Ticker(app, grace=...)`;
-`asynk ticker` uses the default.
+slot. Slots that passed while the ticker was down are not published. Grace is
+set with `Ticker(app, grace=...)`; `asynk ticker` uses the default.
 
 **Clock changes.** If the wall clock steps backwards, the ticker never fires a
 slot twice in one process: it waits for the next slot after the last one handled.

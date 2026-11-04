@@ -196,6 +196,14 @@ class Ticker:
         except Exception:
             logger.exception("failed to publish tick %r for slot %s", tick.name, scheduled_at)
             return True
+        if not finished and not shutdown.done():
+            # The publish cancelled itself: a failed publish, so the slot advances.
+            logger.error(
+                "publish of tick %r for slot %s was cancelled; slot skipped",
+                tick.name,
+                scheduled_at,
+            )
+            return True
         if not finished:
             logger.warning(
                 "shutdown cancelled the publish of tick %r for slot %s; slot not published",

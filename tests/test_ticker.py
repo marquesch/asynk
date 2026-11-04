@@ -304,6 +304,40 @@ async def _shutdown_while_hanging(
     assert not (probe_dir / "liveness").exists()
 
 
+async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, consumer = _app()
+    real = app.producer
+    calls: list[str] = []
+
+    class SelfCancelling:
+        async def publish(self, envelope: Envelope) -> Any:
+            calls.append(str(envelope.metadata["scheduled_at"]))
+            if len(calls) == 1:
+                raise asyncio.CancelledError
+            assert real is not None
+            return await real.publish(envelope)
+
+    app.producer = SelfCancelling()
+
+    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
+    with caplog.at_level(logging.WARNING, logger="asynk"):
+        await _run(app, clock)
+    assert calls == ["2026-11-04T11:30:00+00:00", "2026-11-04T11:31:00+00:00"]
+    assert _slots(await _published(consumer)) == [("job", "2026-11-04T11:31:00+00:00")]
+    [record] = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert record.levelno == logging.ERROR
+    assert "'job'" in record.getMessage()
+    assert "2026-11-04T11:30:00+00:00" in record.getMessage()
+    assert "cancelled" in record.getMessage()
+    assert "shutdown" not in record.getMessage()
+    assert _leaked_tasks() == []
+
+
 async def test_shutdown_interrupts_hung_publish(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
