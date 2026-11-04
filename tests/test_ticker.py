@@ -5,14 +5,16 @@ import logging
 import os
 import signal
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
+from asynk.probes import ProbeFiles
 from asynk.ticker import SystemClock, Ticker
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
@@ -29,18 +31,20 @@ class FakeClock:
     Once `now` reaches `until`, the next `sleep` calls `on_limit` and blocks
     forever, so the ticker under test stops through its normal shutdown path.
     `warps[n]` is added to `now` after the n-th sleep (0-based), simulating a
-    stall (positive) or the wall clock stepping back (negative).
+    stall (positive) or the wall clock stepping back (negative). With `zone`,
+    `now()` returns the time in that zone instead of UTC.
     """
 
-    def __init__(self, start: datetime, until: datetime) -> None:
+    def __init__(self, start: datetime, until: datetime, zone: tzinfo | None = None) -> None:
         self.now_value = start
+        self.zone = zone
         self.until = until
         self.sleeps: list[float] = []
         self.warps: dict[int, timedelta] = {}
         self.on_limit: Callable[[], None] = lambda: None
 
     def now(self) -> datetime:
-        return self.now_value
+        return self.now_value if self.zone is None else self.now_value.astimezone(self.zone)
 
     async def sleep(self, seconds: float) -> None:
         if self.now_value >= self.until:
@@ -171,7 +175,7 @@ async def test_late_within_grace_fires() -> None:
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
     clock.warps[0] = timedelta(seconds=20)  # wakes 20 s after the slot
-    await _run(app, clock, grace=30)
+    await _run(app, clock, grace=30, heartbeat_interval=30)
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T11:30:00+00:00")]
 
 
@@ -229,7 +233,7 @@ async def test_clock_step_back_does_not_refire() -> None:
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:30"))
     clock.warps[1] = timedelta(minutes=-2)  # fires 11:30, then steps back to 11:29
-    await _run(app, clock)
+    await _run(app, clock, heartbeat_interval=30)
     assert _slots(await _published(consumer)) == [
         ("job", "2026-11-04T11:30:00+00:00"),
         ("job", "2026-11-04T11:31:00+00:00"),
@@ -365,7 +369,7 @@ async def test_sleep_is_capped_by_max_sleep() -> None:
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T12:00:30"))
-    await _run(app, clock, max_sleep=50)
+    await _run(app, clock, max_sleep=50, heartbeat_interval=100)
     assert clock.sleeps[:3] == [50, 50, 20]
     assert max(clock.sleeps) == 50
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T12:00:00+00:00")]
@@ -469,3 +473,87 @@ async def test_run_with_signals_sigterm() -> None:
     await asyncio.wait_for(run, 1)
     assert signal.getsignal(signal.SIGTERM) == before_term
     assert signal.getsignal(signal.SIGINT) == before_int
+
+
+async def test_sleep_is_capped_by_heartbeat_interval() -> None:
+    app, _ = _app()
+
+    @app.tick(cron="0 12 * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T11:59:00"))
+    await _run(app, clock, max_sleep=50, heartbeat_interval=7)
+    assert clock.sleeps[:3] == [7, 7, 7]
+    assert max(clock.sleeps) == 7
+
+
+def _count_beats(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    beats: list[float] = []
+    real = ProbeFiles.beat
+
+    def counting(self: ProbeFiles, *, ready: bool) -> None:
+        assert ready is False
+        beats.append(len(beats))
+        real(self, ready=ready)
+
+    monkeypatch.setattr(ProbeFiles, "beat", counting)
+    return beats
+
+
+async def test_beats_repeatedly_while_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    beats = _count_beats(monkeypatch)
+    app, _ = _app()
+
+    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:00:00"), until=_at("2026-11-04T12:00:00"))
+    await _run(app, clock, probe_dir=tmp_path, heartbeat_interval=5)
+    # One hour idle at one beat per 5 s, plus the beat at start.
+    assert len(beats) >= 720
+    assert max(clock.sleeps) == 5
+    assert not (tmp_path / "liveness").exists()
+
+
+async def test_hung_publish_stops_beating(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    beats = _count_beats(monkeypatch)
+    app, _ = _app()
+    producer = HangingProducer(app.producer, ok=0)
+    app.producer = producer
+
+    @app.tick(cron="30 * * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    # A 1 ms heartbeat: a beat from anywhere but the stuck loop would show up.
+    clock = FakeClock(_at("2026-11-04T11:29:59.990"), until=_at("2026-11-04T12:00:00"))
+    ticker = Ticker(app, clock=clock, probe_dir=tmp_path, heartbeat_interval=0.001)
+    run = asyncio.create_task(ticker.run())
+    await asyncio.wait_for(producer.hanging.wait(), 1)
+    stuck_at = len(beats)
+    await asyncio.sleep(0.02)  # 20 real heartbeat intervals
+    assert len(beats) == stuck_at
+    ticker.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    assert _leaked_tasks() == []
+    assert not (tmp_path / "liveness").exists()
+
+
+async def test_non_utc_clock_judges_lateness_across_fall_back() -> None:
+    app, consumer = _app()
+
+    @app.tick(cron="0 * * * *", tz="America/New_York", name="job")
+    def job() -> None: ...
+
+    # 00:59:30 EDT. A stall wakes the ticker at 06:00:05Z, the second 01:00
+    # (EST), so the 01:00 EDT slot (05:00Z) is an hour late and is skipped.
+    clock = FakeClock(
+        _at("2026-11-01T04:59:30"),
+        until=_at("2026-11-01T08:01:00"),
+        zone=ZoneInfo("America/New_York"),
+    )
+    clock.warps[0] = timedelta(hours=1, seconds=30)  # 04:59:35Z -> 06:00:05Z
+    await _run(app, clock)
+    assert _slots(await _published(consumer)) == [
+        ("job", "2026-11-01T07:00:00+00:00"),
+        ("job", "2026-11-01T08:00:00+00:00"),
+    ]

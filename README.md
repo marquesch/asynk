@@ -129,7 +129,11 @@ Nothing fires at startup: the first slot is the first one after the ticker start
 The ticker publishes with the app's producer and does not run the app's
 startup or shutdown hooks. On shutdown (SIGTERM or SIGINT) an in-flight publish
 is cancelled. It writes the `liveness` probe file (never `readiness`), so use
-the liveness probe from [Probes](#probes) with the same `--probe-dir`.
+the liveness probe from [Probes](#probes) with the same `--probe-dir`. The probe
+is refreshed by the ticker's main loop, so a ticker stuck in a hung publish (for
+example on a half-open connection) stops refreshing it and `asynk health
+liveness` fails. That is intended: run the ticker under a supervisor (such as a
+Kubernetes liveness probe) that restarts it.
 
 **Run exactly one ticker.** There is no locking or coordination, so a second
 ticker publishes every slot twice. Duplicates are also possible around restarts
@@ -165,9 +169,13 @@ hour.
 
 **Missed runs.** The ticker keeps no state across restarts. A slot handled more
 than `grace` seconds late (default 30 s) is skipped, so a stalled or restarted
-ticker does not replay the past. With `catch_up=True` every missed slot is fired,
+ticker does not replay the past. Grace is set with `Ticker(app, grace=...)`;
+`asynk ticker` uses the default. With `catch_up=True` every missed slot is fired,
 in order, but only within the running process: slots missed while the ticker was
 down are not recovered.
+
+**Clock changes.** If the wall clock steps backwards, the ticker never fires a
+slot twice in one process: it waits for the next slot after the last one handled.
 
 Only non-UTC timezones need a time zone database. On systems without one (slim
 containers, Windows) install the `tzdata` package; UTC works without it.

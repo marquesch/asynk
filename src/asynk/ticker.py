@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -62,10 +63,13 @@ class Ticker:
         app: The app whose ticks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
-        heartbeat_interval: Seconds between probe file updates.
+        heartbeat_interval: Seconds between probe file updates. The main loop
+            writes the probe, so a loop stuck in a hung publish stops beating
+            and its liveness probe goes stale.
         grace: Seconds a slot may be late and still fire; older slots are
             skipped unless the tick has `catch_up`.
-        max_sleep: Longest single sleep, in seconds, before the clock is re-read.
+        max_sleep: Longest single sleep, in seconds, before the clock is re-read;
+            sleeps are also capped at `heartbeat_interval`.
     """
 
     def __init__(
@@ -86,7 +90,8 @@ class Ticker:
             probe_dir: Directory for the liveness probe file; None disables it.
             heartbeat_interval: Seconds between probe file updates.
             grace: Seconds a slot may be late and still fire.
-            max_sleep: Longest single sleep, in seconds, before the clock is re-read.
+            max_sleep: Longest single sleep, in seconds, before the clock is re-read;
+                sleeps are also capped at `heartbeat_interval`.
 
         Raises:
             NotConfiguredError: If the app has no producer.
@@ -111,6 +116,7 @@ class Ticker:
         self.max_sleep = max_sleep
         self._shutdown = asyncio.Event()
         self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
+        self._last_beat = 0.0
 
     def request_shutdown(self) -> None:
         """Asks `run` to stop; idempotent and safe in signal handlers."""
@@ -130,32 +136,28 @@ class Ticker:
         the current time. Shutdown interrupts the sleep and does not wait for
         slots that are not yet due.
         """
-        heartbeat: asyncio.Task[None] | None = None
-        if self._probes is not None:
-            self._beat(self._probes)
-            heartbeat = asyncio.create_task(self._heartbeat(self._probes))
+        self._beat()
         shutdown = asyncio.ensure_future(self._shutdown.wait())
         try:
-            now = self.clock.now()
+            now = self._now()
             pending: dict[Tick[..., Any], datetime] = {
                 tick: tick.schedule.cron.next_after(now.astimezone(tick.schedule.tz))
                 for tick in self.app.ticks
             }
             logger.info("ticker started with %d tick(s)", len(pending))
+            cap = min(self.max_sleep, self.heartbeat_interval)
             while not self._shutdown.is_set():
-                now = self.clock.now()
+                now = self._now()
                 await self._handle_due(pending, now, shutdown)
                 if self._shutdown.is_set():
                     break
                 earliest = min(pending.values())
-                delay = min(max((earliest - now).total_seconds(), 0.0), self.max_sleep)
+                delay = min(max((earliest - now).total_seconds(), 0.0), cap)
                 await self._sleep(delay, shutdown)
+                self._beat()
         finally:
             shutdown.cancel()
             await asyncio.gather(shutdown, return_exceptions=True)
-            if heartbeat is not None:
-                heartbeat.cancel()
-                await asyncio.gather(heartbeat, return_exceptions=True)
             if self._probes is not None:
                 try:
                     self._probes.clear()
@@ -179,9 +181,13 @@ class Ticker:
                 if not await self._fire(tick, slot, shutdown):
                     return
                 pending[tick] = tick.schedule.cron.next_after(slot)
+                # Keep liveness fresh through a long catch-up burst.
+                if time.monotonic() - self._last_beat >= self.heartbeat_interval:
+                    self._beat()
                 continue
-            resume_after = max(slot, (now - grace - _EPSILON).astimezone(tick.schedule.tz))
-            pending[tick] = tick.schedule.cron.next_after(resume_after)
+            # `now` is UTC and `slot` is zoned, so `max` compares instants.
+            resume_after = max(slot, now - grace - _EPSILON)
+            pending[tick] = tick.schedule.cron.next_after(resume_after.astimezone(tick.schedule.tz))
             logger.warning(
                 "tick %r: skipping missed slot(s) from %s; next slot %s",
                 tick.name,
@@ -241,15 +247,17 @@ class Ticker:
         fut.result()
         return True
 
-    async def _heartbeat(self, probes: ProbeFiles) -> None:
-        while True:
-            await asyncio.sleep(self.heartbeat_interval)
-            self._beat(probes)
+    def _now(self) -> datetime:
+        # Normalized to UTC so comparisons and subtractions with slots (which
+        # carry each tick's zone) are between instants, never wall times.
+        return self.clock.now().astimezone(timezone.utc)
 
-    @staticmethod
-    def _beat(probes: ProbeFiles) -> None:
+    def _beat(self) -> None:
+        if self._probes is None:
+            return
+        self._last_beat = time.monotonic()
         try:
-            probes.beat(ready=False)
+            self._probes.beat(ready=False)
         except OSError:
             logger.exception("failed to write probe files")
 
