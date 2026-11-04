@@ -451,3 +451,140 @@ def test_worker_rejects_invalid_arguments(kwargs: dict[str, Any]) -> None:
 
 def test_worker_accepts_zero_shutdown_timeout() -> None:
     _setup(shutdown_timeout=0)
+
+
+def _lifecycle(app: App, consumer: MemoryConsumer, events: list[str]) -> None:
+    @app.before_startup
+    async def before_startup(worker: Worker) -> None:
+        events.append(f"before_startup connected={consumer.connected}")
+
+    @app.after_startup
+    def after_startup(worker: Worker) -> None:
+        events.append(f"after_startup connected={consumer.connected}")
+
+    @app.before_shutdown
+    async def before_shutdown(worker: Worker) -> None:
+        events.append(f"before_shutdown connected={consumer.connected}")
+
+    @app.after_shutdown
+    async def after_shutdown(worker: Worker) -> None:
+        events.append(f"after_shutdown connected={consumer.connected}")
+
+
+async def test_lifecycle_hooks_run_in_order_around_the_consumer() -> None:
+    app, _, consumer, worker = _setup()
+    events: list[str] = []
+    _lifecycle(app, consumer, events)
+    run = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.05)
+    assert events == ["before_startup connected=False", "after_startup connected=True"]
+    await _stop(worker, run)
+    assert events[2:] == ["before_shutdown connected=True", "after_shutdown connected=False"]
+
+
+async def test_lifecycle_hooks_receive_the_worker() -> None:
+    app, _, _, worker = _setup()
+    received: list[Worker] = []
+
+    @app.before_startup
+    async def hook(w: Worker) -> None:
+        received.append(w)
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.02)
+    await _stop(worker, run)
+    assert received == [worker]
+
+
+async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None:
+    app, producer, _, worker = _setup()
+    order: list[str] = []
+    started = asyncio.Event()
+
+    @app.task(name="slow")
+    async def slow() -> None:
+        started.set()
+        await asyncio.sleep(0.1)
+        order.append("task done")
+
+    @app.before_shutdown
+    async def hook(w: Worker) -> None:
+        order.append("before_shutdown")
+
+    await producer.publish(Envelope.create("slow", (), {}))
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    await _stop(worker, run)
+    assert order == ["before_shutdown", "task done"]
+
+
+async def test_failing_before_startup_raises_and_never_starts_the_consumer() -> None:
+    app, _, consumer, worker = _setup()
+    events: list[str] = []
+    _lifecycle(app, consumer, events)
+
+    @app.before_startup
+    async def broken(w: Worker) -> None:
+        raise RuntimeError("no db")
+
+    with pytest.raises(RuntimeError, match="no db"):
+        await asyncio.wait_for(worker.run(), 1)
+    assert events == ["before_startup connected=False"]
+    assert not consumer.connected
+
+
+async def test_failing_after_startup_raises_after_cleaning_up() -> None:
+    app, _, consumer, worker = _setup()
+    events: list[str] = []
+
+    @app.after_startup
+    async def broken(w: Worker) -> None:
+        raise RuntimeError("warmup failed")
+
+    @app.after_shutdown
+    async def after(w: Worker) -> None:
+        events.append("after_shutdown")
+
+    with pytest.raises(RuntimeError, match="warmup failed"):
+        await asyncio.wait_for(worker.run(), 1)
+    assert not consumer.connected
+    assert events == ["after_shutdown"]
+
+
+async def test_failing_before_shutdown_still_drains_and_cleans_up_then_raises() -> None:
+    app, producer, consumer, worker = _setup()
+    done: list[str] = []
+    started = asyncio.Event()
+
+    @app.task(name="slow")
+    async def slow() -> None:
+        started.set()
+        await asyncio.sleep(0.1)
+        done.append("task")
+
+    @app.before_shutdown
+    async def broken(w: Worker) -> None:
+        raise RuntimeError("flush failed")
+
+    await producer.publish(Envelope.create("slow", (), {}))
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    worker.request_shutdown()
+    with pytest.raises(RuntimeError, match="flush failed"):
+        await asyncio.wait_for(run, 2)
+    assert done == ["task"]
+    assert not consumer.connected
+
+
+async def test_failing_after_shutdown_raises() -> None:
+    app, _, _, worker = _setup()
+
+    @app.after_shutdown
+    async def broken(w: Worker) -> None:
+        raise RuntimeError("close failed")
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.02)
+    worker.request_shutdown()
+    with pytest.raises(RuntimeError, match="close failed"):
+        await asyncio.wait_for(run, 1)

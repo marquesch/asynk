@@ -157,14 +157,61 @@ accept `--probe-dir`; exit code 0 means healthy. `asynk health` must use the
 same `--probe-dir` as the worker it checks, and two workers in one container
 need distinct directories.
 
+## Hooks
+
+Hooks extend a worker without subclassing it. Each decorator on `App` appends to
+an ordered list, and hooks run in registration order. Hooks may be `def` or
+`async def`, and sync hooks run on the event loop, so keep them cheap.
+Registering the same function twice (same `module.qualname`) is a no-op, so
+importing a module twice does not run its hooks twice.
+
+| Decorator | Runs | Receives |
+|---|---|---|
+| `before_startup` | before the consumer starts | `Worker` |
+| `after_startup` | once the consumer has started | `Worker` |
+| `before_task` | before each known task | `Envelope`, `Delivery` |
+| `after_task` | after each task, before settlement | `TaskResult`, `Delivery` |
+| `before_shutdown` | when the worker stops fetching, before draining | `Worker` |
+| `after_shutdown` | after draining, with the consumer stopped | `Worker` |
+
+```python
+from asynk import Delivery, Envelope, SkipTask, Worker
+
+
+@app.before_startup
+async def connect(worker: Worker) -> None:
+    await database.connect()
+
+
+@app.before_task
+def only_recent(envelope: Envelope, delivery: Delivery) -> None:
+    if envelope.metadata.get("expired"):
+        raise SkipTask  # the task does not run; the delivery is acked
+```
+
+A skipped task has status `SKIPPED`, and `after_task` hooks still run for it. They
+also run for unknown tasks, which skip `before_task`.
+
+Hooks fail loudly. A startup or shutdown hook that raises stops the remaining
+hooks of that event and makes `Worker.run()` raise; the worker still drains
+tasks and cleans up first. If a `before_task` or `after_task` hook raises
+anything but `SkipTask`, the error is logged and the message is redelivered:
+the worker publishes `envelope.retry()` through `app.producer` and acks the
+original, so the failure counts towards `max_retries`. Once
+`envelope.attempt >= max_retries` the message is rejected instead. With
+`max_retries=None` a hook that always fails redelivers forever, with no
+backoff. Without a producer the worker falls back to `requeue=True`, which
+redelivers the message but does not increment `attempt`.
+
 ## Retries
 
 The core does not retry. A failing task yields a `TaskResult` with status
 `FAILED` (or `RETRIES_EXCEEDED` once `envelope.attempt >= max_retries`), the
-`after_task` hook runs, and, if the hook left the delivery unsettled, the
+`after_task` hooks run, and, if the hook left the delivery unsettled, the
 failure reaches `consumer.process()` as a `TaskFailedError` and the consumer's
 default settles it (the memory transport rejects without requeue). Retry
-mechanics belong to the producer, consumer and hook. For example:
+mechanics for failing tasks belong to the producer, consumer and your hooks. (Hook
+failures are the exception; see [Hooks](#hooks).) For example:
 
 ```python
 from asynk import Delivery, TaskResult, TaskStatus
@@ -173,14 +220,12 @@ from asynk import Delivery, TaskResult, TaskStatus
 @app.after_task
 async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
-        # Publish first, then ack: if publishing fails the hook raises, the
-        # delivery is still unsettled and gets requeued, so nothing is lost.
+        # Publish first, then ack, so a crash in between duplicates instead of loses.
         await producer.publish(result.envelope.retry())  # attempt + 1
         await delivery.ack()
 ```
 
-A hook that raises causes the message to be requeued. The hook above only
-retries `FAILED`; `RETRIES_EXCEEDED` falls through to the consumer's default
+The hook above only retries `FAILED`; `RETRIES_EXCEEDED` falls through to the consumer's default
 (reject, i.e. dead-letter). If you also retried `RETRIES_EXCEEDED` here, a
 task with `max_retries=None` would retry forever.
 
@@ -194,7 +239,7 @@ running tasks. Async tasks still running afterwards are cancelled and their
 deliveries requeued. Sync tasks cannot be interrupted: after the timeout their
 delivery is requeued but the thread keeps running, so the task may run twice,
 and process exit blocks until the thread finishes. A failing `after_task` hook
-on a `SUCCESS` result also requeues the message, which runs the task again.
+on a `SUCCESS` result redelivers the message, which runs the task again.
 
 On Kubernetes set `terminationGracePeriodSeconds` above `shutdown_timeout`
 plus the longest sync task. The default `shutdown_timeout` of 30 seconds equals

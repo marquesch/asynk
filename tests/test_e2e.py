@@ -25,6 +25,7 @@ NAMES = [
     "NotConfiguredError",
     "TaskFailedError",
     "DecodeError",
+    "SkipTask",
 ]
 
 

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
+from asynk.hooks import (
+    AfterTaskHook,
+    BeforeTaskHook,
+    Hooks,
+    LifecycleHook,
+)
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
-
-if TYPE_CHECKING:
-    from asynk.hooks import AfterTaskHook
-
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -26,7 +28,7 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
-        after_task_hook: Hook set through `after_task`.
+        hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
 
     def __init__(
@@ -40,7 +42,7 @@ class App:
         self.producer = producer
         self.consumer = consumer
         self._tasks: dict[str, Task[..., Any]] = {}
-        self.after_task_hook: AfterTaskHook | None = None
+        self.hooks = Hooks()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -91,14 +93,88 @@ class App:
         """
         return self._tasks[name]
 
-    def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
-        """Registers the hook run after every task; usable as a decorator.
+    def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
+        """Registers a hook run before the worker starts its consumer.
+
+        Hooks may be sync or async and receive the `Worker`. Registering the same
+        function twice has no effect. A hook that raises stops `Worker.run`.
 
         Args:
-            hook: The async hook, replacing any previous one.
+            hook: The hook to register.
 
         Returns:
             The hook, unchanged.
         """
-        self.after_task_hook = hook
-        return hook
+        return self.hooks.before_startup.add(hook)
+
+    def after_startup(self, hook: LifecycleHook) -> LifecycleHook:
+        """Registers a hook run once the consumer has started.
+
+        Same rules as `before_startup`.
+
+        Args:
+            hook: The hook to register.
+
+        Returns:
+            The hook, unchanged.
+        """
+        return self.hooks.after_startup.add(hook)
+
+    def before_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
+        """Registers a hook run when the worker stops fetching, before it drains tasks.
+
+        Same rules as `before_startup`. If a hook raises, the worker still drains
+        and cleans up, then `Worker.run` raises.
+
+        Args:
+            hook: The hook to register.
+
+        Returns:
+            The hook, unchanged.
+        """
+        return self.hooks.before_shutdown.add(hook)
+
+    def after_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
+        """Registers a hook run after tasks are drained and the consumer has stopped.
+
+        Same rules as `before_startup`.
+
+        Args:
+            hook: The hook to register.
+
+        Returns:
+            The hook, unchanged.
+        """
+        return self.hooks.after_shutdown.add(hook)
+
+    def before_task(self, hook: BeforeTaskHook) -> BeforeTaskHook:
+        """Registers a hook run before each known task.
+
+        Hooks may be sync or async and receive the `Envelope` and `Delivery`.
+        Raise `SkipTask` to veto the task. Any other exception is treated as a
+        hook failure: the message is redelivered with its attempt count
+        incremented, up to the task's `max_retries`. Registering the same function
+        twice has no effect.
+
+        Args:
+            hook: The hook to register.
+
+        Returns:
+            The hook, unchanged.
+        """
+        return self.hooks.before_task.add(hook)
+
+    def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
+        """Registers a hook run after each task, before its delivery is settled.
+
+        Hooks may be sync or async and receive the `TaskResult` and `Delivery`, and
+        may settle the delivery. They also run for unknown and skipped tasks.
+        Failures are handled as for `before_task`.
+
+        Args:
+            hook: The hook to register.
+
+        Returns:
+            The hook, unchanged.
+        """
+        return self.hooks.after_task.add(hook)
