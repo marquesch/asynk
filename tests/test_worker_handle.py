@@ -9,7 +9,7 @@ import pytest
 
 from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
-from asynk.hooks import TaskResult, TaskStatus
+from asynk.hooks import SkipTask, TaskResult, TaskStatus
 from asynk.transport import Delivery
 from asynk.transport.memory import memory_transport
 from asynk.worker import Worker
@@ -161,27 +161,6 @@ async def test_after_task_may_requeue_via_producer() -> None:
     assert again.envelope.attempt == 1
 
 
-async def test_failing_hook_requeues_delivery_and_does_not_raise(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    app, producer, consumer, worker = _setup()
-
-    @app.task(name="ok")
-    async def ok() -> int:
-        return 1
-
-    @app.after_task
-    async def hook(result: TaskResult, delivery: Delivery) -> None:
-        raise RuntimeError("hook broke")
-
-    with caplog.at_level("ERROR", logger="asynk"):
-        result = await _run(producer, consumer, worker, Envelope.create("ok", (), {}))
-    assert result.status is TaskStatus.SUCCESS
-    assert any(r.name == "asynk" for r in caplog.records)
-    redelivered = await _next(consumer)
-    assert redelivered.envelope.task == "ok"
-
-
 async def test_cancelled_handle_requeues_delivery_and_reraises() -> None:
     app, producer, consumer, worker = _setup()
     started = asyncio.Event()
@@ -280,3 +259,206 @@ async def test_success_is_not_logged_above_debug(caplog: pytest.LogCaptureFixtur
     with caplog.at_level(logging.INFO, logger="asynk"):
         await _run(producer, consumer, worker, Envelope.create("ok", (), {}))
     assert [r for r in caplog.records if r.name == "asynk"] == []
+
+
+async def test_before_task_hooks_run_in_order_before_the_task() -> None:
+    app, producer, consumer, worker = _setup()
+    order: list[str] = []
+
+    @app.task(name="t")
+    async def t() -> None:
+        order.append("task")
+
+    @app.before_task
+    async def first(envelope: Envelope, delivery: Delivery) -> None:
+        assert envelope.task == "t"
+        assert not delivery.settled
+        order.append("first")
+
+    @app.before_task
+    def second(envelope: Envelope, delivery: Delivery) -> None:
+        order.append("second")
+
+    result = await _run(producer, consumer, worker, Envelope.create("t", (), {}))
+    assert result.status is TaskStatus.SUCCESS
+    assert order == ["first", "second", "task"]
+
+
+async def test_skip_task_vetoes_the_task() -> None:
+    app, producer, consumer, worker = _setup()
+    ran: list[str] = []
+    after: list[TaskStatus] = []
+
+    @app.task(name="t")
+    async def t() -> None:
+        ran.append("task")
+
+    @app.before_task
+    async def veto(envelope: Envelope, delivery: Delivery) -> None:
+        raise SkipTask
+
+    @app.before_task
+    async def never(envelope: Envelope, delivery: Delivery) -> None:
+        ran.append("later hook")
+
+    @app.after_task
+    async def seen(result: TaskResult, delivery: Delivery) -> None:
+        after.append(result.status)
+
+    await producer.publish(Envelope.create("t", (), {}))
+    delivery = await _next(consumer)
+    result = await worker.handle(delivery)
+    assert result.status is TaskStatus.SKIPPED
+    assert ran == []
+    assert after == [TaskStatus.SKIPPED]
+    assert delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_unknown_task_skips_before_task_but_runs_after_task() -> None:
+    app, producer, consumer, worker = _setup()
+    calls: list[str] = []
+
+    @app.before_task
+    async def before(envelope: Envelope, delivery: Delivery) -> None:
+        calls.append("before")
+
+    @app.after_task
+    async def after(result: TaskResult, delivery: Delivery) -> None:
+        calls.append("after")
+
+    result = await _run(producer, consumer, worker, Envelope.create("nope", (), {}))
+    assert result.status is TaskStatus.UNKNOWN_TASK
+    assert calls == ["after"]
+
+
+async def test_failing_before_task_redelivers_with_attempt_incremented(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, producer, consumer, worker = _setup()
+    ran: list[bool] = []
+
+    @app.task(name="t")
+    async def t() -> None:
+        ran.append(True)
+
+    @app.before_task
+    async def broken(envelope: Envelope, delivery: Delivery) -> None:
+        raise RuntimeError("hook broke")
+
+    await producer.publish(Envelope.create("t", (), {}))
+    delivery = await _next(consumer)
+    with caplog.at_level("ERROR", logger="asynk"):
+        result = await worker.handle(delivery)
+    assert result.status is TaskStatus.FAILED
+    assert isinstance(result.error, RuntimeError)
+    assert ran == []
+    assert delivery.settled
+    assert any(r.exc_info for r in caplog.records)
+    again = await _next(consumer)
+    assert again.envelope.id == delivery.envelope.id
+    assert again.envelope.attempt == 1
+
+
+async def test_failing_after_task_redelivers_with_attempt_incremented() -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="ok")
+    async def ok() -> int:
+        return 1
+
+    @app.after_task
+    async def broken(result: TaskResult, delivery: Delivery) -> None:
+        raise RuntimeError("hook broke")
+
+    result = await _run(producer, consumer, worker, Envelope.create("ok", (), {}))
+    assert result.status is TaskStatus.FAILED
+    assert (await _next(consumer)).envelope.attempt == 1
+
+
+async def test_hook_failure_stops_redelivering_after_max_retries() -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="t", max_retries=1)
+    async def t() -> None: ...
+
+    @app.after_task
+    async def broken(result: TaskResult, delivery: Delivery) -> None:
+        raise RuntimeError("hook broke")
+
+    await producer.publish(Envelope.create("t", (), {}))
+    first = await worker.handle(await _next(consumer))
+    assert first.status is TaskStatus.FAILED
+    second_delivery = await _next(consumer)
+    assert second_delivery.envelope.attempt == 1
+    second = await worker.handle(second_delivery)
+    assert second.status is TaskStatus.RETRIES_EXCEEDED
+    assert second_delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_hook_failure_without_a_producer_requeues_the_same_attempt() -> None:
+    producer, consumer = memory_transport()
+    app = App("t", consumer=consumer)
+    worker = Worker(app)
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    @app.after_task
+    async def broken(result: TaskResult, delivery: Delivery) -> None:
+        raise RuntimeError("hook broke")
+
+    await producer.publish(Envelope.create("ok", (), {}))
+    await worker.handle(await _next(consumer))
+    assert (await _next(consumer)).envelope.attempt == 0
+
+
+async def test_hook_failure_with_failing_republish_leaves_default_settlement(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class BrokenProducer:
+        async def publish(self, envelope: Envelope) -> None:
+            raise ConnectionError("broker down")
+
+    producer, consumer = memory_transport()
+    app = App("t", producer=BrokenProducer(), consumer=consumer)
+    worker = Worker(app)
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    @app.after_task
+    async def broken(result: TaskResult, delivery: Delivery) -> None:
+        raise RuntimeError("hook broke")
+
+    await producer.publish(Envelope.create("ok", (), {}))
+    delivery = await _next(consumer)
+    with caplog.at_level("ERROR", logger="asynk"):
+        result = await worker.handle(delivery)
+    assert result.status is TaskStatus.FAILED
+    assert delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_hook_that_settles_then_raises_is_only_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    @app.after_task
+    async def broken(result: TaskResult, delivery: Delivery) -> None:
+        await delivery.ack()
+        raise RuntimeError("hook broke")
+
+    with caplog.at_level("ERROR", logger="asynk"):
+        await _run(producer, consumer, worker, Envelope.create("ok", (), {}))
+    assert any(r.exc_info for r in caplog.records)
+    with pytest.raises(TimeoutError):
+        await _next(consumer)

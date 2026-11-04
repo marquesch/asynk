@@ -9,13 +9,15 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from asynk.app import App, NotConfiguredError
-from asynk.hooks import TaskFailedError, TaskResult, TaskStatus
+from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
 from asynk.transport import Consumer, Delivery
 
 _SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
 T = TypeVar("T")
+
+_CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
 
 logger = logging.getLogger("asynk")
 
@@ -111,8 +113,18 @@ class Worker:
 
         In-flight tasks are given `shutdown_timeout` seconds to finish; stragglers
         are cancelled and their deliveries requeued.
+
+        Startup and shutdown hooks run around the consumer; see `App.before_startup`
+        and its siblings. A hook that raises makes this method raise.
         """
+        await run_hooks(self.app.hooks.before_startup, self)
         await self.consumer.start()
+        try:
+            await self._serve()
+        finally:
+            await run_hooks(self.app.hooks.after_shutdown, self)
+
+    async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)
         in_flight: set[asyncio.Task[None]] = set()
         deliveries = aiter(self.consumer.deliveries())
@@ -122,6 +134,7 @@ class Worker:
             self._probes_live = True
             heartbeat = asyncio.create_task(self._heartbeat(self._probes))
         try:
+            await run_hooks(self.app.hooks.after_startup, self)
             while not self._shutdown.is_set():
                 if not await self._race(semaphore.acquire(), shutdown):
                     break
@@ -135,7 +148,10 @@ class Worker:
                 task = asyncio.create_task(self._handle_and_release(delivery, semaphore))
                 in_flight.add(task)
                 task.add_done_callback(in_flight.discard)
-            await self._drain(in_flight)
+            try:
+                await run_hooks(self.app.hooks.before_shutdown, self)
+            finally:
+                await self._drain(in_flight)
         except BaseException:
             await self._cancel(in_flight)
             raise
@@ -195,6 +211,11 @@ class Worker:
     async def handle(self, delivery: Delivery) -> TaskResult:
         """Runs the task for one delivery inside the consumer's `process` context.
 
+        `before_task` and `after_task` hooks run around the task. If a hook raises,
+        the error is logged and the message is redelivered with `attempt`
+        incremented (up to the task's `max_retries`), and the returned result has
+        status `FAILED`.
+
         Args:
             delivery: The delivery to handle.
 
@@ -207,17 +228,48 @@ class Worker:
                 try:
                     result = await self._execute(delivery)
                     self._log_result(result)
-                    await self._run_hook(result, delivery)
+                    await run_hooks(self.app.hooks.after_task, result, delivery)
                 except asyncio.CancelledError:
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
                     raise
-                if not delivery.settled and result.status is not TaskStatus.SUCCESS:
+                except Exception as exc:
+                    result = await self._on_hook_failure(delivery, exc)
+                if not delivery.settled and result.status not in _CLEAN_STATUSES:
                     raise TaskFailedError(result)
         except TaskFailedError as exc:
             return exc.result
         assert result is not None
         return result
+
+    async def _on_hook_failure(self, delivery: Delivery, exc: Exception) -> TaskResult:
+        envelope = delivery.envelope
+        logger.error(
+            "hook failed for task %r (id=%s, attempt=%d)",
+            envelope.task,
+            envelope.id,
+            envelope.attempt,
+            exc_info=exc,
+        )
+        status = TaskStatus.FAILED
+        if not delivery.settled:
+            task = self.app.tasks.get(envelope.task)
+            max_retries = task.max_retries if task is not None else None
+            if max_retries is not None and envelope.attempt >= max_retries:
+                status = TaskStatus.RETRIES_EXCEEDED
+                await delivery.reject()
+            elif self.app.producer is None:
+                await delivery.reject(requeue=True)
+            else:
+                try:
+                    await self.app.producer.publish(envelope.retry())
+                except Exception:
+                    logger.exception(
+                        "failed to redeliver task %r (id=%s)", envelope.task, envelope.id
+                    )
+                else:
+                    await delivery.ack()
+        return TaskResult(envelope, status, error=exc)
 
     @staticmethod
     def _log_result(result: TaskResult) -> None:
@@ -241,6 +293,8 @@ class Worker:
                 )
             case TaskStatus.UNKNOWN_TASK:
                 logger.warning("unknown task %r (id=%s)", name, result.envelope.id)
+            case TaskStatus.SKIPPED:
+                logger.info("task %r (id=%s) skipped by a hook", name, result.envelope.id)
             case TaskStatus.SUCCESS:
                 logger.debug("task %r (id=%s) succeeded", name, result.envelope.id)
 
@@ -250,6 +304,10 @@ class Worker:
             task = self.app.get_task(envelope.task)
         except KeyError:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
+        try:
+            await run_hooks(self.app.hooks.before_task, envelope, delivery)
+        except SkipTask:
+            return TaskResult(envelope, TaskStatus.SKIPPED)
         try:
             value: Any
             if task.is_async:
@@ -263,14 +321,3 @@ class Worker:
             status = TaskStatus.RETRIES_EXCEEDED if exceeded else TaskStatus.FAILED
             return TaskResult(envelope, status, error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)
-
-    async def _run_hook(self, result: TaskResult, delivery: Delivery) -> None:
-        hook = self.app.after_task_hook
-        if hook is None:
-            return
-        try:
-            await hook(result, delivery)
-        except Exception:
-            logger.exception("after_task hook failed for task %r", result.envelope.task)
-            if not delivery.settled:
-                await delivery.reject(requeue=True)
