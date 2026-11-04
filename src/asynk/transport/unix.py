@@ -134,7 +134,7 @@ class UnixConsumer:
         try:
             async for line in reader:
                 try:
-                    self._queue.put_nowait(self._codec.decode(line))
+                    self._queue.put_nowait(self._codec.decode(line.removesuffix(b"\n")))
                 except DecodeError:
                     continue
         except ValueError:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from asynk import App, Envelope, JsonCodec, Worker
+from asynk import App, DecodeError, Envelope, JsonCodec, Worker
 from asynk.transport import Delivery
 from asynk.transport.unix import UnixConsumer, UnixProducer, unix_transport
 
@@ -171,3 +171,26 @@ async def test_worker_runs_a_task_published_through_the_socket(tmp_path: Path) -
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
     assert seen == [5]
+
+
+class _StrictCodec:
+    def __init__(self) -> None:
+        self._json = JsonCodec()
+
+    def encode(self, envelope: Envelope) -> bytes:
+        return self._json.encode(envelope)
+
+    def decode(self, data: bytes) -> Envelope:
+        if data.endswith(b"\n"):
+            raise DecodeError("delimiter leaked into the message")
+        return self._json.decode(data)
+
+
+async def test_codec_never_sees_the_message_delimiter(tmp_path: Path) -> None:
+    producer, consumer = unix_transport(tmp_path / "s.sock", _StrictCodec())
+    await consumer.start()
+    try:
+        await producer.publish(Envelope.create("t", (), {}))
+        assert (await _first(consumer)).envelope.task == "t"
+    finally:
+        await consumer.stop()
