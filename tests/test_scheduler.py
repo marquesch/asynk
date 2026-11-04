@@ -15,6 +15,7 @@ import pytest
 from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
+from asynk.runner import Runner
 from asynk.scheduler import Scheduler, SystemClock
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
@@ -563,3 +564,178 @@ async def test_non_utc_clock_judges_lateness_across_fall_back() -> None:
         ("job", "2026-11-01T07:00:00+00:00"),
         ("job", "2026-11-01T08:00:00+00:00"),
     ]
+
+
+def _hooked_app() -> tuple[App, list[str]]:
+    app, _ = _app()
+    events: list[str] = []
+
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    return app, events
+
+
+async def _run_blocking(app: App, **kwargs: Any) -> Scheduler:
+    clock = BlockingClock(_at("2026-11-04T11:29:30"))
+    scheduler = Scheduler(app, clock=clock, **kwargs)
+    run = asyncio.create_task(scheduler.run())
+    await asyncio.wait_for(clock.sleeping.wait(), 1)
+    scheduler.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    return scheduler
+
+
+async def test_lifecycle_hooks_run_in_order_and_receive_the_scheduler() -> None:
+    app, events = _hooked_app()
+    received: list[Runner] = []
+
+    @app.before_startup
+    async def before_startup(runner: Runner) -> None:
+        received.append(runner)
+        events.append("before_startup")
+
+    @app.after_startup
+    def after_startup(runner: Runner) -> None:
+        received.append(runner)
+        events.append("after_startup")
+
+    @app.before_shutdown
+    async def before_shutdown(runner: Runner) -> None:
+        received.append(runner)
+        events.append("before_shutdown")
+
+    @app.after_shutdown
+    def after_shutdown(runner: Runner) -> None:
+        received.append(runner)
+        events.append("after_shutdown")
+
+    scheduler = await _run_blocking(app)
+    assert events == ["before_startup", "after_startup", "before_shutdown", "after_shutdown"]
+    assert received == [scheduler] * 4
+    assert all(r.role == "scheduler" for r in received)
+    assert scheduler.role == "scheduler"
+
+
+async def test_hooks_run_around_the_loop_and_probes(tmp_path: Path) -> None:
+    app, events = _hooked_app()
+    live = tmp_path / "liveness"
+
+    @app.before_startup
+    def before_startup(runner: Runner) -> None:
+        events.append(f"before_startup live={live.exists()}")
+
+    @app.after_startup
+    def after_startup(runner: Runner) -> None:
+        events.append(f"after_startup live={live.exists()}")
+
+    @app.before_shutdown
+    def before_shutdown(runner: Runner) -> None:
+        events.append(f"before_shutdown live={live.exists()}")
+
+    @app.after_shutdown
+    def after_shutdown(runner: Runner) -> None:
+        events.append(f"after_shutdown live={live.exists()}")
+
+    await _run_blocking(app, probe_dir=tmp_path)
+    assert events == [
+        "before_startup live=False",
+        "after_startup live=True",
+        "before_shutdown live=True",
+        "after_shutdown live=False",
+    ]
+
+
+async def test_nothing_fires_before_after_startup() -> None:
+    app, _ = _app()
+    fired: list[int] = []
+
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
+    def job() -> None: ...
+
+    @app.after_startup
+    def after_startup(runner: Runner) -> None:
+        fired.append(len(runner.app.scheduled_tasks))
+
+    clock = FakeClock(_at("2026-11-04T11:29:30"), _at("2026-11-04T11:31:00"))
+    await _run(app, clock)
+    assert fired == [1]
+
+
+async def test_failing_before_startup_raises_and_skips_the_loop() -> None:
+    app, events = _hooked_app()
+
+    @app.before_startup
+    async def broken(runner: Runner) -> None:
+        raise RuntimeError("no telemetry")
+
+    @app.after_startup
+    def after_startup(runner: Runner) -> None:
+        events.append("after_startup")
+
+    @app.after_shutdown
+    def after_shutdown(runner: Runner) -> None:
+        events.append("after_shutdown")
+
+    clock = BlockingClock(_at("2026-11-04T11:29:30"))
+    scheduler = Scheduler(app, clock=clock)
+    with pytest.raises(RuntimeError, match="no telemetry"):
+        await asyncio.wait_for(scheduler.run(), 1)
+    assert events == []
+    assert not clock.sleeping.is_set()
+
+
+async def test_failing_after_startup_raises_after_cleaning_up(tmp_path: Path) -> None:
+    app, events = _hooked_app()
+
+    @app.after_startup
+    async def broken(runner: Runner) -> None:
+        raise RuntimeError("warmup failed")
+
+    @app.after_shutdown
+    def after_shutdown(runner: Runner) -> None:
+        events.append(f"after_shutdown live={(tmp_path / 'liveness').exists()}")
+
+    clock = BlockingClock(_at("2026-11-04T11:29:30"))
+    scheduler = Scheduler(app, clock=clock, probe_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="warmup failed"):
+        await asyncio.wait_for(scheduler.run(), 1)
+    assert events == ["after_shutdown live=False"]
+    assert not clock.sleeping.is_set()
+
+
+async def test_failing_before_shutdown_cleans_up_then_raises(tmp_path: Path) -> None:
+    app, events = _hooked_app()
+
+    @app.before_shutdown
+    async def broken(runner: Runner) -> None:
+        raise RuntimeError("flush failed")
+
+    @app.before_shutdown
+    def skipped(runner: Runner) -> None:
+        events.append("skipped")
+
+    @app.after_shutdown
+    def after_shutdown(runner: Runner) -> None:
+        events.append(f"after_shutdown live={(tmp_path / 'liveness').exists()}")
+
+    clock = BlockingClock(_at("2026-11-04T11:29:30"))
+    scheduler = Scheduler(app, clock=clock, probe_dir=tmp_path)
+    run = asyncio.create_task(scheduler.run())
+    await asyncio.wait_for(clock.sleeping.wait(), 1)
+    scheduler.request_shutdown()
+    with pytest.raises(RuntimeError, match="flush failed"):
+        await asyncio.wait_for(run, 1)
+    assert events == ["after_shutdown live=False"]
+    assert not _leaked_tasks()
+
+
+async def test_failing_after_shutdown_raises() -> None:
+    app, _ = _hooked_app()
+
+    @app.after_shutdown
+    async def broken(runner: Runner) -> None:
+        raise RuntimeError("close failed")
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        await _run_blocking(app)

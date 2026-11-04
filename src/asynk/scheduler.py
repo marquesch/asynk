@@ -5,10 +5,12 @@ import logging
 from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from asynk.app import App, NotConfiguredError
+from asynk.hooks import run_hooks
 from asynk.probes import ProbeFiles
+from asynk.runner import Role, Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.signals import shutdown_signals
 
@@ -50,7 +52,7 @@ class SystemClock:
         await asyncio.sleep(seconds)
 
 
-class Scheduler:
+class Scheduler(Runner):
     """Publishes an app's scheduled tasks when their cron slots come due.
 
     Fire times are decided with the wall clock, re-read after every wake, so a
@@ -68,7 +70,10 @@ class Scheduler:
             sleep, so the wall clock is re-read at least this often.
         grace: Seconds a slot may be late and still fire; older slots are
             skipped with a warning.
+        role: Always "scheduler".
     """
+
+    role: ClassVar[Role] = "scheduler"
 
     def __init__(
         self,
@@ -127,7 +132,17 @@ class Scheduler:
         Nothing fires at startup: each scheduled task's first slot is the first one after
         the current time. Shutdown interrupts the sleep and does not wait for
         slots that are not yet due.
+
+        Startup and shutdown hooks run around the loop; see `App.before_startup`
+        and its siblings. A hook that raises makes this method raise.
         """
+        await run_hooks(self.app.hooks.before_startup, self)
+        try:
+            await self._serve()
+        finally:
+            await run_hooks(self.app.hooks.after_shutdown, self)
+
+    async def _serve(self) -> None:
         self._beat()
         shutdown = asyncio.ensure_future(self._shutdown.wait())
         try:
@@ -137,6 +152,7 @@ class Scheduler:
                 for task in self.app.scheduled_tasks
             }
             logger.info("scheduler started with %d scheduled task(s)", len(pending))
+            await run_hooks(self.app.hooks.after_startup, self)
             while not self._shutdown.is_set():
                 now = self._now()
                 await self._handle_due(pending, now, shutdown)
@@ -144,6 +160,7 @@ class Scheduler:
                 delay = min(max((earliest - now).total_seconds(), 0.0), self.heartbeat_interval)
                 await self._sleep(delay, shutdown)
                 self._beat()
+            await run_hooks(self.app.hooks.before_shutdown, self)
         finally:
             shutdown.cancel()
             await asyncio.gather(shutdown, return_exceptions=True)

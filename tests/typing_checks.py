@@ -1,6 +1,6 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
-from asynk import Delivery, TaskResult, TaskStatus
+from asynk import Delivery, Runner, TaskResult, TaskStatus, Worker
 from asynk.app import App
 from asynk.transport.memory import memory_transport
 
@@ -34,3 +34,21 @@ async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
         await producer.publish(result.envelope.retry())
         await delivery.ack()
+
+
+@app.before_startup
+async def init_telemetry(runner: Runner) -> None:
+    if runner.role == "worker":
+        return None
+
+
+@app.after_startup
+def warm_up(runner: Runner) -> None:
+    del runner
+
+
+# Lifecycle hooks receive any `Runner`, so a hook typed for `Worker` alone is
+# rejected: parameter types are contravariant.
+@app.before_shutdown  # type: ignore[arg-type]
+async def worker_only(worker: Worker) -> None:
+    del worker

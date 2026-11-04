@@ -5,11 +5,12 @@ import inspect
 import logging
 from collections.abc import Awaitable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
+from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
 
@@ -20,7 +21,7 @@ _CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
 logger = logging.getLogger("asynk")
 
 
-class Worker:
+class Worker(Runner):
     """Runs an app's tasks, consuming deliveries with bounded concurrency.
 
     Attributes:
@@ -30,7 +31,10 @@ class Worker:
         shutdown_timeout: Seconds to let running tasks finish after shutdown is requested.
         probe_dir: Directory for probe files; None disables them.
         heartbeat_interval: Seconds between probe file updates.
+        role: Always "worker".
     """
+
+    role: ClassVar[Role] = "worker"
 
     def __init__(
         self,

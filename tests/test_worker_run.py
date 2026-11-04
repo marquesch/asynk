@@ -16,6 +16,7 @@ import pytest
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.hooks import TaskResult, TaskStatus
+from asynk.runner import Runner
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
 from asynk.worker import Worker
@@ -455,19 +456,19 @@ def test_worker_accepts_zero_shutdown_timeout() -> None:
 
 def _lifecycle(app: App, consumer: MemoryConsumer, events: list[str]) -> None:
     @app.before_startup
-    async def before_startup(worker: Worker) -> None:
+    async def before_startup(worker: Runner) -> None:
         events.append(f"before_startup connected={consumer.connected}")
 
     @app.after_startup
-    def after_startup(worker: Worker) -> None:
+    def after_startup(worker: Runner) -> None:
         events.append(f"after_startup connected={consumer.connected}")
 
     @app.before_shutdown
-    async def before_shutdown(worker: Worker) -> None:
+    async def before_shutdown(worker: Runner) -> None:
         events.append(f"before_shutdown connected={consumer.connected}")
 
     @app.after_shutdown
-    async def after_shutdown(worker: Worker) -> None:
+    async def after_shutdown(worker: Runner) -> None:
         events.append(f"after_shutdown connected={consumer.connected}")
 
 
@@ -484,16 +485,32 @@ async def test_lifecycle_hooks_run_in_order_around_the_consumer() -> None:
 
 async def test_lifecycle_hooks_receive_the_worker() -> None:
     app, _, _, worker = _setup()
-    received: list[Worker] = []
+    received: list[Runner] = []
 
     @app.before_startup
-    async def hook(w: Worker) -> None:
+    async def hook(w: Runner) -> None:
         received.append(w)
 
     run = asyncio.create_task(worker.run())
     await asyncio.sleep(0.02)
     await _stop(worker, run)
     assert received == [worker]
+
+
+async def test_lifecycle_hooks_see_the_worker_role() -> None:
+    app, _, _, worker = _setup()
+    roles: list[str] = []
+
+    @app.before_startup
+    def hook(runner: Runner) -> None:
+        roles.append(runner.role)
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.02)
+    await _stop(worker, run)
+    assert roles == ["worker"]
+    assert worker.role == "worker"
+    assert isinstance(worker, Runner)
 
 
 async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None:
@@ -508,7 +525,7 @@ async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None
         order.append("task done")
 
     @app.before_shutdown
-    async def hook(w: Worker) -> None:
+    async def hook(w: Runner) -> None:
         order.append("before_shutdown")
 
     await producer.publish(Envelope.create("slow", (), {}))
@@ -524,7 +541,7 @@ async def test_failing_before_startup_raises_and_never_starts_the_consumer() -> 
     _lifecycle(app, consumer, events)
 
     @app.before_startup
-    async def broken(w: Worker) -> None:
+    async def broken(w: Runner) -> None:
         raise RuntimeError("no db")
 
     with pytest.raises(RuntimeError, match="no db"):
@@ -538,11 +555,11 @@ async def test_failing_after_startup_raises_after_cleaning_up() -> None:
     events: list[str] = []
 
     @app.after_startup
-    async def broken(w: Worker) -> None:
+    async def broken(w: Runner) -> None:
         raise RuntimeError("warmup failed")
 
     @app.after_shutdown
-    async def after(w: Worker) -> None:
+    async def after(w: Runner) -> None:
         events.append("after_shutdown")
 
     with pytest.raises(RuntimeError, match="warmup failed"):
@@ -563,7 +580,7 @@ async def test_failing_before_shutdown_still_drains_and_cleans_up_then_raises() 
         done.append("task")
 
     @app.before_shutdown
-    async def broken(w: Worker) -> None:
+    async def broken(w: Runner) -> None:
         raise RuntimeError("flush failed")
 
     await producer.publish(Envelope.create("slow", (), {}))
@@ -580,7 +597,7 @@ async def test_failing_after_shutdown_raises() -> None:
     app, _, _, worker = _setup()
 
     @app.after_shutdown
-    async def broken(w: Worker) -> None:
+    async def broken(w: Runner) -> None:
         raise RuntimeError("close failed")
 
     run = asyncio.create_task(worker.run())

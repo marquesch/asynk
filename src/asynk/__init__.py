@@ -5,6 +5,7 @@ from asynk.codec import Codec, DecodeError
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope, NonJsonArgumentError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus
+from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.scheduler import Scheduler
 from asynk.task import Task
@@ -22,6 +23,7 @@ __all__ = [
     "NonJsonArgumentError",
     "NotConfiguredError",
     "Producer",
+    "Runner",
     "SkipTask",
     "Task",
     "TaskFailedError",

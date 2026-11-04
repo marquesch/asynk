@@ -126,8 +126,8 @@ When both day-of-month and day-of-week are restricted, a slot matches if either
 does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
 Nothing fires at startup: the first slot is the first one after the scheduler starts.
 
-The scheduler publishes with the app's producer and does not run the app's
-startup or shutdown hooks. On shutdown (SIGTERM or SIGINT) an in-flight publish
+The scheduler publishes with the app's producer and runs the app's startup and
+shutdown hooks (see [Hooks](#hooks)); `runner.role` is `"scheduler"` there. On shutdown (SIGTERM or SIGINT) an in-flight publish
 is cancelled. It writes the `liveness` probe file (never `readiness`), so use
 the liveness probe from [Probes](#probes) with the same `--probe-dir`. The probe
 is refreshed by the scheduler's main loop, so a scheduler stuck in a hung publish (for
@@ -249,7 +249,7 @@ need distinct directories.
 
 ## Hooks
 
-Hooks extend a worker without subclassing it. Each decorator on `App` appends to
+Hooks extend a worker or scheduler without subclassing it. Each decorator on `App` appends to
 an ordered list, and hooks run in registration order. Hooks may be `def` or
 `async def`, and sync hooks run on the event loop, so keep them cheap.
 Registering the same function twice (same `module.qualname`) is a no-op, so
@@ -257,20 +257,27 @@ importing a module twice does not run its hooks twice.
 
 | Decorator | Runs | Receives |
 |---|---|---|
-| `before_startup` | before the consumer starts | `Worker` |
-| `after_startup` | once the consumer has started | `Worker` |
+| `before_startup` | before the consumer starts (worker) or the loop starts (scheduler) | `Runner` |
+| `after_startup` | once the consumer has started (worker) or the loop is about to start (scheduler) | `Runner` |
 | `before_task` | before each known task | `Envelope`, `Delivery` |
 | `after_task` | after each task, before settlement | `TaskResult`, `Delivery` |
-| `before_shutdown` | when the worker stops fetching, before draining | `Worker` |
-| `after_shutdown` | after draining, with the consumer stopped | `Worker` |
+| `before_shutdown` | when the worker stops fetching, before draining; when the scheduler stops | `Runner` |
+| `after_shutdown` | last: after draining with the consumer stopped (worker); after the loop ended (scheduler) | `Runner` |
+
+The four lifecycle hooks run in every asynk process, `Worker` and `Scheduler`, and
+receive a `Runner`. `runner.role` is `"worker"` or `"scheduler"`, so a hook can
+branch where the processes differ. A hook annotated `Worker` is rejected by mypy,
+since it would not accept a scheduler; annotate it `Runner`.
 
 ```python
-from asynk import Delivery, Envelope, SkipTask, Worker
+from asynk import Delivery, Envelope, Runner, SkipTask
 
 
 @app.before_startup
-async def connect(worker: Worker) -> None:
-    await database.connect()
+async def startup(runner: Runner) -> None:
+    sentry_sdk.init()  # telemetry in every process: workers and the scheduler
+    if runner.role == "worker":
+        await database.connect()  # only workers need the database
 
 
 @app.before_task
@@ -283,8 +290,8 @@ A skipped task has status `SKIPPED`, and `after_task` hooks still run for it. Th
 also run for unknown tasks, which skip `before_task`.
 
 Hooks fail loudly. A startup or shutdown hook that raises stops the remaining
-hooks of that event and makes `Worker.run()` raise; the worker still drains
-tasks and cleans up first. If a `before_task` or `after_task` hook raises
+hooks of that event and makes `Worker.run()` or `Scheduler.run()` raise; the
+process still drains tasks (worker) and cleans up first. If a `before_task` or `after_task` hook raises
 anything but `SkipTask`, the error is logged and the message is redelivered:
 the worker publishes `envelope.retry()` through `app.producer` and acks the
 original, so the failure counts towards `max_retries`. Once

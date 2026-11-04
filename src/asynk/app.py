@@ -159,10 +159,23 @@ class App:
         return self._tasks[name]
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run before the worker starts its consumer.
+        """Registers a hook run before a worker starts its consumer or a scheduler its loop.
 
-        Hooks may be sync or async and receive the `Worker`. Registering the same
-        function twice has no effect. A hook that raises stops `Worker.run`.
+        Lifecycle hooks run in every asynk process, worker and scheduler alike.
+        They may be sync or async and receive the `Runner` (the `Worker` or
+        `Scheduler`); `runner.role` is "worker" or "scheduler". Registering the
+        same function twice has no effect. A hook that raises stops `Worker.run`
+        or `Scheduler.run`.
+
+        Example:
+            Initialize telemetry in every process, but open a database pool only
+            in workers::
+
+                @app.before_startup
+                async def startup(runner: Runner) -> None:
+                    init_sentry()
+                    if runner.role == "worker":
+                        await database.connect()
 
         Args:
             hook: The hook to register.
@@ -173,7 +186,7 @@ class App:
         return self.hooks.before_startup.add(hook)
 
     def after_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run once the consumer has started.
+        """Registers a hook run once the consumer (worker) or the scheduler loop has started.
 
         Same rules as `before_startup`.
 
@@ -186,10 +199,11 @@ class App:
         return self.hooks.after_startup.add(hook)
 
     def before_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run when the worker stops fetching, before it drains tasks.
+        """Registers a hook run when a worker stops fetching (before draining) or a scheduler stops.
 
         Same rules as `before_startup`. If a hook raises, the worker still drains
-        and cleans up, then `Worker.run` raises.
+        and cleans up, then `Worker.run` raises; the scheduler cleans up and
+        `Scheduler.run` raises.
 
         Args:
             hook: The hook to register.
@@ -200,7 +214,7 @@ class App:
         return self.hooks.before_shutdown.add(hook)
 
     def after_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run after tasks are drained and the consumer has stopped.
+        """Registers a hook run last: after a worker drained and stopped, or a scheduler stopped.
 
         Same rules as `before_startup`.
 
