@@ -46,6 +46,8 @@ _WEEKDAY_NAMES = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "s
 # Longest day of month in any year, February counted as 29.
 _MAX_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
+_MAX_NUMBER_DIGITS = 4
+
 # Any month/day combination accepted by `parse` falls on every weekday within
 # 400 years (one Gregorian cycle), so `next_after` finds a slot well before this.
 _SEARCH_YEARS = 401
@@ -163,7 +165,11 @@ class CronExpression:
         if tz is None or after.utcoffset() is None:
             raise ValueError(f"after must be timezone-aware, got {after!r}")
         after_utc = after.astimezone(timezone.utc)
-        # Wall-clock candidates earlier than this minute are earlier instants too.
+        # Normalize to the wall time that `tz` itself gives this instant, so a
+        # non-normalized `after` (such as fold=1 inside a DST gap) starts at the
+        # right wall minute. Existing fold=0 wall times map to instants in order,
+        # so candidates earlier than this minute are earlier instants too.
+        after = after_utc.astimezone(tz)
         start = after.replace(tzinfo=None, second=0, microsecond=0, fold=0)
         start += timedelta(minutes=1)
         hours = sorted(self.hours)
@@ -238,6 +244,10 @@ def _parse_value(text: str, spec: _Field) -> int:
 def _parse_number(text: str, what: str) -> int:
     if not (text.isascii() and text.isdigit()):
         raise CronError(f"{what}: expected a number, got {text!r}")
+    # No field needs more than two digits; the cap also keeps `int` from raising
+    # its own ValueError on very long strings.
+    if len(text) > _MAX_NUMBER_DIGITS:
+        raise CronError(f"{what}: number {text[:10]!r}... is too long")
     return int(text)
 
 

@@ -179,6 +179,8 @@ def test_day_fields_restricted_unless_text_starts_with_star(
         "jan * * * *",
         "* * * monday *",
         "@daily",
+        pytest.param("1" * 5000 + " * * * *", id="5000-digit-value"),
+        pytest.param("*/" + "1" * 5000 + " * * * *", id="5000-digit-step"),
         "0 0 31 2 *",
         "0 0 30 feb *",
         "0 0 31 4,6,9,11 *",
@@ -378,6 +380,16 @@ def test_fall_back_fires_once_at_first_occurrence() -> None:
     assert result[0].utcoffset() == timedelta(hours=-4)
     assert result[0].astimezone(UTC) == utc(2026, 11, 1, 5, 30)
     assert result[1] == datetime(2026, 11, 2, 1, 30, tzinfo=NY)
+
+
+def test_non_normalized_after_in_gap_uses_its_instant() -> None:
+    # fold=1 in the gap uses the post-transition offset (EDT): 06:30 UTC = 01:30 EST.
+    after = datetime(2026, 3, 8, 2, 30, fold=1, tzinfo=NY)
+    assert after.astimezone(UTC) == utc(2026, 3, 8, 6, 30)
+    result = next_after("* * * * *", after)
+    assert result.astimezone(UTC) == utc(2026, 3, 8, 6, 31)
+    assert (result.hour, result.minute, result.utcoffset()) == (1, 31, timedelta(hours=-5))
+    assert result.tzinfo is NY
 
 
 def test_fall_back_from_second_occurrence_goes_to_next_day() -> None:
