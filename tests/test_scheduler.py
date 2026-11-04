@@ -15,7 +15,7 @@ import pytest
 from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
-from asynk.ticker import SystemClock, Ticker
+from asynk.scheduler import Scheduler, SystemClock
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
 UTC = timezone.utc
@@ -29,7 +29,7 @@ class FakeClock:
     """Clock whose `sleep` advances `now` instead of waiting.
 
     Once `now` reaches `until`, the next `sleep` calls `on_limit` and blocks
-    forever, so the ticker under test stops through its normal shutdown path.
+    forever, so the scheduler under test stops through its normal shutdown path.
     `warps[n]` is added to `now` after the n-th sleep (0-based), simulating a
     stall (positive) or the wall clock stepping back (negative). With `zone`,
     `now()` returns the time in that zone instead of UTC.
@@ -81,11 +81,11 @@ async def _published(consumer: MemoryConsumer) -> list[Envelope]:
     return [d.envelope async for d in consumer.deliveries()]
 
 
-async def _run(app: App, clock: FakeClock, **kwargs: Any) -> Ticker:
-    ticker = Ticker(app, clock=clock, **kwargs)
-    clock.on_limit = ticker.request_shutdown
-    await asyncio.wait_for(ticker.run(), 1)
-    return ticker
+async def _run(app: App, clock: FakeClock, **kwargs: Any) -> Scheduler:
+    scheduler = Scheduler(app, clock=clock, **kwargs)
+    clock.on_limit = scheduler.request_shutdown
+    await asyncio.wait_for(scheduler.run(), 1)
+    return scheduler
 
 
 def _slots(envelopes: list[Envelope]) -> list[tuple[str, Any]]:
@@ -95,7 +95,7 @@ def _slots(envelopes: list[Envelope]) -> list[tuple[str, Any]]:
 async def test_fires_on_slot_with_fixed_args_and_kwargs() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="30 * * * *", tz="UTC", args=[1, "a"], kwargs={"b": [2]}, name="job")
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", args=[1, "a"], kwargs={"b": [2]}, name="job")
     def job(n: int, s: str, *, b: list[int]) -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:00"), until=_at("2026-11-04T11:31:00"))
@@ -109,7 +109,7 @@ async def test_fires_on_slot_with_fixed_args_and_kwargs() -> None:
 async def test_metadata_has_idempotency_key_and_scheduled_at() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="30 8 * * *", tz="America/Sao_Paulo", name="job")
+    @app.scheduled_task(cron="30 8 * * *", tz="America/Sao_Paulo", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:00:00"), until=_at("2026-11-04T12:00:00"))
@@ -121,12 +121,12 @@ async def test_metadata_has_idempotency_key_and_scheduled_at() -> None:
     }
 
 
-async def test_two_tickers_same_slot_same_key() -> None:
+async def test_two_schedulers_same_slot_same_key() -> None:
     keys = []
     for _ in range(2):
         app, consumer = _app()
 
-        @app.tick(cron="*/5 * * * *", tz="Europe/Berlin", name="job")
+        @app.scheduled_task(cron="*/5 * * * *", tz="Europe/Berlin", name="job")
         def job() -> None: ...
 
         clock = FakeClock(_at("2026-11-04T11:02:17"), until=_at("2026-11-04T11:06:00"))
@@ -139,7 +139,7 @@ async def test_two_tickers_same_slot_same_key() -> None:
 async def test_nothing_fires_at_startup() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="30 11 * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="30 11 * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     # Starting exactly on a slot does not fire it.
@@ -148,13 +148,13 @@ async def test_nothing_fires_at_startup() -> None:
     assert await _published(consumer) == []
 
 
-async def test_only_due_ticks_fire() -> None:
+async def test_only_due_scheduled_tasks_fire() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="*/10 * * * *", tz="UTC", name="often")
+    @app.scheduled_task(cron="*/10 * * * *", tz="UTC", name="often")
     def often() -> None: ...
 
-    @app.tick(cron="0 * * * *", tz="UTC", name="hourly")
+    @app.scheduled_task(cron="0 * * * *", tz="UTC", name="hourly")
     def hourly() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:41:00"), until=_at("2026-11-04T12:15:00"))
@@ -170,7 +170,7 @@ async def test_only_due_ticks_fire() -> None:
 async def test_late_within_grace_fires() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="30 * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
@@ -182,7 +182,7 @@ async def test_late_within_grace_fires() -> None:
 async def test_stall_beyond_grace_skips_missed_slots(caplog: pytest.LogCaptureFixture) -> None:
     app, consumer = _app()
 
-    @app.tick(cron="0 * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:00"), until=_at("2026-11-04T14:01:00"))
@@ -198,7 +198,7 @@ async def test_stall_beyond_grace_skips_missed_slots(caplog: pytest.LogCaptureFi
 async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="0 * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:00"), until=_at("2026-11-04T15:01:00"))
@@ -210,8 +210,8 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
 async def test_catch_up_option_does_not_fire_missed_slots() -> None:
     app, consumer = _app()
 
-    # `catch_up` is no longer a tick feature: it is just an opaque task option.
-    @app.tick(cron="0 * * * *", tz="UTC", catch_up=True, name="job")
+    # `catch_up` is no longer a scheduled-task feature: it is just an opaque task option.
+    @app.scheduled_task(cron="0 * * * *", tz="UTC", catch_up=True, name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:01:00"))
@@ -223,7 +223,7 @@ async def test_catch_up_option_does_not_fire_missed_slots() -> None:
 async def test_clock_step_back_does_not_refire() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:30"))
@@ -253,7 +253,7 @@ async def test_publish_failure_is_logged_and_loop_continues(
 
     app.producer = Flaky()
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
@@ -294,10 +294,10 @@ def _leaked_tasks() -> list[asyncio.Task[Any]]:
 async def _shutdown_while_hanging(
     app: App, producer: HangingProducer, clock: FakeClock, probe_dir: Path
 ) -> None:
-    ticker = Ticker(app, clock=clock, probe_dir=probe_dir)
-    run = asyncio.create_task(ticker.run())
+    scheduler = Scheduler(app, clock=clock, probe_dir=probe_dir)
+    run = asyncio.create_task(scheduler.run())
     await asyncio.wait_for(producer.hanging.wait(), 1)
-    ticker.request_shutdown()
+    scheduler.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert producer.cancelled == 1
     assert _leaked_tasks() == []
@@ -321,7 +321,7 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
 
     app.producer = SelfCancelling()
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
@@ -345,7 +345,7 @@ async def test_shutdown_interrupts_hung_publish(
     producer = HangingProducer(app.producer, ok=0)
     app.producer = producer
 
-    @app.tick(cron="30 * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T12:00:00"))
@@ -361,14 +361,14 @@ async def test_shutdown_interrupts_hung_publish(
 async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
-    ticker = Ticker(app, clock=clock)
-    run = asyncio.create_task(ticker.run())
+    scheduler = Scheduler(app, clock=clock)
+    run = asyncio.create_task(scheduler.run())
     await asyncio.wait_for(clock.sleeping.wait(), 1)
-    ticker.request_shutdown()
+    scheduler.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert await _published(consumer) == []
 
@@ -376,16 +376,16 @@ async def test_shutdown_interrupts_sleep() -> None:
 async def test_probe_file_written_and_cleared(tmp_path: Path) -> None:
     app, _ = _app()
 
-    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
-    ticker = Ticker(app, clock=clock, probe_dir=tmp_path)
-    run = asyncio.create_task(ticker.run())
+    scheduler = Scheduler(app, clock=clock, probe_dir=tmp_path)
+    run = asyncio.create_task(scheduler.run())
     await asyncio.wait_for(clock.sleeping.wait(), 1)
     assert (tmp_path / "liveness").exists()
     assert not (tmp_path / "readiness").exists()
-    ticker.request_shutdown()
+    scheduler.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert not (tmp_path / "liveness").exists()
 
@@ -395,17 +395,17 @@ async def test_probe_write_failure_is_logged_not_raised(
 ) -> None:
     app, _ = _app()
 
-    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
     def job() -> None: ...
 
     blocker = tmp_path / "file"
     blocker.write_text("")
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
-    ticker = Ticker(app, clock=clock, probe_dir=blocker / "probes")
-    run = asyncio.create_task(ticker.run())
+    scheduler = Scheduler(app, clock=clock, probe_dir=blocker / "probes")
+    run = asyncio.create_task(scheduler.run())
     with caplog.at_level(logging.ERROR, logger="asynk"):
         await asyncio.wait_for(clock.sleeping.wait(), 1)
-        ticker.request_shutdown()
+        scheduler.request_shutdown()
         await asyncio.wait_for(run, 1)
     assert any("probe" in r.getMessage() for r in caplog.records)
 
@@ -413,17 +413,17 @@ async def test_probe_write_failure_is_logged_not_raised(
 def test_requires_producer() -> None:
     app = App("t")
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     with pytest.raises(NotConfiguredError):
-        Ticker(app)
+        Scheduler(app)
 
 
-def test_requires_ticks() -> None:
+def test_requires_scheduled_tasks() -> None:
     app, _ = _app()
-    with pytest.raises(ValueError, match="no ticks"):
-        Ticker(app)
+    with pytest.raises(ValueError, match="no scheduled tasks"):
+        Scheduler(app)
 
 
 @pytest.mark.parametrize(
@@ -437,21 +437,21 @@ def test_requires_ticks() -> None:
 def test_rejects_bad_numbers(kwargs: dict[str, Any], match: str) -> None:
     app, _ = _app()
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     with pytest.raises(ValueError, match=match):
-        Ticker(app, **kwargs)
+        Scheduler(app, **kwargs)
 
 
 def test_max_sleep_is_not_a_parameter() -> None:
     app, _ = _app()
 
-    @app.tick(cron="* * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     with pytest.raises(TypeError):
-        Ticker(app, max_sleep=1)  # type: ignore[call-arg]
+        Scheduler(app, max_sleep=1)  # type: ignore[call-arg]
 
 
 def test_system_clock_now_is_aware_utc() -> None:
@@ -466,14 +466,14 @@ async def test_system_clock_sleep() -> None:
 async def test_run_with_signals_sigterm() -> None:
     app, _ = _app()
 
-    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
-    ticker = Ticker(app, clock=clock)
+    scheduler = Scheduler(app, clock=clock)
     before_term = signal.getsignal(signal.SIGTERM)
     before_int = signal.getsignal(signal.SIGINT)
-    run = asyncio.create_task(ticker.run_with_signals())
+    run = asyncio.create_task(scheduler.run_with_signals())
     await asyncio.wait_for(clock.sleeping.wait(), 1)
     os.kill(os.getpid(), signal.SIGTERM)
     await asyncio.wait_for(run, 1)
@@ -484,7 +484,7 @@ async def test_run_with_signals_sigterm() -> None:
 async def test_sleep_is_capped_by_heartbeat_interval() -> None:
     app, _ = _app()
 
-    @app.tick(cron="0 12 * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 12 * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T11:59:00"))
@@ -510,7 +510,7 @@ async def test_beats_repeatedly_while_idle(tmp_path: Path, monkeypatch: pytest.M
     beats = _count_beats(monkeypatch)
     app, _ = _app()
 
-    @app.tick(cron="0 0 1 1 *", tz="UTC", name="job")
+    @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:00:00"), until=_at("2026-11-04T12:00:00"))
@@ -527,18 +527,18 @@ async def test_hung_publish_stops_beating(tmp_path: Path, monkeypatch: pytest.Mo
     producer = HangingProducer(app.producer, ok=0)
     app.producer = producer
 
-    @app.tick(cron="30 * * * *", tz="UTC", name="job")
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     # A 1 ms heartbeat: a beat from anywhere but the stuck loop would show up.
     clock = FakeClock(_at("2026-11-04T11:29:59.990"), until=_at("2026-11-04T12:00:00"))
-    ticker = Ticker(app, clock=clock, probe_dir=tmp_path, heartbeat_interval=0.001)
-    run = asyncio.create_task(ticker.run())
+    scheduler = Scheduler(app, clock=clock, probe_dir=tmp_path, heartbeat_interval=0.001)
+    run = asyncio.create_task(scheduler.run())
     await asyncio.wait_for(producer.hanging.wait(), 1)
     stuck_at = len(beats)
     await asyncio.sleep(0.02)  # 20 real heartbeat intervals
     assert len(beats) == stuck_at
-    ticker.request_shutdown()
+    scheduler.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert _leaked_tasks() == []
     assert not (tmp_path / "liveness").exists()
@@ -547,10 +547,10 @@ async def test_hung_publish_stops_beating(tmp_path: Path, monkeypatch: pytest.Mo
 async def test_non_utc_clock_judges_lateness_across_fall_back() -> None:
     app, consumer = _app()
 
-    @app.tick(cron="0 * * * *", tz="America/New_York", name="job")
+    @app.scheduled_task(cron="0 * * * *", tz="America/New_York", name="job")
     def job() -> None: ...
 
-    # 00:59:30 EDT. A stall wakes the ticker at 06:00:05Z, the second 01:00
+    # 00:59:30 EDT. A stall wakes the scheduler at 06:00:05Z, the second 01:00
     # (EST), so the 01:00 EDT slot (05:00Z) is an hour late and is skipped.
     clock = FakeClock(
         _at("2026-11-01T04:59:30"),

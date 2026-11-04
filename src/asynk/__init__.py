@@ -5,9 +5,9 @@ from asynk.codec import Codec, DecodeError
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope, NonJsonArgumentError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus
+from asynk.scheduled_task import ScheduledTask
+from asynk.scheduler import Scheduler
 from asynk.task import Task
-from asynk.tick import Tick
-from asynk.ticker import Ticker
 from asynk.transport import Consumer, Delivery, Producer
 from asynk.worker import Worker
 
@@ -27,7 +27,7 @@ __all__ = [
     "TaskFailedError",
     "TaskResult",
     "TaskStatus",
-    "Tick",
-    "Ticker",
+    "ScheduledTask",
+    "Scheduler",
     "Worker",
 ]

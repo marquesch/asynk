@@ -352,7 +352,7 @@ def test_kolkata_nine_am_is_0330_utc() -> None:
 
 
 def test_after_in_another_zone_is_compared_as_an_instant() -> None:
-    # The caller converts to the tick's zone; the result follows `after`'s tzinfo.
+    # The caller converts to the scheduled task's zone; the result follows `after`'s tzinfo.
     after = utc(2026, 1, 1, 3, 30).astimezone(KOLKATA)
     assert next_after("0 9 * * *", after) == datetime(2026, 1, 2, 9, 0, tzinfo=KOLKATA)
 

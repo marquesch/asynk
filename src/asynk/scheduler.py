@@ -9,8 +9,8 @@ from typing import Any, Protocol
 
 from asynk.app import App, NotConfiguredError
 from asynk.probes import ProbeFiles
+from asynk.scheduled_task import ScheduledTask
 from asynk.signals import shutdown_signals
-from asynk.tick import Tick
 
 logger = logging.getLogger("asynk")
 
@@ -19,7 +19,7 @@ _EPSILON = timedelta(microseconds=1)
 
 
 class Clock(Protocol):
-    """Source of wall-clock time and of (monotonic) sleeping for a `Ticker`."""
+    """Source of wall-clock time and of (monotonic) sleeping for a `Scheduler`."""
 
     def now(self) -> datetime:
         """Returns the current wall-clock time as an aware datetime."""
@@ -50,16 +50,16 @@ class SystemClock:
         await asyncio.sleep(seconds)
 
 
-class Ticker:
-    """Publishes an app's ticks when their cron slots come due.
+class Scheduler:
+    """Publishes an app's scheduled tasks when their cron slots come due.
 
     Fire times are decided with the wall clock, re-read after every wake, so a
-    slot is never published twice by one ticker even if the clock steps back.
+    slot is never published twice by one scheduler even if the clock steps back.
     Each publish carries an `idempotency_key` of `"<task name>:<slot>"` and a
     `scheduled_at`, the slot as a UTC ISO-8601 instant.
 
     Attributes:
-        app: The app whose ticks are published.
+        app: The app whose scheduled tasks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
         heartbeat_interval: Seconds between probe file updates. The main loop
@@ -79,10 +79,10 @@ class Ticker:
         heartbeat_interval: float = 5.0,
         grace: float = 30.0,
     ) -> None:
-        """Initializes the ticker.
+        """Initializes the scheduler.
 
         Args:
-            app: The app to publish for; it must have a producer and ticks.
+            app: The app to publish for; it must have a producer and scheduled tasks.
             clock: Source of time and sleeping; defaults to `SystemClock`.
             probe_dir: Directory for the liveness probe file; None disables it.
             heartbeat_interval: Seconds between probe file updates, and the
@@ -91,13 +91,13 @@ class Ticker:
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            ValueError: If the app has no ticks, `heartbeat_interval` <= 0, or
+            ValueError: If the app has no scheduled tasks, `heartbeat_interval` <= 0, or
                 `grace` is not in [0, 60).
         """
         if app.producer is None:
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
-        if not app.ticks:
-            raise ValueError(f"app {app.name!r} has no ticks")
+        if not app.scheduled_tasks:
+            raise ValueError(f"app {app.name!r} has no scheduled tasks")
         if heartbeat_interval <= 0:
             raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
         if not 0 <= grace < _MAX_GRACE:
@@ -113,7 +113,7 @@ class Ticker:
     def request_shutdown(self) -> None:
         """Asks `run` to stop; idempotent and safe in signal handlers."""
         if not self._shutdown.is_set():
-            logger.info("ticker shutdown requested")
+            logger.info("scheduler shutdown requested")
             self._shutdown.set()
 
     async def run_with_signals(self) -> None:
@@ -124,7 +124,7 @@ class Ticker:
     async def run(self) -> None:
         """Publishes due slots until shutdown is requested.
 
-        Nothing fires at startup: each tick's first slot is the first one after
+        Nothing fires at startup: each scheduled task's first slot is the first one after
         the current time. Shutdown interrupts the sleep and does not wait for
         slots that are not yet due.
         """
@@ -132,11 +132,11 @@ class Ticker:
         shutdown = asyncio.ensure_future(self._shutdown.wait())
         try:
             now = self._now()
-            pending: dict[Tick[..., Any], datetime] = {
-                tick: tick.schedule.cron.next_after(now.astimezone(tick.schedule.tz))
-                for tick in self.app.ticks
+            pending: dict[ScheduledTask[..., Any], datetime] = {
+                task: task.schedule.cron.next_after(now.astimezone(task.schedule.tz))
+                for task in self.app.scheduled_tasks
             }
-            logger.info("ticker started with %d tick(s)", len(pending))
+            logger.info("scheduler started with %d scheduled task(s)", len(pending))
             while not self._shutdown.is_set():
                 now = self._now()
                 await self._handle_due(pending, now, shutdown)
@@ -155,63 +155,66 @@ class Ticker:
 
     async def _handle_due(
         self,
-        pending: dict[Tick[..., Any], datetime],
+        pending: dict[ScheduledTask[..., Any], datetime],
         now: datetime,
         shutdown: asyncio.Future[Any],
     ) -> None:
         grace = timedelta(seconds=self.grace)
         while True:
             # Oldest slot first; ties keep registration order.
-            tick = min(pending, key=pending.__getitem__)
-            slot = pending[tick]
+            task = min(pending, key=pending.__getitem__)
+            slot = pending[task]
             if slot > now:
                 return
             if now - slot <= grace:
-                if not await self._fire(tick, slot, shutdown):
+                if not await self._fire(task, slot, shutdown):
                     return
-                pending[tick] = tick.schedule.cron.next_after(slot)
+                pending[task] = task.schedule.cron.next_after(slot)
                 continue
             # `now` is UTC and `slot` is zoned, so `max` compares instants.
             resume_after = max(slot, now - grace - _EPSILON)
-            pending[tick] = tick.schedule.cron.next_after(resume_after.astimezone(tick.schedule.tz))
+            pending[task] = task.schedule.cron.next_after(resume_after.astimezone(task.schedule.tz))
             logger.warning(
-                "tick %r: skipping missed slot(s) from %s; next slot %s",
-                tick.name,
+                "scheduled task %r: skipping missed slot(s) from %s; next slot %s",
+                task.name,
                 _utc_iso(slot),
-                _utc_iso(pending[tick]),
+                _utc_iso(pending[task]),
             )
 
     async def _fire(
-        self, tick: Tick[..., Any], slot: datetime, shutdown: asyncio.Future[Any]
+        self, task: ScheduledTask[..., Any], slot: datetime, shutdown: asyncio.Future[Any]
     ) -> bool:
         """Publishes one slot; returns False if shutdown cancelled the publish."""
         scheduled_at = _utc_iso(slot)
-        schedule = tick.schedule
-        publish = tick.with_metadata(
-            idempotency_key=f"{tick.name}:{scheduled_at}",
+        schedule = task.schedule
+        publish = task.with_metadata(
+            idempotency_key=f"{task.name}:{scheduled_at}",
             scheduled_at=scheduled_at,
         ).delay(*schedule.args, **schedule.kwargs)
         try:
             finished = await self._race(publish, shutdown)
         except Exception:
-            logger.exception("failed to publish tick %r for slot %s", tick.name, scheduled_at)
+            logger.exception(
+                "failed to publish scheduled task %r for slot %s", task.name, scheduled_at
+            )
             return True
         if not finished and not shutdown.done():
             # The publish cancelled itself: a failed publish, so the slot advances.
             logger.error(
-                "publish of tick %r for slot %s was cancelled; slot skipped",
-                tick.name,
+                "publish of scheduled task %r for slot %s was cancelled; slot skipped",
+                task.name,
                 scheduled_at,
             )
             return True
         if not finished:
             logger.warning(
-                "shutdown cancelled the publish of tick %r for slot %s; slot not published",
-                tick.name,
+                "shutdown cancelled the publish of scheduled task %r for slot %s; "
+                "slot not published",
+                task.name,
                 scheduled_at,
             )
             return False
-        logger.debug("published tick %r for slot %s", tick.name, scheduled_at)
+        logger.debug("published scheduled task %r for slot %s", task.name, scheduled_at)
         return True
 
     async def _sleep(self, seconds: float, shutdown: asyncio.Future[Any]) -> None:
@@ -239,7 +242,7 @@ class Ticker:
 
     def _now(self) -> datetime:
         # Normalized to UTC so comparisons and subtractions with slots (which
-        # carry each tick's zone) are between instants, never wall times.
+        # carry each scheduled task's zone) are between instants, never wall times.
         return self.clock.now().astimezone(timezone.utc)
 
     def _beat(self) -> None:

@@ -4,11 +4,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-from asynk import Task, Tick
+from asynk import ScheduledTask, Task
 from asynk.app import App
 from asynk.cron import CronError
 from asynk.envelope import Envelope, NonJsonArgumentError
-from asynk.tick import Schedule
+from asynk.scheduled_task import Schedule
 
 
 class FakeProducer:
@@ -20,15 +20,15 @@ class FakeProducer:
         return "handle"
 
 
-async def test_tick_is_registered_as_task() -> None:
+async def test_scheduled_task_is_registered_as_task() -> None:
     producer = FakeProducer()
     app = App("t", producer=producer)
 
-    @app.tick(cron="* * * * *")
+    @app.scheduled_task(cron="* * * * *")
     def add(a: int, b: int = 0) -> int:
         return a + b
 
-    assert isinstance(add, Tick)
+    assert isinstance(add, ScheduledTask)
     assert isinstance(add, Task)
     assert app.tasks[add.name] is add
     assert add(1, b=2) == 3
@@ -36,19 +36,19 @@ async def test_tick_is_registered_as_task() -> None:
     assert producer.published[0].task == add.name
 
 
-def test_tick_default_name_matches_task_rules() -> None:
+def test_scheduled_task_default_name_matches_task_rules() -> None:
     app = App("t")
 
     @app.task()
     def plain() -> None: ...
 
-    @app.tick(cron="* * * * *")
-    def ticked() -> None: ...
+    @app.scheduled_task(cron="* * * * *")
+    def scheduled() -> None: ...
 
     prefix = plain.name.removesuffix("plain")
-    assert ticked.name == f"{prefix}ticked"
+    assert scheduled.name == f"{prefix}scheduled"
 
-    @app.tick(cron="* * * * *", name="custom")
+    @app.scheduled_task(cron="* * * * *", name="custom")
     def other() -> None: ...
 
     assert other.name == "custom"
@@ -62,10 +62,10 @@ def test_duplicate_name_with_task_raises_value_error() -> None:
 
     with pytest.raises(ValueError, match="'x'"):
 
-        @app.tick(cron="* * * * *", name="x")
+        @app.scheduled_task(cron="* * * * *", name="x")
         def b() -> None: ...
 
-    @app.tick(cron="* * * * *", name="y")
+    @app.scheduled_task(cron="* * * * *", name="y")
     def c() -> None: ...
 
     with pytest.raises(ValueError, match="'y'"):
@@ -78,19 +78,19 @@ def test_app_tz_default_is_utc() -> None:
     assert App("t").tz is timezone.utc
 
 
-def test_tick_uses_app_tz_by_default() -> None:
+def test_scheduled_task_uses_app_tz_by_default() -> None:
     app = App("t", tz="Europe/Paris")
 
-    @app.tick(cron="0 8 * * *")
+    @app.scheduled_task(cron="0 8 * * *")
     def f() -> None: ...
 
     assert f.schedule.tz == ZoneInfo("Europe/Paris")
 
 
-def test_tick_tz_overrides_app_tz() -> None:
+def test_scheduled_task_tz_overrides_app_tz() -> None:
     app = App("t", tz="Europe/Paris")
 
-    @app.tick(cron="0 8 * * *", tz="Asia/Tokyo")
+    @app.scheduled_task(cron="0 8 * * *", tz="Asia/Tokyo")
     def f() -> None: ...
 
     assert f.schedule.tz == ZoneInfo("Asia/Tokyo")
@@ -99,7 +99,7 @@ def test_tick_tz_overrides_app_tz() -> None:
 def test_schedule_fields() -> None:
     app = App("t")
 
-    @app.tick(cron="*/5 * * * *", args=[1, "a"], kwargs={"k": [1]})
+    @app.scheduled_task(cron="*/5 * * * *", args=[1, "a"], kwargs={"k": [1]})
     def f(*args: object, **kwargs: object) -> None: ...
 
     s = f.schedule
@@ -107,13 +107,13 @@ def test_schedule_fields() -> None:
     assert s.cron.parse("*/5 * * * *") == s.cron
     assert s.args == (1, "a")
     assert s.kwargs == {"k": [1]}
-    assert list(app.ticks) == [f]
+    assert list(app.scheduled_tasks) == [f]
 
 
 def test_schedule_defaults() -> None:
     app = App("t")
 
-    @app.tick(cron="* * * * *")
+    @app.scheduled_task(cron="* * * * *")
     def f() -> None: ...
 
     assert f.schedule.args == ()
@@ -129,7 +129,7 @@ def test_schedule_has_no_catch_up() -> None:
 def test_invalid_cron_raises_at_decoration() -> None:
     app = App("t")
     with pytest.raises(CronError):
-        app.tick(cron="nope")
+        app.scheduled_task(cron="nope")
     assert app.tasks == {}
 
 
@@ -138,16 +138,16 @@ def test_unknown_app_tz_raises_value_error() -> None:
         App("myapp", tz="Not/AZone")
 
 
-def test_unknown_tick_tz_raises_value_error_naming_tick() -> None:
+def test_unknown_scheduled_task_tz_raises_value_error_naming_scheduled_task() -> None:
     app = App("t")
-    with pytest.raises(ValueError, match="mytick"):
+    with pytest.raises(ValueError, match="mytask"):
 
-        @app.tick(cron="* * * * *", tz="Not/AZone", name="mytick")
+        @app.scheduled_task(cron="* * * * *", tz="Not/AZone", name="mytask")
         def f() -> None: ...
 
     with pytest.raises(ValueError, match="unnamed"):
 
-        @app.tick(cron="* * * * *", tz="Not/AZone")
+        @app.scheduled_task(cron="* * * * *", tz="Not/AZone")
         def unnamed() -> None: ...
 
     assert app.tasks == {}
@@ -156,30 +156,30 @@ def test_unknown_tick_tz_raises_value_error_naming_tick() -> None:
 def test_non_json_args_raise() -> None:
     app = App("t")
     with pytest.raises(NonJsonArgumentError):
-        app.tick(cron="* * * * *", args=[object()])
+        app.scheduled_task(cron="* * * * *", args=[object()])
     with pytest.raises(NonJsonArgumentError):
-        app.tick(cron="* * * * *", kwargs={"k": object()})
+        app.scheduled_task(cron="* * * * *", kwargs={"k": object()})
 
 
-def test_ticks_lists_only_ticks_in_order() -> None:
+def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:
     app = App("t")
 
-    @app.tick(cron="* * * * *")
+    @app.scheduled_task(cron="* * * * *")
     def first() -> None: ...
 
     @app.task()
     def plain() -> None: ...
 
-    @app.tick(cron="* * * * *")
+    @app.scheduled_task(cron="* * * * *")
     def second() -> None: ...
 
-    assert list(app.ticks) == [first, second]
+    assert list(app.scheduled_tasks) == [first, second]
 
 
 def test_max_retries_and_options_kept() -> None:
     app = App("t")
 
-    @app.tick(cron="* * * * *", max_retries=3, queue="q")
+    @app.scheduled_task(cron="* * * * *", max_retries=3, queue="q")
     def f() -> None: ...
 
     assert f.max_retries == 3
@@ -191,14 +191,14 @@ def no_tzdb(monkeypatch: pytest.MonkeyPatch) -> None:
     def missing(key: str) -> ZoneInfo:
         raise ZoneInfoNotFoundError(f"No time zone found with key {key}")
 
-    monkeypatch.setattr("asynk.tick.ZoneInfo", missing)
+    monkeypatch.setattr("asynk.scheduled_task.ZoneInfo", missing)
 
 
 @pytest.mark.usefixtures("no_tzdb")
 def test_default_utc_does_not_need_tz_database() -> None:
     app = App("x")
 
-    @app.tick(cron="* * * * *")
+    @app.scheduled_task(cron="* * * * *")
     def f() -> None: ...
 
     assert app.tz is timezone.utc
@@ -213,7 +213,7 @@ def test_default_utc_does_not_need_tz_database() -> None:
 def test_explicit_utc_does_not_need_tz_database() -> None:
     app = App("x", tz="UTC")
 
-    @app.tick(cron="* * * * *", tz="UTC", name="n")
+    @app.scheduled_task(cron="* * * * *", tz="UTC", name="n")
     def f() -> None: ...
 
     assert f.schedule.tz is timezone.utc
@@ -224,5 +224,5 @@ def test_non_utc_still_needs_tz_database() -> None:
     with pytest.raises(ValueError, match="app 'x': unknown timezone 'Europe/Paris'"):
         App("x", tz="Europe/Paris")
     app = App("x")
-    with pytest.raises(ValueError, match="tick 'n': unknown timezone 'Europe/Paris'"):
-        app.tick(cron="* * * * *", tz="Europe/Paris", name="n")
+    with pytest.raises(ValueError, match="scheduled task 'n': unknown timezone 'Europe/Paris'"):
+        app.scheduled_task(cron="* * * * *", tz="Europe/Paris", name="n")

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import asynk
 from asynk import App, Delivery, Envelope, JsonCodec, SkipTask, TaskResult, Worker
-from asynk.ticker import Ticker
+from asynk.scheduler import Scheduler
 from asynk.transport.memory import memory_transport
 
 NAMES = [
@@ -28,8 +28,8 @@ NAMES = [
     "TaskFailedError",
     "DecodeError",
     "SkipTask",
-    "Tick",
-    "Ticker",
+    "ScheduledTask",
+    "Scheduler",
 ]
 
 
@@ -151,7 +151,7 @@ async def test_custom_producer_and_consumer_are_decoupled() -> None:
 
 
 class _StepClock:
-    """Fake clock: `sleep` advances time; stops the ticker once `until` is reached."""
+    """Fake clock: `sleep` advances time; stops the scheduler once `until` is reached."""
 
     def __init__(self, start: datetime, until: datetime) -> None:
         self.value = start
@@ -169,9 +169,9 @@ class _StepClock:
         await asyncio.sleep(0)
 
 
-async def test_ticker_publishes_and_worker_runs() -> None:
+async def test_scheduler_publishes_and_worker_runs() -> None:
     producer, consumer = memory_transport()
-    app = App("e2e-tick", producer=producer, consumer=consumer)
+    app = App("e2e-scheduled-task", producer=producer, consumer=consumer)
     runs: list[int] = []
     seen_keys: set[str] = set()
     keys: list[str] = []
@@ -185,7 +185,7 @@ async def test_ticker_publishes_and_worker_runs() -> None:
             raise SkipTask
         seen_keys.add(key)
 
-    @app.tick(cron="30 * * * *", tz="UTC", args=[7], name="job")
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", args=[7], name="job")
     def job(n: int) -> None:
         runs.append(n)
 
@@ -196,17 +196,17 @@ async def test_ticker_publishes_and_worker_runs() -> None:
 
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
-    # Two tickers over the same app simulate an accidental duplicate ticker.
-    tickers = []
+    # Two schedulers over the same app simulate an accidental duplicate scheduler.
+    schedulers = []
     for _ in range(2):
         clock = _StepClock(
             datetime(2026, 11, 4, 11, 29, tzinfo=timezone.utc),
             datetime(2026, 11, 4, 11, 31, tzinfo=timezone.utc),
         )
-        ticker = Ticker(app, clock=clock)
-        clock.on_limit = ticker.request_shutdown
-        tickers.append(ticker)
-    await asyncio.wait_for(asyncio.gather(*(t.run() for t in tickers)), 5)
+        scheduler = Scheduler(app, clock=clock)
+        clock.on_limit = scheduler.request_shutdown
+        schedulers.append(scheduler)
+    await asyncio.wait_for(asyncio.gather(*(t.run() for t in schedulers)), 5)
     await asyncio.wait_for(done.wait(), 5)
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)

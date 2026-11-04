@@ -132,34 +132,34 @@ def test_worker_invalid_argument_returns_2_without_traceback(
     assert "Traceback" not in err
 
 
-def test_ticker_requires_ticks(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["ticker", "tests.fixture_app:app"]) == 2
+def test_scheduler_requires_scheduled_tasks(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_app:app"]) == 2
     err = capsys.readouterr().err
     assert err.startswith("asynk:")
-    assert "no ticks" in err
+    assert "no scheduled tasks" in err
     assert "Traceback" not in err
 
 
-def test_ticker_requires_producer(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["ticker", "tests.fixture_ticker_app:no_producer"]) == 2
+def test_scheduler_requires_producer(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_scheduler_app:no_producer"]) == 2
     err = capsys.readouterr().err
     assert "no producer" in err
     assert "Traceback" not in err
 
 
-def test_ticker_parses_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from asynk.ticker import Ticker
+def test_scheduler_parses_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from asynk.scheduler import Scheduler
 
-    built: list[Ticker] = []
+    built: list[Scheduler] = []
 
-    async def fake_run(self: Ticker) -> None:
+    async def fake_run(self: Scheduler) -> None:
         built.append(self)
 
-    monkeypatch.setattr(Ticker, "run_with_signals", fake_run)
+    monkeypatch.setattr(Scheduler, "run_with_signals", fake_run)
     code = main(
         [
-            "ticker",
-            "tests.fixture_ticker_app:app",
+            "scheduler",
+            "tests.fixture_scheduler_app:app",
             "--heartbeat-interval",
             "0.5",
             "--probe-dir",
@@ -169,39 +169,39 @@ def test_ticker_parses_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
         ]
     )
     assert code == 0
-    [ticker] = built
-    assert ticker.heartbeat_interval == 0.5
-    assert ticker.probe_dir == tmp_path
+    [scheduler] = built
+    assert scheduler.heartbeat_interval == 0.5
+    assert scheduler.probe_dir == tmp_path
 
 
-def test_ticker_logs_default_tz_tick(
+def test_scheduler_logs_default_tz_scheduled_task(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from asynk.ticker import Ticker
+    from asynk.scheduler import Scheduler
 
-    async def fake_run(self: Ticker) -> None:
+    async def fake_run(self: Scheduler) -> None:
         return None
 
-    monkeypatch.setattr(Ticker, "run_with_signals", fake_run)
+    monkeypatch.setattr(Scheduler, "run_with_signals", fake_run)
     with caplog.at_level(logging.INFO, logger="asynk"):
-        assert main(["ticker", "tests.fixture_ticker_app:app"]) == 0
+        assert main(["scheduler", "tests.fixture_scheduler_app:app"]) == 0
     assert "(0 0 1 1 *, UTC)" in caplog.text
 
 
-def test_ticker_bad_heartbeat_returns_2(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["ticker", "tests.fixture_ticker_app:app", "--heartbeat-interval", "0"]) == 2
+def test_scheduler_bad_heartbeat_returns_2(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_scheduler_app:app", "--heartbeat-interval", "0"]) == 2
     assert "heartbeat_interval" in capsys.readouterr().err
 
 
-def test_ticker_subprocess_lifecycle(tmp_path: Path) -> None:
+def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
     proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "asynk.cli",
-            "ticker",
-            "tests.fixture_ticker_app:app",
+            "scheduler",
+            "tests.fixture_scheduler_app:app",
             "--probe-dir",
             str(tmp_path),
             "--heartbeat-interval",
@@ -214,7 +214,7 @@ def test_ticker_subprocess_lifecycle(tmp_path: Path) -> None:
         liveness = tmp_path / "liveness"
         deadline = time.monotonic() + 10
         while not liveness.exists():
-            assert proc.poll() is None, "ticker exited early"
+            assert proc.poll() is None, "scheduler exited early"
             assert time.monotonic() < deadline, "liveness file never appeared"
             time.sleep(0.05)
         assert not (tmp_path / "readiness").exists()

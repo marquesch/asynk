@@ -11,8 +11,8 @@ from asynk.hooks import (
     Hooks,
     LifecycleHook,
 )
+from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.task import Task
-from asynk.tick import Schedule, Tick, resolve_timezone
 from asynk.transport import Consumer, Producer
 
 P = ParamSpec("P")
@@ -30,7 +30,7 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
-        tz: Default timezone for ticks.
+        tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
 
@@ -47,7 +47,7 @@ class App:
         self.producer = producer
         self.consumer = consumer
         self._tasks: dict[str, Task[..., Any]] = {}
-        self._ticks: list[Tick[..., Any]] = []
+        self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
 
     @property
@@ -55,9 +55,9 @@ class App:
         return MappingProxyType(self._tasks)
 
     @property
-    def ticks(self) -> Sequence[Tick[..., Any]]:
-        """The registered ticks, in registration order."""
-        return tuple(self._ticks)
+    def scheduled_tasks(self) -> Sequence[ScheduledTask[..., Any]]:
+        """The registered scheduled tasks, in registration order."""
+        return tuple(self._scheduled_tasks)
 
     def task(
         self,
@@ -88,7 +88,7 @@ class App:
 
         return decorator
 
-    def tick(
+    def scheduled_task(
         self,
         *,
         cron: str,
@@ -98,7 +98,7 @@ class App:
         name: str | None = None,
         max_retries: int | None = None,
         **options: Any,
-    ) -> Callable[[Callable[P, R]], Tick[P, R]]:
+    ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
         The cron expression, arguments and (when `name` is given) timezone are
@@ -114,7 +114,7 @@ class App:
             **options: Extra options stored on the task.
 
         Returns:
-            A decorator producing a `Tick`.
+            A decorator producing a `ScheduledTask`.
 
         Raises:
             CronError: If the cron expression is invalid.
@@ -124,15 +124,17 @@ class App:
         # Built now so a bad expression or argument fails at the call.
         schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
         if tz is not None and name is not None:
-            resolve_timezone(tz, f"tick {name!r}")
+            resolve_timezone(tz, f"scheduled task {name!r}")
 
-        def decorator(func: Callable[P, R]) -> Tick[P, R]:
-            tick_name = self._claim_name(name, func)
-            zone = self.tz if tz is None else resolve_timezone(tz, f"tick {tick_name!r}")
-            tick = Tick(self, func, tick_name, max_retries, options, replace(schedule, tz=zone))
-            self._tasks[tick_name] = tick
-            self._ticks.append(tick)
-            return tick
+        def decorator(func: Callable[P, R]) -> ScheduledTask[P, R]:
+            task_name = self._claim_name(name, func)
+            zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
+            task = ScheduledTask(
+                self, func, task_name, max_retries, options, replace(schedule, tz=zone)
+            )
+            self._tasks[task_name] = task
+            self._scheduled_tasks.append(task)
+            return task
 
         return decorator
 

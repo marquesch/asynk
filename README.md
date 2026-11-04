@@ -100,43 +100,43 @@ newlines, which delimit messages).
 Runnable versions, including a custom codec, are in `examples/memory` and
 `examples/unix`.
 
-## Periodic tasks (ticker)
+## Scheduled tasks (scheduler)
 
-`@app.tick` registers a task that `asynk ticker` publishes on a cron schedule.
-The ticker only publishes; a worker runs the tasks, as for any other message:
+`@app.scheduled_task` registers a task that `asynk scheduler` publishes on a cron schedule.
+The scheduler only publishes; a worker runs the tasks, as for any other message:
 
 ```python
-@app.tick(cron="30 8 * * mon-fri", tz="America/Sao_Paulo")
+@app.scheduled_task(cron="30 8 * * mon-fri", tz="America/Sao_Paulo")
 async def morning_report() -> None: ...
 
 
-@app.tick(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100})
+@app.scheduled_task(cron="*/5 * * * *", args=["eu"], kwargs={"limit": 100})
 def sync(region: str, *, limit: int) -> None: ...
 ```
 
 ```
-asynk ticker tasks:app --heartbeat-interval 5
+asynk scheduler tasks:app --heartbeat-interval 5
 ```
 
-A tick is an ordinary task (it also accepts `name` and `max_retries`) with
+A scheduled task is an ordinary task (it also accepts `name` and `max_retries`) with
 fixed `args` and `kwargs`. `tz` defaults to the app's `tz` (`App(name, tz="UTC")`).
 Expressions have five fields, with a resolution of one minute; month and weekday
 names are accepted, and macros such as `@daily` and a seconds field are not.
 When both day-of-month and day-of-week are restricted, a slot matches if either
 does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
-Nothing fires at startup: the first slot is the first one after the ticker starts.
+Nothing fires at startup: the first slot is the first one after the scheduler starts.
 
-The ticker publishes with the app's producer and does not run the app's
+The scheduler publishes with the app's producer and does not run the app's
 startup or shutdown hooks. On shutdown (SIGTERM or SIGINT) an in-flight publish
 is cancelled. It writes the `liveness` probe file (never `readiness`), so use
 the liveness probe from [Probes](#probes) with the same `--probe-dir`. The probe
-is refreshed by the ticker's main loop, so a ticker stuck in a hung publish (for
+is refreshed by the scheduler's main loop, so a scheduler stuck in a hung publish (for
 example on a half-open connection) stops refreshing it and `asynk health
-liveness` fails. That is intended: run the ticker under a supervisor (such as a
+liveness` fails. That is intended: run the scheduler under a supervisor (such as a
 Kubernetes liveness probe) that restarts it.
 
-**Run exactly one ticker.** There is no locking or coordination, so a second
-ticker publishes every slot twice. Duplicates are also possible around restarts
+**Run exactly one scheduler.** There is no locking or coordination, so a second
+scheduler publishes every slot twice. Duplicates are also possible around restarts
 and failovers. Each publish carries `metadata["idempotency_key"]`, which is
 `"<task name>:<slot as UTC ISO instant>"`, and `metadata["scheduled_at"]`, the
 slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
@@ -158,22 +158,22 @@ def dedupe(envelope: Envelope, delivery: Delivery) -> None:
         seen.add(str(key))
 ```
 
-There is no guard: every slot is published, and a tick's task decides for
-itself whether there is work to do (a synchronous guard inside the ticker could
-stall the other ticks).
+There is no guard: every slot is published, and a scheduled task decides for
+itself whether there is work to do (a synchronous guard inside the scheduler could
+stall the other scheduled tasks).
 
 **Daylight saving time.** A local time that does not exist (the spring-forward
 gap) is skipped for that day. A local time that occurs twice fires only on its
 first occurrence, so an every-minute schedule does not fire during the repeated
 hour.
 
-**Missed runs.** The ticker keeps no state and never replays the past. A due
+**Missed runs.** The scheduler keeps no state and never replays the past. A due
 slot fires if it is at most `grace` seconds late (default 30 s); an older one
-(after a stall) is skipped with a warning and the ticker resumes at the next
-slot. Slots that passed while the ticker was down are not published. Grace is
-set with `Ticker(app, grace=...)`; `asynk ticker` uses the default.
+(after a stall) is skipped with a warning and the scheduler resumes at the next
+slot. Slots that passed while the scheduler was down are not published. Grace is
+set with `Scheduler(app, grace=...)`; `asynk scheduler` uses the default.
 
-**Clock changes.** If the wall clock steps backwards, the ticker never fires a
+**Clock changes.** If the wall clock steps backwards, the scheduler never fires a
 slot twice in one process: it waits for the next slot after the last one handled.
 
 Only non-UTC timezones need a time zone database. On systems without one (slim

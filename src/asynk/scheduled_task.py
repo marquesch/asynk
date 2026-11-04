@@ -19,7 +19,7 @@ R = TypeVar("R")
 
 @dataclass(frozen=True)
 class Schedule:
-    """When and with what arguments a `Tick` is published.
+    """When and with what arguments a `ScheduledTask` is published.
 
     Attributes:
         cron: The parsed cron expression.
@@ -78,11 +78,11 @@ class Schedule:
         return getattr(self.tz, "key", None) or str(self.tz)
 
 
-class Tick(Task[P, R]):
-    """A task that a `Ticker` publishes on a cron schedule.
+class ScheduledTask(Task[P, R]):
+    """A task that a `Scheduler` publishes on a cron schedule.
 
     Attributes:
-        schedule: The tick's schedule.
+        schedule: The scheduled task's schedule.
     """
 
     def __init__(
