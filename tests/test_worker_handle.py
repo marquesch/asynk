@@ -484,6 +484,28 @@ class _ReverseCodec:
         return self._json.decode(data[::-1])
 
 
+class _SpyDelivery:
+    def __init__(self, inner: Delivery) -> None:
+        self._inner = inner
+        self.calls: list[tuple[str, bool | None]] = []
+
+    @property
+    def body(self) -> bytes:
+        return self._inner.body
+
+    @property
+    def settled(self) -> bool:
+        return self._inner.settled
+
+    async def ack(self) -> None:
+        self.calls.append(("ack", None))
+        await self._inner.ack()
+
+    async def reject(self, *, requeue: bool = False) -> None:
+        self.calls.append(("reject", requeue))
+        await self._inner.reject(requeue=requeue)
+
+
 @pytest.mark.parametrize("body", [b"garbage", b"[]", b'{"task": "t"}', b"\xff\xfe"])
 async def test_undecodable_body_is_rejected_without_requeue(
     body: bytes, caplog: pytest.LogCaptureFixture
@@ -495,10 +517,11 @@ async def test_undecodable_body_is_rejected_without_requeue(
     app.after_task(lambda result, delivery: after.append(result))
 
     await producer.publish(Envelope.create("t", (), {}), body)
-    delivery = await _next(consumer)
+    delivery = _SpyDelivery(await _next(consumer))
     with caplog.at_level(logging.WARNING, logger="asynk"):
         assert await worker.handle(delivery) is None
     assert delivery.settled
+    assert delivery.calls == [("reject", False)]
     assert before == [] and after == []
     records = [r for r in caplog.records if r.name == "asynk"]
     assert len(records) == 1

@@ -16,6 +16,9 @@ from asynk import (
     TaskHandle,
     Worker,
 )
+from asynk.envelope import Envelope
+from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
+from asynk.transport.unix import UnixConsumer, UnixDelivery, UnixProducer
 
 MEMBER_CLASSES = [
     Store,
@@ -28,6 +31,18 @@ MEMBER_CLASSES = [
     App,
     Worker,
     Scheduler,
+    Envelope,
+]
+
+# Transport implementations: the class docstring is checked; their members
+# implement the documented Consumer, Delivery and Producer protocols.
+CLASS_ONLY = [
+    MemoryProducer,
+    MemoryConsumer,
+    MemoryDelivery,
+    UnixProducer,
+    UnixConsumer,
+    UnixDelivery,
 ]
 
 
@@ -39,6 +54,8 @@ def _documented_objects() -> Iterator[tuple[str, str | None]]:
         obj = getattr(asynk, name)
         if inspect.isclass(obj) or inspect.isfunction(obj):
             yield name, obj.__doc__
+    for cls in CLASS_ONLY:
+        yield cls.__name__, cls.__doc__
     for cls in MEMBER_CLASSES:
         for member_name, member in inspect.getmembers(cls):
             if member_name.startswith("_"):

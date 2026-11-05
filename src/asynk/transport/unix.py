@@ -21,11 +21,7 @@ _Queue: TypeAlias = "asyncio.Queue[bytes | _Stop]"
 
 
 class UnixProducer:
-    """Producer that sends each message to a unix socket, one connection per message.
-
-    Meant for learning and testing, not production: there is no buffering or
-    retry, so publishing fails if no consumer is listening.
-    """
+    """Producer that sends each message to a unix socket, one connection per message."""
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         """Initializes the producer.
@@ -62,10 +58,7 @@ class UnixProducer:
 
 
 class UnixDelivery:
-    """Delivery from a unix socket; settling only records the outcome.
-
-    Nothing is ever redelivered: rejecting, even with `requeue=True`, loses the message.
-    """
+    """Delivery from a unix socket; settling records the outcome."""
 
     def __init__(self, body: bytes) -> None:
         self._body = body
@@ -92,11 +85,7 @@ class UnixDelivery:
 
 
 class UnixConsumer:
-    """Consumer that listens on a unix socket and creates the socket file.
-
-    Meant for learning and testing, not production: messages are held in memory
-    and are lost if the worker stops, crashes or rejects them.
-    """
+    """Consumer that listens on a unix socket and creates the socket file."""
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         """Initializes the consumer.

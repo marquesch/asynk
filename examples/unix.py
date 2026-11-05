@@ -1,6 +1,6 @@
 """Worker, scheduler and producer in separate processes over a unix socket.
 
-Everything lives in this file: a custom codec, the app, and a tiny producer
+Everything lives in this file: a custom app codec, the app, and a tiny producer
 entry point. Run it from this directory (`cd examples`), each in its own terminal:
 
 1. Worker, which creates and listens on the socket and runs every task:
@@ -14,10 +14,8 @@ entry point. Run it from this directory (`cd examples`), each in its own termina
 `python -m asynk.cli` is used so the current directory is importable; the
 `asynk` command works the same when this directory is on `sys.path`.
 
-The unix socket transport is for learning and testing only. It keeps messages
-in memory, never retries, and loses any message that is unsettled when the
-worker stops or crashes. Do not use it in production. Publishing fails while no
-worker is listening, so always start the worker first.
+The app owns the codec; the unix transport only moves the bytes it produces,
+one message per line. Start the worker first, since it creates the socket.
 """
 
 import asyncio
@@ -35,9 +33,9 @@ SOCKET = Path(tempfile.gettempdir()) / "asynk-example.sock"
 class Base64JsonCodec:
     """JSON wrapped in base64, so messages on the socket are not human-readable.
 
-    A codec only has to turn an Envelope into bytes and back. Producer and
-    consumer must use the same one. The unix transport also needs the bytes to
-    contain no newline, since a newline ends a message; base64 guarantees that.
+    A codec turns a value into bytes and back with `validate`, `encode` and
+    `decode`. The app passes it every message and result. The unix transport
+    delimits messages by newline, which base64 output never contains.
     """
 
     def __init__(self) -> None:
@@ -60,7 +58,8 @@ class Base64JsonCodec:
 
 # Each process builds both ends but uses only the one it needs: the worker's
 # consumer creates and listens on the socket file, while the producer and the
-# scheduler connect to it. All sides must be given the same codec.
+# scheduler connect to it. The transport takes no codec; the app's codec encodes
+# every message.
 producer, consumer = unix_transport(SOCKET)
 app = App("unix-example", producer=producer, consumer=consumer, codec=Base64JsonCodec())
 
@@ -107,7 +106,7 @@ async def main() -> None:
     try:
         await add.delay(2, 3)
     except OSError:
-        # Nothing is buffered, so publishing fails while no worker is listening.
+        # The worker creates the socket, so connecting fails until it is running.
         raise SystemExit(f"no worker listening on {SOCKET}; start it first") from None
     print("sent")
 
