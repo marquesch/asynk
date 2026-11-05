@@ -31,6 +31,13 @@ NAMES = [
     "ScheduledTask",
     "Scheduler",
     "Runner",
+    "Store",
+    "MemoryStore",
+    "SqliteStore",
+    "TaskHandle",
+    "TaskState",
+    "TaskError",
+    "TaskNotFoundError",
 ]
 
 
@@ -249,3 +256,21 @@ async def test_lifecycle_hooks_fire_in_the_worker_and_the_scheduler() -> None:
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
     assert events[2:] == [("worker", "before_startup"), ("worker", "after_shutdown")]
+
+
+async def test_delay_then_await_result() -> None:
+    producer, consumer = memory_transport()
+    app = App("e2e", producer=producer, consumer=consumer, store=asynk.MemoryStore())
+
+    @app.task()
+    async def add(a: int, *, b: int) -> int:
+        return a + b
+
+    worker = Worker(app)
+    run = asyncio.create_task(worker.run())
+    handle = await add.delay(1, b=2)
+    assert await asyncio.wait_for(handle.result(), 5) == 3
+    assert await handle.status() is asynk.TaskState.SUCCESS
+    assert await app.get_task(handle.task_id).result() == 3
+    worker.request_shutdown()
+    await asyncio.wait_for(run, 5)
