@@ -3,7 +3,7 @@
 asynk is a small asyncio task framework (Python 3.10+, standard library only).
 Producers and consumers are decoupled: the core only knows an `Envelope`, a
 `Codec` and two protocols, so any broker can sit behind them. An in-memory
-transport and a unix socket transport ship for demos and tests.
+transport ships for development and testing.
 
 ## Example
 
@@ -59,46 +59,12 @@ await add.with_metadata(source="api", trace="x").with_metadata(trace="y").delay(
 # envelope.metadata == {"source": "api", "trace": "y"}
 ```
 
-## Running a worker in another process
-
-The unix socket transport connects a separate producer and worker on one
-machine, with no broker:
-
-```python
-# unix.py
-from asynk import App
-from asynk.transport.unix import unix_transport
-
-producer, consumer = unix_transport("/tmp/asynk.sock")
-app = App("demo", producer=producer, consumer=consumer)
-
-
-@app.task()
-async def add(a: int, b: int) -> int:
-    print(f"{a} + {b} = {a + b}")
-    return a + b
-```
-
-```
-# terminal 1: the worker creates and listens on the socket
-python -m asynk.cli worker unix:app
-
-# terminal 2: publish a task
-python -c "import asyncio; from unix import add; asyncio.run(add.delay(2, 3))"
-```
-
-`python -m asynk.cli` is used so the current directory is importable; the
-`asynk` command works the same when the module is on `sys.path`.
-
 The transport moves bytes: it carries the message bodies that `app.codec`
-produces; the unix transport writes each body as one line. To change the wire
-format, pass `App(..., codec=MyCodec())`; `unix_transport(path)` and
-`memory_transport()` take no codec.
+produces. To change the wire format, pass `App(..., codec=MyCodec())`;
+`memory_transport()` takes no codec.
 
-Runnable versions are in `examples/memory/` (a worker and a scheduler in one
-process, with a fast virtual clock) and `examples/unix.py` (a single file with a
-custom app codec, scheduled tasks and a deduplicating hook; its docstring lists the
-commands for the worker, the scheduler and the producer).
+A runnable version is in `examples/memory/` (a worker and a scheduler in one
+process, with a fast virtual clock).
 
 ## Scheduled tasks (scheduler)
 
@@ -234,9 +200,7 @@ await app.store.stop()
 **Stores.**
 
 - `MemoryStore(ttl=86400.0)` keeps records in one process for `ttl` seconds, so the
-  producer, worker and readers share it. It suits demos and tests.
-- `SqliteStore(path, ttl=86400.0, poll_interval=0.1)` keeps them for `ttl` seconds in
-  a SQLite file shared by processes on one machine.
+  producer, worker and readers share it. It is the development and testing store.
 
 For anything wider, implement the `Store` protocol over Redis or a database:
 

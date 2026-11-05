@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `Producer.validate` and `Delivery.envelope`.
 - **Breaking:** `MemoryProducer.publish_raw`.
+- **Breaking:** the unix socket transport (`asynk.transport.unix`, `unix_transport`) and
+  `SqliteStore`, with their examples.
 
 ### Fixed
 

@@ -36,7 +36,6 @@ NAMES = [
     "Store",
     "MemoryStore",
     "NullStore",
-    "SqliteStore",
     "TaskHandle",
     "TaskState",
     "TaskError",
