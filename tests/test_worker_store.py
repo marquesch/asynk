@@ -293,8 +293,14 @@ def _spy_setup(fail: bool = False) -> tuple[list[str], Worker]:
 
 async def test_worker_starts_and_stops_store_through_app_hooks() -> None:
     calls, worker = _spy_setup()
+    started = asyncio.Event()
+
+    @worker.app.after_startup
+    def mark_started(runner: object) -> None:
+        started.set()
+
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(started.wait(), 1)
     worker.request_shutdown()
     await asyncio.wait_for(run, 1)
     assert calls == [

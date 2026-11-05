@@ -431,6 +431,7 @@ async def test_no_files_when_probe_dir_is_none(
     monkeypatch.setattr("asynk.worker.ProbeFiles", RecordingProbeFiles)
     _, _, _, worker = _setup(heartbeat_interval=0.02)
     run = asyncio.create_task(worker.run())
+    # Absence of probe files is the behavior: only observable over several real heartbeats.
     await asyncio.sleep(0.1)
     await _stop(worker, run)
     assert constructed == []
@@ -477,8 +478,14 @@ async def test_lifecycle_hooks_run_in_order_around_the_consumer() -> None:
     app, _, consumer, worker = _setup()
     events: list[str] = []
     _lifecycle(app, consumer, events)
+    started = asyncio.Event()
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(started.wait(), 1)
     assert events == ["before_startup connected=False", "after_startup connected=True"]
     await _stop(worker, run)
     assert events[2:] == ["before_shutdown connected=True", "after_shutdown connected=False"]
@@ -492,8 +499,14 @@ async def test_lifecycle_hooks_receive_the_worker() -> None:
     async def hook(w: Runner) -> None:
         received.append(w)
 
+    started = asyncio.Event()
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(started.wait(), 1)
     await _stop(worker, run)
     assert received == [worker]
 
@@ -506,8 +519,14 @@ async def test_lifecycle_hooks_see_the_worker_role() -> None:
     def hook(runner: Runner) -> None:
         roles.append(runner.role)
 
+    started = asyncio.Event()
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(started.wait(), 1)
     await _stop(worker, run)
     assert roles == ["worker"]
     assert worker.role == "worker"
@@ -601,8 +620,14 @@ async def test_failing_after_shutdown_raises() -> None:
     async def broken(w: Runner) -> None:
         raise RuntimeError("close failed")
 
+    started = asyncio.Event()
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(started.wait(), 1)
     worker.request_shutdown()
     with pytest.raises(RuntimeError, match="close failed"):
         await asyncio.wait_for(run, 1)

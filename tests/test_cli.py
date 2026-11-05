@@ -72,7 +72,7 @@ def test_worker_subprocess_lifecycle(tmp_path: Path) -> None:
         while not readiness.exists():
             assert proc.poll() is None, "worker exited early"
             assert time.monotonic() < deadline, "readiness file never appeared"
-            time.sleep(0.05)
+            time.sleep(0.05)  # the probe file is written by another process: poll
         health = subprocess.run(
             [*base, "health", "readiness", "--max-age", "5", *probe],
             cwd=REPO_ROOT,
@@ -216,7 +216,7 @@ def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
         while not liveness.exists():
             assert proc.poll() is None, "scheduler exited early"
             assert time.monotonic() < deadline, "liveness file never appeared"
-            time.sleep(0.05)
+            time.sleep(0.05)  # the probe file is written by another process: poll
         assert not (tmp_path / "readiness").exists()
         proc.send_signal(signal.SIGTERM)
         assert proc.wait(timeout=10) == 0

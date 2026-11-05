@@ -73,11 +73,21 @@ async def test_result_returns_value(store: MemoryStore) -> None:
     assert await _handle(store).result() == {"a": 1}
 
 
-async def test_result_waits_until_result_is_written(store: MemoryStore) -> None:
+async def test_result_waits_until_result_is_written(
+    store: MemoryStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     await store.set(state_key("x"), encode_state(CODEC, TaskState.PENDING))
+    waiting = asyncio.Event()
+    wait = store.wait
+
+    async def spy_wait(key: str, timeout: float | None = None) -> bytes | None:
+        waiting.set()
+        return await wait(key, timeout)
+
+    monkeypatch.setattr(store, "wait", spy_wait)
 
     async def writer() -> None:
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(waiting.wait(), 2)
         await store.set(result_key("x"), encode_result(CODEC, TaskState.SUCCESS, value=7))
 
     t = asyncio.create_task(writer())
