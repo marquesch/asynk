@@ -34,7 +34,7 @@ class App:
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
         store: Key-value store for task states, task results and scheduler claim keys.
-        codec: Codec that encodes task states and results.
+        codec: Codec that encodes messages, task states and results.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
@@ -57,8 +57,8 @@ class App:
             consumer: Used by `Worker`; None if the app only produces.
             store: Key-value store for task states, task results and scheduler
                 claim keys; defaults to a `NullStore`.
-            codec: Codec that encodes task states and results; defaults to a
-                `JsonCodec`.
+            codec: Codec that encodes messages, task states and results;
+                defaults to a `JsonCodec`.
             tz: Default timezone for scheduled tasks.
 
         Raises:
@@ -136,7 +136,7 @@ class App:
 
         The cron expression and (when `name` is given) timezone are
         checked immediately; the timezone is otherwise checked when decorating. The
-        arguments are checked by the producer's codec when a `Scheduler` is created.
+        arguments are checked by the app's codec when a `Scheduler` is created.
 
         Args:
             cron: Five-field cron expression.

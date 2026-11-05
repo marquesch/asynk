@@ -7,15 +7,22 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 import pytest
+from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import TaskStatus
+from asynk.hooks import TaskResult, TaskStatus
 from asynk.results import TaskError, TaskState
 from asynk.store.memory import MemoryStore
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
 from asynk.worker import Worker
+
+
+async def _handle(worker: Worker, delivery: Delivery) -> TaskResult:
+    result = await worker.handle(delivery)
+    assert result is not None
+    return result
 
 
 def _setup(store: Any = None) -> tuple[App, MemoryProducer, MemoryConsumer, Worker]:
@@ -41,7 +48,7 @@ async def test_success_stores_value_and_state() -> None:
         return a + b
 
     handle = await add.delay(1, 2)
-    result = await worker.handle(await _next(consumer))
+    result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.SUCCESS
     assert await asyncio.wait_for(app.get_task(handle.task_id).result(), 1) == 3
     assert await handle.state() is TaskState.SUCCESS
@@ -55,7 +62,7 @@ async def test_failure_after_retries_exceeded_stores_error_type_and_message() ->
         raise ValueError("bad input")
 
     handle = await boom.delay()
-    result = await worker.handle(await _next(consumer))
+    result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.RETRIES_EXCEEDED
     assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
@@ -77,13 +84,13 @@ async def test_retrying_then_success_keeps_one_id() -> None:
 
     handle = await flaky.delay()
     first = await _next(consumer)
-    result = await worker.handle(first)
+    result = await _handle(worker, first)
     assert result.status is TaskStatus.FAILED
     assert await handle.state() is TaskState.RETRYING
-    await producer.publish(first.envelope.retry())
+    await publish_envelope(producer, decode_delivery(first).retry())
     second = await _next(consumer)
-    assert second.envelope.id == handle.task_id
-    result = await worker.handle(second)
+    assert decode_delivery(second).id == handle.task_id
+    result = await _handle(worker, second)
     assert result.status is TaskStatus.SUCCESS
     assert await handle.state() is TaskState.SUCCESS
     assert await asyncio.wait_for(handle.result(), 1) == "ok"
@@ -102,7 +109,7 @@ async def test_skipped_task_result_returns_none() -> None:
         raise SkipTask
 
     handle = await t1.delay()
-    result = await worker.handle(await _next(consumer))
+    result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.SKIPPED
     assert await handle.state() is TaskState.SKIPPED
     assert await asyncio.wait_for(handle.result(), 1) is None
@@ -111,8 +118,8 @@ async def test_skipped_task_result_returns_none() -> None:
 async def test_unknown_task_marks_failure() -> None:
     app, producer, consumer, worker = _setup()
     env = Envelope.create("nope", (), {})
-    await producer.publish(env)
-    result = await worker.handle(await _next(consumer))
+    await publish_envelope(producer, env)
+    result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.UNKNOWN_TASK
     handle = app.get_task(env.id)
     assert await handle.state() is TaskState.FAILURE
@@ -155,7 +162,7 @@ async def test_unserializable_return_value_becomes_failure(
     handle = await weird.delay()
     delivery = await _next(consumer)
     with caplog.at_level(logging.WARNING, logger="asynk"):
-        result = await worker.handle(delivery)
+        result = await _handle(worker, delivery)
     assert result.status is TaskStatus.SUCCESS
     assert delivery.settled
     assert await handle.state() is TaskState.FAILURE
@@ -199,10 +206,10 @@ async def test_store_errors_do_not_fail_the_task(
     async def add(a: int, b: int) -> int:
         return a + b
 
-    await producer.publish(Envelope.create("add", (2, 3), {}))
+    await publish_envelope(producer, Envelope.create("add", (2, 3), {}))
     delivery = await _next(consumer)
     with caplog.at_level(logging.ERROR, logger="asynk"):
-        result = await worker.handle(delivery)
+        result = await _handle(worker, delivery)
     assert result.status is TaskStatus.SUCCESS
     assert result.value == 5
     assert delivery.settled
@@ -217,7 +224,7 @@ async def test_worker_run_survives_broken_store() -> None:
     async def t1() -> None:
         done.set()
 
-    await producer.publish(Envelope.create("t1", (), {}))
+    await publish_envelope(producer, Envelope.create("t1", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(done.wait(), 1)
     worker.request_shutdown()
@@ -320,12 +327,12 @@ async def test_hook_failure_records_retrying_or_failure() -> None:
         raise OSError("hook down")
 
     handle = await once.delay()
-    result = await worker.handle(await _next(consumer))
+    result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.FAILED
     assert await handle.state() is TaskState.RETRYING
     retried = await _next(consumer)
-    assert retried.envelope.id == handle.task_id
-    result = await worker.handle(retried)
+    assert decode_delivery(retried).id == handle.task_id
+    result = await _handle(worker, retried)
     assert result.status is TaskStatus.RETRIES_EXCEEDED
     assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
@@ -360,7 +367,7 @@ async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
         return 1
 
     env = Envelope.create("t1", (), {})
-    await producer.publish(env)
+    await publish_envelope(producer, env)
     delivery = await _next(consumer)
     handler = asyncio.create_task(worker.handle(delivery))
     await asyncio.wait_for(store.blocked.wait(), 1)
@@ -369,7 +376,7 @@ async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
         await handler
     assert delivery.settled
     redelivered = await _next(consumer)
-    assert redelivered.envelope == env
+    assert decode_delivery(redelivered) == env
 
 
 async def test_worker_run_raises_when_store_start_fails() -> None:

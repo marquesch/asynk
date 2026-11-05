@@ -15,10 +15,7 @@ class FakeProducer:
     def __init__(self) -> None:
         self.published: list[Envelope] = []
 
-    def validate(self, envelope: Envelope) -> None:
-        return None
-
-    async def publish(self, envelope: Envelope) -> str:
+    async def publish(self, envelope: Envelope, body: bytes) -> str:
         self.published.append(envelope)
         return "handle"
 

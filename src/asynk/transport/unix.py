@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TypeAlias
 
-from asynk.codec import Codec, DecodeError
-from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
 
@@ -19,55 +17,43 @@ class _Stop:
 
 _STOP = _Stop()
 
-_Queue: TypeAlias = "asyncio.Queue[Envelope | _Stop]"
+_Queue: TypeAlias = "asyncio.Queue[bytes | _Stop]"
 
 
 class UnixProducer:
-    """Producer that sends each envelope to a unix socket, one connection per message.
+    """Producer that sends each message to a unix socket, one connection per message.
 
     Meant for learning and testing, not production: there is no buffering or
     retry, so publishing fails if no consumer is listening.
     """
 
-    def __init__(self, path: str | os.PathLike[str], codec: Codec | None = None) -> None:
+    def __init__(self, path: str | os.PathLike[str]) -> None:
         """Initializes the producer.
 
         Args:
             path: Path of the socket the consumer listens on.
-            codec: Codec for the messages; defaults to `JsonCodec`. It must not
-                emit newlines, which delimit messages.
         """
         self._path = os.fspath(path)
-        self._codec = codec if codec is not None else JsonCodec()
 
-    def validate(self, envelope: Envelope) -> None:
-        """Checks that the codec can encode an envelope.
-
-        Args:
-            envelope: The envelope to check.
-
-        Raises:
-            EncodeError: If the codec cannot encode it.
-        """
-        self._codec.validate(envelope)
-
-    async def publish(self, envelope: Envelope) -> str:
-        """Encodes an envelope and sends it as one line.
+    async def publish(self, envelope: Envelope, body: bytes) -> str:
+        """Sends a message as one newline-terminated line.
 
         Args:
-            envelope: The envelope to send.
+            envelope: The envelope the message carries.
+            body: The encoded message to send.
 
         Returns:
             The envelope id.
 
         Raises:
-            EncodeError: If the codec cannot encode the envelope.
+            ValueError: If `body` contains a newline.
             OSError: If no consumer is listening on the socket.
         """
-        data = self._codec.encode(envelope)
+        if b"\n" in body:
+            raise ValueError("message body must not contain a newline")
         _, writer = await asyncio.open_unix_connection(self._path)
         try:
-            writer.write(data + b"\n")
+            writer.write(body + b"\n")
             await writer.drain()
         finally:
             writer.close()
@@ -81,13 +67,13 @@ class UnixDelivery:
     Nothing is ever redelivered: rejecting, even with `requeue=True`, loses the message.
     """
 
-    def __init__(self, envelope: Envelope) -> None:
-        self._envelope = envelope
+    def __init__(self, body: bytes) -> None:
+        self._body = body
         self._settled = False
 
     @property
-    def envelope(self) -> Envelope:
-        return self._envelope
+    def body(self) -> bytes:
+        return self._body
 
     @property
     def settled(self) -> bool:
@@ -112,15 +98,13 @@ class UnixConsumer:
     and are lost if the worker stops, crashes or rejects them.
     """
 
-    def __init__(self, path: str | os.PathLike[str], codec: Codec | None = None) -> None:
+    def __init__(self, path: str | os.PathLike[str]) -> None:
         """Initializes the consumer.
 
         Args:
             path: Path of the socket to create.
-            codec: Codec for the messages; defaults to `JsonCodec`.
         """
         self._path = Path(path)
-        self._codec = codec if codec is not None else JsonCodec()
         self._queue: _Queue = asyncio.Queue()
         self._server: asyncio.AbstractServer | None = None
 
@@ -146,10 +130,7 @@ class UnixConsumer:
     ) -> None:
         try:
             async for line in reader:
-                try:
-                    self._queue.put_nowait(self._codec.decode(line.removesuffix(b"\n")))
-                except DecodeError:
-                    continue
+                self._queue.put_nowait(line.removesuffix(b"\n"))
         except ValueError:
             pass
         finally:
@@ -175,19 +156,16 @@ class UnixConsumer:
                 await delivery.ack()
 
 
-def unix_transport(
-    path: str | os.PathLike[str], codec: Codec | None = None
-) -> tuple[UnixProducer, UnixConsumer]:
+def unix_transport(path: str | os.PathLike[str]) -> tuple[UnixProducer, UnixConsumer]:
     """Creates a producer and consumer pair for one socket path.
 
     Both ends are usually created in different processes, each calling this
-    function with the same path and codec.
+    function with the same path.
 
     Args:
         path: Path of the socket file.
-        codec: Codec for the messages; defaults to `JsonCodec`.
 
     Returns:
         A `(producer, consumer)` tuple.
     """
-    return UnixProducer(path, codec), UnixConsumer(path, codec)
+    return UnixProducer(path), UnixConsumer(path)

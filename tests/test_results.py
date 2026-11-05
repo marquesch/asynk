@@ -5,7 +5,6 @@ import pytest
 
 from asynk.codec import Codec, EncodeError
 from asynk.codec.json import JsonCodec
-from asynk.envelope import Envelope
 from asynk.errors import NotConfiguredError
 from asynk.results import (
     TaskError,
@@ -28,20 +27,13 @@ CODEC = JsonCodec()
 class PickleCodec:
     """Minimal codec that stores values with pickle."""
 
-    def validate(self, envelope: Envelope) -> None:
+    def validate(self, value: object) -> None:
         return None
 
-    def encode(self, envelope: Envelope) -> bytes:
-        return pickle.dumps(envelope)
-
-    def decode(self, data: bytes) -> Envelope:
-        envelope: Envelope = pickle.loads(data)
-        return envelope
-
-    def encode_value(self, value: object) -> bytes:
+    def encode(self, value: object) -> bytes:
         return pickle.dumps(value)
 
-    def decode_value(self, data: bytes) -> object:
+    def decode(self, data: bytes) -> object:
         return pickle.loads(data)
 
 

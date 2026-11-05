@@ -35,7 +35,8 @@ async def _checks() -> None:
 @app.after_task
 async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
-        await producer.publish(result.envelope.retry())
+        retry = result.envelope.retry()
+        await producer.publish(retry, app.codec.encode(retry.to_dict()))
         await delivery.ack()
 
 

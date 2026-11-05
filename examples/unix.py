@@ -43,13 +43,13 @@ class Base64JsonCodec:
     def __init__(self) -> None:
         self._json = JsonCodec()
 
-    def validate(self, envelope: Envelope) -> None:
-        self._json.validate(envelope)
+    def validate(self, value: object) -> None:
+        self._json.validate(value)
 
-    def encode(self, envelope: Envelope) -> bytes:
-        return base64.b64encode(self._json.encode(envelope))
+    def encode(self, value: object) -> bytes:
+        return base64.b64encode(self._json.encode(value))
 
-    def decode(self, data: bytes) -> Envelope:
+    def decode(self, data: bytes) -> object:
         try:
             raw = base64.b64decode(data, validate=True)
         except binascii.Error as exc:
@@ -57,18 +57,12 @@ class Base64JsonCodec:
             raise DecodeError(f"invalid base64: {exc}") from exc
         return self._json.decode(raw)
 
-    def encode_value(self, value: object) -> bytes:
-        return self._json.encode_value(value)
-
-    def decode_value(self, data: bytes) -> object:
-        return self._json.decode_value(data)
-
 
 # Each process builds both ends but uses only the one it needs: the worker's
 # consumer creates and listens on the socket file, while the producer and the
 # scheduler connect to it. All sides must be given the same codec.
-producer, consumer = unix_transport(SOCKET, Base64JsonCodec())
-app = App("unix-example", producer=producer, consumer=consumer)
+producer, consumer = unix_transport(SOCKET)
+app = App("unix-example", producer=producer, consumer=consumer, codec=Base64JsonCodec())
 
 
 @app.task()

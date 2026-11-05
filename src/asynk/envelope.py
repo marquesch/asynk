@@ -4,6 +4,8 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
+from asynk.codec import DecodeError
+
 
 @dataclass(frozen=True, slots=True)
 class Envelope:
@@ -54,6 +56,69 @@ class Envelope:
             attempt=0,
             metadata=dict(metadata) if metadata is not None else {},
         )
+
+    @classmethod
+    def from_dict(cls, data: object) -> Envelope:
+        """Builds an envelope from the mapping produced by `to_dict`.
+
+        Args:
+            data: A mapping with the keys `id`, `task`, `args`, `kwargs`,
+                `attempt` and `metadata`.
+
+        Returns:
+            The envelope the mapping describes.
+
+        Raises:
+            DecodeError: If `data` is not a mapping or a key is missing or has
+                the wrong type.
+        """
+        if not isinstance(data, Mapping):
+            raise DecodeError("envelope must be a mapping")
+
+        task = data.get("task")
+        id_ = data.get("id")
+        args = data.get("args")
+        kwargs = data.get("kwargs")
+        attempt = data.get("attempt")
+        metadata = data.get("metadata")
+
+        if not isinstance(task, str):
+            raise DecodeError("'task' must be a string")
+        if not isinstance(id_, str):
+            raise DecodeError("'id' must be a string")
+        if not isinstance(args, list):
+            raise DecodeError("'args' must be a list")
+        if not isinstance(kwargs, dict):
+            raise DecodeError("'kwargs' must be an object")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
+            raise DecodeError("'attempt' must be a non-negative integer")
+        if not isinstance(metadata, dict):
+            raise DecodeError("'metadata' must be an object")
+
+        return cls(
+            task=task,
+            args=tuple(args),
+            kwargs=dict(kwargs),
+            id=id_,
+            attempt=attempt,
+            metadata=dict(metadata),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Returns the envelope as a mapping of plain values.
+
+        Returns:
+            A dict with the keys `id`, `task`, `args` (a list), `kwargs`,
+            `attempt` and `metadata`, accepted by `from_dict`.
+        """
+        return {
+            "id": self.id,
+            "task": self.task,
+            "args": list(self.args),
+            "kwargs": dict(self.kwargs),
+            "attempt": self.attempt,
+            "metadata": dict(self.metadata),
+        }
 
     def retry(self) -> Envelope:
         """Returns a copy of this envelope with `attempt` incremented."""

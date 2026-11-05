@@ -5,8 +5,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TypeAlias
 
-from asynk.codec import Codec, DecodeError
-from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
 
@@ -23,57 +21,34 @@ _Queue: TypeAlias = "asyncio.Queue[bytes | _Stop]"
 class MemoryProducer:
     """Producer that publishes to an in-process queue."""
 
-    def __init__(self, queue: _Queue, codec: Codec) -> None:
+    def __init__(self, queue: _Queue) -> None:
         self._queue = queue
-        self._codec = codec
 
-    def validate(self, envelope: Envelope) -> None:
-        """Checks that the codec can encode an envelope.
-
-        Args:
-            envelope: The envelope to check.
-
-        Raises:
-            EncodeError: If the codec cannot encode it.
-        """
-        self._codec.validate(envelope)
-
-    async def publish(self, envelope: Envelope) -> str:
-        """Encodes and enqueues an envelope.
+    async def publish(self, envelope: Envelope, body: bytes) -> str:
+        """Enqueues a message.
 
         Args:
-            envelope: The envelope to send.
+            envelope: The envelope the message carries.
+            body: The encoded message to enqueue.
 
         Returns:
             The envelope id.
-
-        Raises:
-            EncodeError: If the codec cannot encode the envelope.
         """
-        await self._queue.put(self._codec.encode(envelope))
+        await self._queue.put(body)
         return envelope.id
-
-    def publish_raw(self, data: bytes) -> None:
-        """Enqueues bytes as-is, bypassing the codec (useful for malformed-input tests).
-
-        Args:
-            data: The raw message bytes.
-        """
-        self._queue.put_nowait(data)
 
 
 class MemoryDelivery:
     """Delivery from an in-process queue; rejecting with `requeue` re-enqueues it."""
 
-    def __init__(self, envelope: Envelope, raw: bytes, queue: _Queue) -> None:
-        self._envelope = envelope
-        self._raw = raw
+    def __init__(self, body: bytes, queue: _Queue) -> None:
+        self._body = body
         self._queue = queue
         self._settled = False
 
     @property
-    def envelope(self) -> Envelope:
-        return self._envelope
+    def body(self) -> bytes:
+        return self._body
 
     @property
     def settled(self) -> bool:
@@ -90,19 +65,17 @@ class MemoryDelivery:
     async def reject(self, *, requeue: bool = False) -> None:
         self._settle()
         if requeue:
-            await self._queue.put(self._raw)
+            await self._queue.put(self._body)
 
 
 class MemoryConsumer:
     """Consumer that reads from an in-process queue.
 
-    Messages that fail to decode are dropped. `process` acks on success and
-    rejects without requeue on any exception.
+    `process` acks on success and rejects without requeue on any exception.
     """
 
-    def __init__(self, queue: _Queue, codec: Codec) -> None:
+    def __init__(self, queue: _Queue) -> None:
         self._queue = queue
-        self._codec = codec
         self._connected = False
 
     @property
@@ -121,11 +94,7 @@ class MemoryConsumer:
             item = await self._queue.get()
             if isinstance(item, _Stop):
                 return
-            try:
-                envelope = self._codec.decode(item)
-            except DecodeError:
-                continue
-            yield MemoryDelivery(envelope, item, self._queue)
+            yield MemoryDelivery(item, self._queue)
 
     @asynccontextmanager
     async def process(self, delivery: Delivery) -> AsyncIterator[None]:
@@ -140,15 +109,11 @@ class MemoryConsumer:
                 await delivery.ack()
 
 
-def memory_transport(codec: Codec | None = None) -> tuple[MemoryProducer, MemoryConsumer]:
+def memory_transport() -> tuple[MemoryProducer, MemoryConsumer]:
     """Creates a connected in-process producer and consumer pair.
-
-    Args:
-        codec: Codec for the queue's messages; defaults to `JsonCodec`.
 
     Returns:
         A `(producer, consumer)` tuple sharing one queue.
     """
-    shared = codec if codec is not None else JsonCodec()
     queue: _Queue = asyncio.Queue()
-    return MemoryProducer(queue, shared), MemoryConsumer(queue, shared)
+    return MemoryProducer(queue), MemoryConsumer(queue)
