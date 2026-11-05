@@ -65,5 +65,5 @@ class MemoryStore:
             event = self._events.setdefault(key, asyncio.Event())
             try:
                 await asyncio.wait_for(event.wait(), remaining)
-            except TimeoutError:
+            except asyncio.TimeoutError:  # not the builtin TimeoutError before Python 3.11
                 return await self.get(key)
