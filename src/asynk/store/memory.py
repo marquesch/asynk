@@ -6,10 +6,7 @@ from collections.abc import Callable
 
 
 class MemoryStore:
-    """In-memory `Store` for a single process.
-
-    Values are not shared between processes, so it only suits tests and
-    setups where producer and worker run in the same process.
+    """Store that keeps values in memory within one process.
 
     Args:
         ttl: Seconds a key lives after it is written.
@@ -25,13 +22,13 @@ class MemoryStore:
         self._events: dict[str, asyncio.Event] = {}
 
     async def start(self) -> None:
-        """Does nothing; the store needs no resources."""
+        """Does nothing."""
 
     async def stop(self) -> None:
-        """Does nothing; the store holds no resources."""
+        """Does nothing."""
 
     async def get(self, key: str) -> bytes | None:
-        """Reads a value; see `Store.get`."""
+        """Reads a value, or returns None if the key is missing or expired."""
         entry = self._data.get(key)
         if entry is None:
             return None
@@ -42,7 +39,7 @@ class MemoryStore:
         return value
 
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
-        """Writes a value; see `Store.set`."""
+        """Writes a value; returns False if the key exists and `overwrite` is false."""
         if not overwrite and await self.get(key) is not None:
             return False
         self._data[key] = (value, self._clock() + self._ttl)
@@ -52,7 +49,7 @@ class MemoryStore:
         return True
 
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
-        """Waits for a value using per-key events; see `Store.wait`."""
+        """Waits until the key has a value; returns None if `timeout` elapses first."""
         loop = asyncio.get_running_loop()
         deadline = None if timeout is None else loop.time() + timeout
         while True:

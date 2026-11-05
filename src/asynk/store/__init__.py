@@ -4,14 +4,14 @@ from typing import Protocol
 
 
 class Store(Protocol):
-    """A key-value store for task results and other small pieces of state.
+    """Key-value storage for task results and other small pieces of state.
 
-    Values are bytes. Keys expire after a time-to-live fixed when the store is
-    constructed; an expired key is never returned by `get` or `wait`.
+    Values are bytes. Keys expire after the time-to-live the store was
+    constructed with; an expired key reads as missing.
     """
 
     async def start(self) -> None:
-        """Acquires any resources the store needs (connections, files)."""
+        """Acquires the resources the store needs."""
         ...
 
     async def stop(self) -> None:
@@ -32,8 +32,6 @@ class Store(Protocol):
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
         """Writes a value.
 
-        An existing, unexpired key is only replaced when `overwrite` is true.
-
         Args:
             key: The key to write.
             value: The value to store.
@@ -46,11 +44,7 @@ class Store(Protocol):
         ...
 
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
-        """Blocks until a key has a value.
-
-        This exists so `TaskHandle.result()` can block until a task's result
-        is stored. A store that cannot support it must raise a clear error
-        or document that it is a no-op.
+        """Waits until a key has a value.
 
         Args:
             key: The key to wait for.

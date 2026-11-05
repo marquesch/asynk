@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
+from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
     AfterTaskHook,
     BeforeTaskHook,
@@ -22,10 +23,6 @@ if TYPE_CHECKING:
 
 P = ParamSpec("P")
 R = TypeVar("R")
-
-
-class NotConfiguredError(RuntimeError):
-    """Raised when an app lacks a component required by the operation."""
 
 
 class App:

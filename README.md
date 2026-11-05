@@ -260,9 +260,8 @@ Records expire after 24 hours by default. Expiry is a property of the store
 
 For anything wider, implement the `Store` protocol (`start`, `stop`, `get`,
 `set(key, value, *, overwrite=False) -> bool`, `wait(key, timeout=None)`) over
-Redis or a database. `wait` exists so `result()` can block until a value is
-written: each store decides how (polling or push). A store that cannot wait
-must raise or document that it is a no-op.
+Redis or a database. `wait` blocks until a value is
+written, by polling or push as the store sees fit.
 
 **Scheduler dedupe.** When the app has a store, the scheduler claims
 `claim:<idempotency_key>` before publishing each slot, so schedulers that overlap

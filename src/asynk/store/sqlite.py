@@ -7,15 +7,12 @@ import threading
 import time
 from collections.abc import Callable
 
-from asynk.store.polling import poll_wait
-
 
 class SqliteStore:
-    """`Store` backed by a SQLite file, shareable between processes.
+    """Store backed by a SQLite file that several processes can share.
 
-    Expiry uses wall-clock time because several processes share the file.
-    Expired rows read as missing and are removed lazily by `set`; `get` never writes,
-    so polling does not contend for the write lock.
+    Expired keys read as missing. `wait` polls the file every `poll_interval`
+    seconds.
 
     Args:
         path: Location of the database file.
@@ -71,7 +68,7 @@ class SqliteStore:
         return self._conn
 
     async def get(self, key: str) -> bytes | None:
-        """Reads a value; see `Store.get`."""
+        """Reads a value, or returns None if the key is missing or expired."""
         return await asyncio.to_thread(self._get, key)
 
     def _get(self, key: str) -> bytes | None:
@@ -82,11 +79,13 @@ class SqliteStore:
                 "SELECT value, expires_at FROM store WHERE key = ?", (key,)
             ).fetchone()
             if row is None or row[1] <= now:
-                return None  # expired rows are cleared by the next `set` of the key
+                # Read-only on purpose: polling must not contend for the write lock.
+                # Expired rows are cleared by the next `set` of the key.
+                return None
             return bytes(row[0])
 
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
-        """Writes a value; see `Store.set`."""
+        """Writes a value; returns False if the key exists and `overwrite` is false."""
         return await asyncio.to_thread(self._set, key, value, overwrite)
 
     def _set(self, key: str, value: bytes, overwrite: bool) -> bool:
@@ -114,5 +113,16 @@ class SqliteStore:
             return written
 
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
-        """Waits for a value by polling; see `Store.wait`."""
-        return await poll_wait(self.get, key, timeout, self._poll_interval)
+        """Waits until the key has a value; returns None if `timeout` elapses first."""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            value = await self.get(key)
+            if value is not None:
+                return value
+            if deadline is None:
+                await asyncio.sleep(self._poll_interval)
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            await asyncio.sleep(min(self._poll_interval, remaining))
