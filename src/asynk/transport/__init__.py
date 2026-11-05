@@ -8,24 +8,15 @@ from asynk.envelope import Envelope
 
 
 class Producer(Protocol):
-    """Sends envelopes to a broker."""
+    """Sends encoded messages to a broker."""
 
-    def validate(self, envelope: Envelope) -> None:
-        """Checks that `publish` could encode an envelope, without sending it.
-
-        Args:
-            envelope: The envelope to check.
-
-        Raises:
-            EncodeError: If the envelope holds a value the producer's codec cannot encode.
-        """
-        ...
-
-    async def publish(self, envelope: Envelope) -> Any:
-        """Publishes one envelope.
+    async def publish(self, envelope: Envelope, body: bytes) -> Any:
+        """Publishes one message.
 
         Args:
-            envelope: The envelope to send.
+            envelope: The envelope the message carries, for routing and broker
+                metadata such as its id.
+            body: The encoded message to send.
 
         Returns:
             An implementation-defined receipt (for example a broker message id).
@@ -37,8 +28,8 @@ class Delivery(Protocol):
     """A received message, settled exactly once by `ack` or `reject`."""
 
     @property
-    def envelope(self) -> Envelope:
-        """The decoded envelope carried by this delivery."""
+    def body(self) -> bytes:
+        """The message bytes, as given to `Producer.publish`."""
         ...
 
     @property
@@ -71,6 +62,9 @@ class Consumer(Protocol):
       (usually ack). On an exception it must settle an unsettled delivery
       (usually reject) and must not suppress the exception, notably
       `asyncio.CancelledError`.
+    * The worker decodes each delivery's `body` inside `process`. A body it
+      cannot decode is rejected without requeue there, and the block exits
+      cleanly.
     * When a task is cancelled at the shutdown timeout, the worker rejects its
       unsettled delivery with `requeue=True` before the cancellation reaches
       `process`, so the message is redelivered rather than dropped.
@@ -95,7 +89,7 @@ class Consumer(Protocol):
         ...
 
     def deliveries(self) -> AsyncIterator[Delivery]:
-        """Returns the stream of incoming deliveries."""
+        """Returns the stream of incoming deliveries, one per received message."""
         ...
 
     def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:

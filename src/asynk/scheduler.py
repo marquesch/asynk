@@ -95,7 +95,7 @@ class Scheduler(Runner):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            EncodeError: If the producer's codec cannot encode a scheduled task's arguments.
+            EncodeError: If the app's codec cannot encode a scheduled task's arguments.
             ValueError: If the app has no scheduled tasks, `heartbeat_interval` <= 0, or
                 `grace` is not in [0, 60).
         """
@@ -108,8 +108,8 @@ class Scheduler(Runner):
         if not 0 <= grace < _MAX_GRACE:
             raise ValueError(f"grace must be in [0, {_MAX_GRACE:g}), got {grace}")
         for task in app.scheduled_tasks:
-            app.producer.validate(
-                Envelope.create(task.name, task.schedule.args, task.schedule.kwargs)
+            app.codec.validate(
+                Envelope.create(task.name, task.schedule.args, task.schedule.kwargs).to_dict()
             )
         self.app = app
         self.clock: Clock = clock if clock is not None else SystemClock()

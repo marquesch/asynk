@@ -5,22 +5,38 @@ from pathlib import Path
 
 import pytest
 
-from asynk import App, DecodeError, EncodeError, Envelope, JsonCodec, Worker
+from asynk import App, Envelope, JsonCodec, Worker
 from asynk.transport import Delivery
-from asynk.transport.unix import UnixConsumer, UnixProducer, unix_transport
+from asynk.transport.unix import UnixConsumer, UnixDelivery, UnixProducer, unix_transport
 
 
 async def _first(consumer: UnixConsumer) -> Delivery:
     return await asyncio.wait_for(anext(consumer.deliveries()), 1)
 
 
-async def test_publish_then_consume_roundtrip(tmp_path: Path) -> None:
+def _env(task: str = "t") -> Envelope:
+    return Envelope.create(task, (), {})
+
+
+async def test_publish_then_consume_moves_the_body_unchanged(tmp_path: Path) -> None:
     producer, consumer = unix_transport(tmp_path / "s.sock")
     await consumer.start()
     try:
-        env = Envelope.create("t", (1, "a"), {"k": 2})
-        assert await producer.publish(env) == env.id
-        assert (await _first(consumer)).envelope == env
+        env = _env()
+        assert await producer.publish(env, b"\x00some bytes") == env.id
+        delivery = await _first(consumer)
+        assert isinstance(delivery, UnixDelivery)
+        assert delivery.body == b"\x00some bytes"
+    finally:
+        await consumer.stop()
+
+
+async def test_publish_rejects_a_body_containing_a_newline(tmp_path: Path) -> None:
+    producer, consumer = unix_transport(tmp_path / "s.sock")
+    await consumer.start()
+    try:
+        with pytest.raises(ValueError, match="newline"):
+            await producer.publish(_env(), b"two\nlines")
     finally:
         await consumer.stop()
 
@@ -28,7 +44,7 @@ async def test_publish_then_consume_roundtrip(tmp_path: Path) -> None:
 async def test_publish_without_listener_raises(tmp_path: Path) -> None:
     producer = UnixProducer(tmp_path / "missing.sock")
     with pytest.raises(OSError):
-        await producer.publish(Envelope.create("t", (), {}))
+        await producer.publish(_env(), b"x")
 
 
 async def test_connected_follows_start_and_stop(tmp_path: Path) -> None:
@@ -49,23 +65,23 @@ async def test_start_replaces_stale_socket_file(tmp_path: Path) -> None:
     producer, consumer = unix_transport(path)
     await consumer.start()
     try:
-        await producer.publish(Envelope.create("t", (), {}))
-        assert (await _first(consumer)).envelope.task == "t"
+        await producer.publish(_env(), b"t")
+        assert (await _first(consumer)).body == b"t"
     finally:
         await consumer.stop()
 
 
-async def test_undecodable_message_is_dropped(tmp_path: Path) -> None:
-    path = tmp_path / "s.sock"
-    producer, consumer = unix_transport(path)
+async def test_each_line_becomes_one_delivery_without_the_delimiter(tmp_path: Path) -> None:
+    consumer = UnixConsumer(tmp_path / "s.sock")
     await consumer.start()
     try:
-        _, writer = await asyncio.open_unix_connection(path)
-        writer.write(b"not json\n")
+        _, writer = await asyncio.open_unix_connection(tmp_path / "s.sock")
+        writer.write(b"not json\nsecond\n")
         await writer.drain()
         writer.close()
-        await producer.publish(Envelope.create("good", (), {}))
-        assert (await _first(consumer)).envelope.task == "good"
+        it = consumer.deliveries()
+        assert (await asyncio.wait_for(anext(it), 1)).body == b"not json"
+        assert (await asyncio.wait_for(anext(it), 1)).body == b"second"
     finally:
         await consumer.stop()
 
@@ -74,7 +90,7 @@ async def test_ack_marks_settled_and_double_settle_raises(tmp_path: Path) -> Non
     producer, consumer = unix_transport(tmp_path / "s.sock")
     await consumer.start()
     try:
-        await producer.publish(Envelope.create("t", (), {}))
+        await producer.publish(_env(), b"x")
         delivery = await _first(consumer)
         assert not delivery.settled
         await delivery.ack()
@@ -89,12 +105,12 @@ async def test_reject_with_requeue_loses_the_message(tmp_path: Path) -> None:
     producer, consumer = unix_transport(tmp_path / "s.sock")
     await consumer.start()
     try:
-        await producer.publish(Envelope.create("first", (), {}))
+        await producer.publish(_env(), b"first")
         it = consumer.deliveries()
         first = await asyncio.wait_for(anext(it), 1)
         await first.reject(requeue=True)
-        await producer.publish(Envelope.create("second", (), {}))
-        assert (await asyncio.wait_for(anext(it), 1)).envelope.task == "second"
+        await producer.publish(_env(), b"second")
+        assert (await asyncio.wait_for(anext(it), 1)).body == b"second"
     finally:
         await consumer.stop()
 
@@ -103,8 +119,8 @@ async def test_process_acks_on_success_and_rejects_on_error(tmp_path: Path) -> N
     producer, consumer = unix_transport(tmp_path / "s.sock")
     await consumer.start()
     try:
-        await producer.publish(Envelope.create("ok", (), {}))
-        await producer.publish(Envelope.create("bad", (), {}))
+        await producer.publish(_env(), b"ok")
+        await producer.publish(_env(), b"bad")
         it = consumer.deliveries()
         ok = await asyncio.wait_for(anext(it), 1)
         async with consumer.process(ok):
@@ -133,36 +149,17 @@ class _ReverseCodec:
     def __init__(self) -> None:
         self._json = JsonCodec()
 
-    def validate(self, envelope: Envelope) -> None:
-        self._json.validate(envelope)
+    def validate(self, value: object) -> None:
+        self._json.validate(value)
 
-    def encode(self, envelope: Envelope) -> bytes:
-        return self._json.encode(envelope)[::-1]
+    def encode(self, value: object) -> bytes:
+        return self._json.encode(value)[::-1]
 
-    def decode(self, data: bytes) -> Envelope:
+    def decode(self, data: bytes) -> object:
         return self._json.decode(data[::-1])
 
-    def encode_value(self, value: object) -> bytes:
-        return self._json.encode_value(value)
 
-    def decode_value(self, data: bytes) -> object:
-        return self._json.decode_value(data)
-
-
-async def test_custom_codec_is_used_on_both_sides(tmp_path: Path) -> None:
-    producer, consumer = unix_transport(tmp_path / "s.sock", _ReverseCodec())
-    await consumer.start()
-    try:
-        env = Envelope.create("t", (1,), {})
-        await producer.publish(env)
-        assert (await _first(consumer)).envelope == env
-    finally:
-        await consumer.stop()
-
-
-async def test_worker_runs_a_task_published_through_the_socket(tmp_path: Path) -> None:
-    producer, consumer = unix_transport(tmp_path / "s.sock")
-    app = App("unix", producer=producer, consumer=consumer)
+async def _run_add_through_socket(app: App, consumer: UnixConsumer) -> list[int]:
     done = asyncio.Event()
     seen: list[int] = []
 
@@ -179,43 +176,16 @@ async def test_worker_runs_a_task_published_through_the_socket(tmp_path: Path) -
     await asyncio.wait_for(done.wait(), 5)
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
-    assert seen == [5]
+    return seen
 
 
-class _StrictCodec:
-    def __init__(self) -> None:
-        self._json = JsonCodec()
-
-    def validate(self, envelope: Envelope) -> None:
-        self._json.validate(envelope)
-
-    def encode(self, envelope: Envelope) -> bytes:
-        return self._json.encode(envelope)
-
-    def decode(self, data: bytes) -> Envelope:
-        if data.endswith(b"\n"):
-            raise DecodeError("delimiter leaked into the message")
-        return self._json.decode(data)
-
-    def encode_value(self, value: object) -> bytes:
-        return self._json.encode_value(value)
-
-    def decode_value(self, data: bytes) -> object:
-        return self._json.decode_value(data)
+async def test_worker_runs_a_task_published_through_the_socket(tmp_path: Path) -> None:
+    producer, consumer = unix_transport(tmp_path / "s.sock")
+    app = App("unix", producer=producer, consumer=consumer)
+    assert await _run_add_through_socket(app, consumer) == [5]
 
 
-async def test_codec_never_sees_the_message_delimiter(tmp_path: Path) -> None:
-    producer, consumer = unix_transport(tmp_path / "s.sock", _StrictCodec())
-    await consumer.start()
-    try:
-        await producer.publish(Envelope.create("t", (), {}))
-        assert (await _first(consumer)).envelope.task == "t"
-    finally:
-        await consumer.stop()
-
-
-def test_producer_validate_delegates_to_codec(tmp_path: Path) -> None:
-    producer, _ = unix_transport(tmp_path / "s.sock")
-    producer.validate(Envelope.create("t", [1], {}))
-    with pytest.raises(EncodeError):
-        producer.validate(Envelope.create("t", [object()], {}))
+async def test_app_codec_is_used_on_both_sides_of_the_socket(tmp_path: Path) -> None:
+    producer, consumer = unix_transport(tmp_path / "s.sock")
+    app = App("unix", producer=producer, consumer=consumer, codec=_ReverseCodec())
+    assert await _run_add_through_socket(app, consumer) == [5]

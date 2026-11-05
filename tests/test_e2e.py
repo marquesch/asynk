@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import asynk
-from asynk import App, Delivery, Envelope, JsonCodec, Runner, SkipTask, TaskResult, Worker
+from asynk import App, Delivery, Envelope, Runner, SkipTask, TaskResult, Worker
 from asynk.scheduler import Scheduler
 from asynk.transport.memory import memory_transport
 
@@ -27,6 +27,7 @@ NAMES = [
     "NotConfiguredError",
     "TaskFailedError",
     "DecodeError",
+    "InvalidEnvelopeError",
     "SkipTask",
     "ScheduledTask",
     "Scheduler",
@@ -71,24 +72,20 @@ async def test_delay_to_worker_roundtrip() -> None:
 class ListProducer:
     def __init__(self, wire: list[str]) -> None:
         self._wire = wire
-        self._codec = JsonCodec()
 
-    def validate(self, envelope: Envelope) -> None:
-        self._codec.validate(envelope)
-
-    async def publish(self, envelope: Envelope) -> str:
-        self._wire.append(self._codec.encode(envelope).decode())
+    async def publish(self, envelope: Envelope, body: bytes) -> str:
+        self._wire.append(body.decode())
         return envelope.id
 
 
 class _ListDelivery:
-    def __init__(self, envelope: Envelope) -> None:
-        self.envelope_ = envelope
+    def __init__(self, body: bytes) -> None:
+        self.body_ = body
         self.settled_ = False
 
     @property
-    def envelope(self) -> Envelope:
-        return self.envelope_
+    def body(self) -> bytes:
+        return self.body_
 
     @property
     def settled(self) -> bool:
@@ -104,7 +101,6 @@ class _ListDelivery:
 class ListConsumer:
     def __init__(self, wire: list[str]) -> None:
         self._wire = wire
-        self._codec = JsonCodec()
         self._connected = False
         self._stopped = asyncio.Event()
 
@@ -122,7 +118,7 @@ class ListConsumer:
     async def deliveries(self) -> AsyncIterator[Delivery]:
         while not self._stopped.is_set():
             if self._wire:
-                yield _ListDelivery(self._codec.decode(self._wire.pop(0).encode()))
+                yield _ListDelivery(self._wire.pop(0).encode())
             else:
                 await asyncio.sleep(0)
 

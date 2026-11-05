@@ -11,6 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from envelope_helpers import decode_delivery
 
 from asynk.app import App, NotConfiguredError
 from asynk.codec import EncodeError
@@ -80,7 +81,7 @@ def _app() -> tuple[App, MemoryConsumer]:
 
 async def _published(consumer: MemoryConsumer) -> list[Envelope]:
     await consumer.stop()
-    return [d.envelope async for d in consumer.deliveries()]
+    return [decode_delivery(d) async for d in consumer.deliveries()]
 
 
 async def _run(app: App, clock: FakeClock, **kwargs: Any) -> Scheduler:
@@ -246,15 +247,12 @@ async def test_publish_failure_is_logged_and_loop_continues(
     calls = 0
 
     class Flaky:
-        def validate(self, envelope: Envelope) -> None:
-            return None
-
-        async def publish(self, envelope: Envelope) -> Any:
+        async def publish(self, envelope: Envelope, body: bytes) -> Any:
             nonlocal calls
             calls += 1
             if calls == 1:
                 raise ConnectionError("broker down")
-            return await real.publish(envelope)
+            return await real.publish(envelope, body)
 
     app.producer = Flaky()
 
@@ -280,10 +278,7 @@ class HangingProducer:
         self.hanging = asyncio.Event()
         self.cancelled = 0
 
-    def validate(self, envelope: Envelope) -> None:
-        return None
-
-    async def publish(self, envelope: Envelope) -> Any:
+    async def publish(self, envelope: Envelope, body: bytes) -> Any:
         self.calls += 1
         if self.calls > self.ok:
             self.hanging.set()
@@ -292,7 +287,7 @@ class HangingProducer:
             except asyncio.CancelledError:
                 self.cancelled += 1
                 raise
-        return await self.inner.publish(envelope)
+        return await self.inner.publish(envelope, body)
 
 
 def _leaked_tasks() -> list[asyncio.Task[Any]]:
@@ -320,15 +315,12 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
     calls: list[str] = []
 
     class SelfCancelling:
-        def validate(self, envelope: Envelope) -> None:
-            return None
-
-        async def publish(self, envelope: Envelope) -> Any:
+        async def publish(self, envelope: Envelope, body: bytes) -> Any:
             calls.append(str(envelope.metadata["scheduled_at"]))
             if len(calls) == 1:
                 raise asyncio.CancelledError
             assert real is not None
-            return await real.publish(envelope)
+            return await real.publish(envelope, body)
 
     app.producer = SelfCancelling()
 

@@ -3,8 +3,7 @@
 asynk is a small asyncio task framework (Python 3.10+, standard library only).
 Producers and consumers are decoupled: the core only knows an `Envelope`, a
 `Codec` and two protocols, so any broker can sit behind them. An in-memory
-transport and a unix socket transport ship for demos and tests, neither meant
-for production.
+transport and a unix socket transport ship for demos and tests.
 
 ## Example
 
@@ -28,7 +27,7 @@ async def add(a: int, b: int) -> int:
 async def main() -> None:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
-    await add.delay(2, b=3)  # the default JsonCodec needs JSON-friendly arguments
+    await add.delay(2, b=3)  # arguments are encoded by app.codec
     await asyncio.sleep(0.1)
     worker.request_shutdown()
     await run
@@ -91,15 +90,14 @@ python -c "import asyncio; from unix import add; asyncio.run(add.delay(2, 3))"
 `python -m asynk.cli` is used so the current directory is importable; the
 `asynk` command works the same when the module is on `sys.path`.
 
-This transport is for learning and testing only. Messages are held in memory,
-nothing is retried, and anything unsettled when the worker stops or crashes is
-lost. Publishing fails while no worker is listening. Pass a codec as the second
-argument to `unix_transport` to change the wire format (it must not emit
-newlines, which delimit messages).
+The transport moves bytes: it carries the message bodies that `app.codec`
+produces; the unix transport writes each body as one line. To change the wire
+format, pass `App(..., codec=MyCodec())`; `unix_transport(path)` and
+`memory_transport()` take no codec.
 
 Runnable versions are in `examples/memory/` (a worker and a scheduler in one
 process, with a fast virtual clock) and `examples/unix.py` (a single file with a
-custom codec, scheduled tasks and a deduplicating hook; its docstring lists the
+custom app codec, scheduled tasks and a deduplicating hook; its docstring lists the
 commands for the worker, the scheduler and the producer).
 
 ## Scheduled tasks (scheduler)
@@ -254,9 +252,9 @@ class Store(Protocol):
 `set` returns `False` when the key exists and `overwrite` is false; `wait` returns
 the value once it is written, or `None` when `timeout` elapses.
 
-**Codec.** States and results are encoded with `app.codec` (`JsonCodec()` by
-default). Pass `App(..., codec=MyCodec())` to store them another way, for example
-pickled values that keep tuples.
+**Codec.** Task results and states are encoded with `app.codec`, the same codec
+that encodes messages (`JsonCodec()` by default). Pass `App(..., codec=MyCodec())`
+to use another format, for example pickled values that keep tuples.
 
 **Scheduler dedupe.** Schedulers that share a store claim each slot before
 publishing it, so overlapping schedulers publish each slot once. Give them one
@@ -265,15 +263,19 @@ store.
 
 **Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
 `handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
-`get_task` takes a task id. Custom codecs must now implement `encode_value` and
-`decode_value`.
+`get_task` takes a task id. `Codec` is now a generic value serializer with
+`validate(value)`, `encode(value)` and `decode(data)`, owned by the app through
+`App(codec=...)`. `Producer.publish(envelope, body)` takes the encoded body and
+`Delivery.body` carries it; `Producer.validate` and `Delivery.envelope` are gone,
+and transports no longer take a codec argument. `MemoryProducer.publish_raw` is
+removed. The worker decodes each message and rejects, without requeue, one it
+cannot decode.
 
 ## Producer and consumer protocols
 
 ```python
 class Producer(Protocol):
-    def validate(self, envelope: Envelope) -> None: ...
-    async def publish(self, envelope: Envelope) -> Any: ...
+    async def publish(self, envelope: Envelope, body: bytes) -> Any: ...
 
 
 class Consumer(Protocol):
@@ -288,7 +290,7 @@ class Consumer(Protocol):
 
 class Delivery(Protocol):
     @property
-    def envelope(self) -> Envelope: ...
+    def body(self) -> bytes: ...
     @property
     def settled(self) -> bool: ...
 
@@ -296,14 +298,15 @@ class Delivery(Protocol):
     async def reject(self, *, requeue: bool = False) -> None: ...
 ```
 
-`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`,
-`validate(envelope)`, `encode_value(value) -> bytes` and `decode_value(bytes) -> object`
-for arbitrary values such as stored results) is the only thing a producer and a consumer must agree on;
-`JsonCodec` is the default. The envelope accepts any values; the codec decides
-what it can carry and raises `EncodeError` from `encode` and `validate` for the
-rest (`JsonCodec` rejects tuples, NaN and non-str dict keys, for example).
-`Producer.validate` should delegate to the codec: the scheduler calls it for each
-scheduled task's arguments when it is created, so a bad argument fails at startup.
+`Codec` has three methods: `validate(value)`, `encode(value) -> bytes` and
+`decode(data) -> object`. `App(codec=...)` is the single codec for messages and
+results; `JsonCodec` is the default, and `EncodeError` and `DecodeError` report
+values the codec cannot encode or bytes it cannot decode. A producer sends the
+`body` it is given, and `publish(envelope, body)` receives the envelope for
+routing and its id. The app builds the body with
+`app.codec.encode(envelope.to_dict())`, and the worker rebuilds the envelope from
+`Delivery.body` with `Envelope.from_dict(app.codec.decode(body))`. The scheduler
+calls `app.codec.validate` on each scheduled task's arguments when it is created.
 `consumer.process(delivery)` wraps the handling: the transport decides what to
 do on success (usually ack) and on an exception (usually reject).
 
@@ -414,7 +417,8 @@ from asynk import Delivery, TaskResult, TaskStatus
 async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
         # Publish first, then ack, so a crash in between duplicates instead of loses.
-        await producer.publish(result.envelope.retry())  # attempt + 1
+        next_envelope = result.envelope.retry()  # attempt + 1
+        await producer.publish(next_envelope, app.codec.encode(next_envelope.to_dict()))
         await delivery.ack()
 ```
 

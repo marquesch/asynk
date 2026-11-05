@@ -2,27 +2,28 @@ import logging
 import uuid
 
 import pytest
+from envelope_helpers import decode_delivery
 
 from asynk.app import App, NotConfiguredError
 from asynk.codec import EncodeError
+from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.results import TaskHandle, TaskState, decode_state, state_key
 from asynk.store.memory import MemoryStore
-from asynk.transport.memory import memory_transport
+from asynk.transport.memory import MemoryConsumer, memory_transport
 
 
 class FakeProducer:
     def __init__(self, error: Exception | None = None) -> None:
         self.published: list[Envelope] = []
+        self.bodies: list[bytes] = []
         self.error = error
 
-    def validate(self, envelope: Envelope) -> None:
-        return None
-
-    async def publish(self, envelope: Envelope) -> str:
+    async def publish(self, envelope: Envelope, body: bytes) -> str:
         if self.error is not None:
             raise self.error
         self.published.append(envelope)
+        self.bodies.append(body)
         return "handle-1"
 
 
@@ -77,9 +78,9 @@ async def test_delay_propagates_producer_exception() -> None:
         await noop.delay()
 
 
-async def _next_envelope(consumer: object) -> Envelope:
-    async for delivery in consumer.deliveries():  # type: ignore[attr-defined]
-        return delivery.envelope  # type: ignore[no-any-return]
+async def _next_envelope(consumer: MemoryConsumer) -> Envelope:
+    async for delivery in consumer.deliveries():
+        return decode_delivery(delivery)
     raise AssertionError("no delivery")
 
 
@@ -179,11 +180,11 @@ async def test_delay_writes_pending_before_publish() -> None:
     seen: list[TaskState] = []
 
     class CheckingProducer(FakeProducer):
-        async def publish(self, envelope: Envelope) -> str:
+        async def publish(self, envelope: Envelope, body: bytes) -> str:
             data = await store.get(state_key(envelope.id))
             assert data is not None
             seen.append(decode_state(app.codec, data))
-            return await super().publish(envelope)
+            return await super().publish(envelope, body)
 
     app = App("t", producer=CheckingProducer(), store=store)
 
@@ -251,3 +252,54 @@ async def test_delay_continues_when_store_raises(caplog: pytest.LogCaptureFixtur
     [record] = [r for r in caplog.records if r.name == "asynk"]
     assert record.exc_info is not None
     assert isinstance(record.exc_info[1], OSError)
+
+
+class _ReverseCodec:
+    def __init__(self) -> None:
+        self._json = JsonCodec()
+
+    def validate(self, value: object) -> None:
+        self._json.validate(value)
+
+    def encode(self, value: object) -> bytes:
+        return self._json.encode(value)[::-1]
+
+    def decode(self, data: bytes) -> object:
+        return self._json.decode(data[::-1])
+
+
+async def test_delay_encodes_the_envelope_with_the_app_codec() -> None:
+    producer = FakeProducer()
+    codec = _ReverseCodec()
+    app = App("t", producer=producer, codec=codec)
+
+    @app.task()
+    async def add(a: int, b: int = 0) -> int:
+        return a + b
+
+    await add.with_metadata(m=1).delay(1, b=2)
+
+    (envelope,) = producer.published
+    (body,) = producer.bodies
+    assert body == codec.encode(envelope.to_dict())
+    assert Envelope.from_dict(codec.decode(body)) == envelope
+
+
+async def test_delay_with_unencodable_argument_writes_no_state() -> None:
+    written: list[str] = []
+
+    class RecordingStore(MemoryStore):
+        async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
+            written.append(key)
+            return await super().set(key, value, overwrite=overwrite)
+
+    producer = FakeProducer()
+    app = App("t", producer=producer, store=RecordingStore())
+
+    @app.task()
+    async def take(x: object) -> None: ...
+
+    with pytest.raises(EncodeError):
+        await take.delay(object())
+    assert producer.published == []
+    assert [key for key in written if key.startswith("state:")] == []

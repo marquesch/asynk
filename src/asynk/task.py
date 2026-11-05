@@ -77,7 +77,7 @@ class Task(Generic[P, R]):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            EncodeError: If the producer's codec cannot encode an argument.
+            EncodeError: If the app's codec cannot encode an argument.
         """
         return await self.with_metadata().delay(*args, **kwargs)
 
@@ -113,7 +113,7 @@ class BoundTask(Generic[P, R]):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            EncodeError: If the producer's codec cannot encode an argument or a
+            EncodeError: If the app's codec cannot encode an argument or a
                 metadata value.
         """
         app = self._task.app
@@ -121,10 +121,11 @@ class BoundTask(Generic[P, R]):
         if producer is None:
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
         envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
+        body = app.codec.encode(envelope.to_dict())
         try:
             await app.store.set(state_key(envelope.id), encode_state(app.codec, TaskState.PENDING))
         except Exception:
             # Fail open: a store outage must not prevent publishing.
             logger.exception("could not record pending state for task %s", envelope.id)
-        receipt = await producer.publish(envelope)
+        receipt = await producer.publish(envelope, body)
         return TaskHandle(envelope.id, app.store, app.codec, receipt)

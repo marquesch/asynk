@@ -2,61 +2,31 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from asynk.envelope import Envelope
-
 
 class DecodeError(ValueError):
-    """Raised when bytes cannot be decoded into a valid Envelope."""
+    """Raised when bytes cannot be decoded into a valid value."""
 
 
 class EncodeError(ValueError):
-    """Raised when an Envelope holds a value the codec cannot encode."""
+    """Raised when a value holds something the codec cannot encode."""
 
 
 class Codec(Protocol):
-    """Converts envelopes to and from the bytes a transport carries."""
+    """Converts values to and from bytes."""
 
-    def validate(self, envelope: Envelope) -> None:
-        """Checks that `encode` would accept an envelope, without encoding it.
+    def validate(self, value: object) -> None:
+        """Checks that `encode` would accept a value, without encoding it.
 
         Args:
-            envelope: The envelope to check.
+            value: The value to check.
 
         Raises:
-            EncodeError: If the envelope holds a value this codec cannot encode.
+            EncodeError: If this codec cannot encode `value`.
         """
         ...
 
-    def encode(self, envelope: Envelope) -> bytes:
-        """Serializes an envelope.
-
-        Args:
-            envelope: The envelope to serialize.
-
-        Returns:
-            The encoded envelope.
-
-        Raises:
-            EncodeError: If the envelope holds a value this codec cannot encode.
-        """
-        ...
-
-    def decode(self, data: bytes) -> Envelope:
-        """Deserializes an envelope.
-
-        Args:
-            data: Bytes previously produced by `encode`.
-
-        Returns:
-            The decoded envelope.
-
-        Raises:
-            DecodeError: If `data` is not a valid encoded envelope.
-        """
-        ...
-
-    def encode_value(self, value: object) -> bytes:
-        """Serializes an arbitrary value.
+    def encode(self, value: object) -> bytes:
+        """Serializes a value.
 
         Args:
             value: The value to serialize.
@@ -65,15 +35,15 @@ class Codec(Protocol):
             The encoded value.
 
         Raises:
-            EncodeError: If `value` cannot be encoded by this codec.
+            EncodeError: If this codec cannot encode `value`.
         """
         ...
 
-    def decode_value(self, data: bytes) -> object:
+    def decode(self, data: bytes) -> object:
         """Deserializes a value.
 
         Args:
-            data: Bytes previously produced by `encode_value`.
+            data: Bytes previously produced by `encode`.
 
         Returns:
             The decoded value.

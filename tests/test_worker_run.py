@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
 from asynk.envelope import Envelope
@@ -61,7 +62,7 @@ async def test_run_processes_published_tasks() -> None:
         return n
 
     for n in range(3):
-        await producer.publish(Envelope.create("rec", (n,), {}))
+        await publish_envelope(producer, Envelope.create("rec", (n,), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(done.wait(), 1)
     await _stop(worker, run)
@@ -95,7 +96,7 @@ async def test_concurrency_limit_respected() -> None:
             all_done.set()
 
     for _ in range(5):
-        await producer.publish(Envelope.create("t", (), {}))
+        await publish_envelope(producer, Envelope.create("t", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(two_running.wait(), 1)
     for _ in range(100):
@@ -121,8 +122,8 @@ async def test_tasks_run_concurrently() -> None:
             both.set()
         await asyncio.wait_for(both.wait(), 1)
 
-    await producer.publish(Envelope.create("meet", (), {}))
-    await producer.publish(Envelope.create("meet", (), {}))
+    await publish_envelope(producer, Envelope.create("meet", (), {}))
+    await publish_envelope(producer, Envelope.create("meet", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(both.wait(), 1)
     await _stop(worker, run)
@@ -151,7 +152,7 @@ async def test_shutdown_waits_for_in_flight_task() -> None:
         await release.wait()
         return "done"
 
-    await producer.publish(Envelope.create("slow", (), {}))
+    await publish_envelope(producer, Envelope.create("slow", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     worker.request_shutdown()
@@ -178,14 +179,14 @@ async def test_shutdown_timeout_requeues_unfinished() -> None:
         await asyncio.sleep(5)
 
     env = Envelope.create("sleepy", (), {})
-    await producer.publish(env)
+    await publish_envelope(producer, env)
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     t0 = time.monotonic()
     await _stop(worker, run)
     assert time.monotonic() - t0 < 1
     remaining = await _drain(consumer)
-    assert [d.envelope for d in remaining] == [env]
+    assert [decode_delivery(d) for d in remaining] == [env]
 
 
 async def test_failed_task_does_not_stop_loop() -> None:
@@ -201,8 +202,8 @@ async def test_failed_task_does_not_stop_loop() -> None:
     async def ok() -> None:
         ok_done.set()
 
-    await producer.publish(Envelope.create("boom", (), {}))
-    await producer.publish(Envelope.create("ok", (), {}))
+    await publish_envelope(producer, Envelope.create("boom", (), {}))
+    await publish_envelope(producer, Envelope.create("ok", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(ok_done.wait(), 1)
     await _stop(worker, run)
@@ -234,8 +235,8 @@ async def test_sync_blocking_task_does_not_block_loop() -> None:
     async def quick() -> None:
         async_done.set()
 
-    await producer.publish(Envelope.create("blocking", (), {}))
-    await producer.publish(Envelope.create("quick", (), {}))
+    await publish_envelope(producer, Envelope.create("blocking", (), {}))
+    await publish_envelope(producer, Envelope.create("quick", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(both_done.wait(), 2)
     await _stop(worker, run)
@@ -312,7 +313,7 @@ async def test_consumer_error_cancels_and_requeues_in_flight() -> None:
             events.append("task_exit")
 
     env = Envelope.create("slow", (), {})
-    await producer.publish(env)
+    await publish_envelope(producer, env)
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     consumer.fail.set()
@@ -320,7 +321,7 @@ async def test_consumer_error_cancels_and_requeues_in_flight() -> None:
         await asyncio.wait_for(run, 1)
     assert events == ["task_exit", "stop"]
     remaining = await _drain(inner)
-    assert [d.envelope for d in remaining] == [env]
+    assert [decode_delivery(d) for d in remaining] == [env]
 
 
 def _listing(path: Path) -> list[Path]:
@@ -358,7 +359,7 @@ async def test_readiness_removed_when_shutdown_starts(tmp_path: Path) -> None:
         started.set()
         await release.wait()
 
-    await producer.publish(Envelope.create("long", (), {}))
+    await publish_envelope(producer, Envelope.create("long", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     await _until((tmp_path / "readiness").exists)
@@ -404,7 +405,7 @@ async def test_heartbeat_continues_during_sync_task(tmp_path: Path) -> None:
         started.set()
         release.wait(5)
 
-    await producer.publish(Envelope.create("block", (), {}))
+    await publish_envelope(producer, Envelope.create("block", (), {}))
     run = asyncio.create_task(worker.run())
     await _until(started.is_set)
     await _until((tmp_path / "liveness").exists)
@@ -528,7 +529,7 @@ async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None
     async def hook(w: Runner) -> None:
         order.append("before_shutdown")
 
-    await producer.publish(Envelope.create("slow", (), {}))
+    await publish_envelope(producer, Envelope.create("slow", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     await _stop(worker, run)
@@ -583,7 +584,7 @@ async def test_failing_before_shutdown_still_drains_and_cleans_up_then_raises() 
     async def broken(w: Runner) -> None:
         raise RuntimeError("flush failed")
 
-    await producer.publish(Envelope.create("slow", (), {}))
+    await publish_envelope(producer, Envelope.create("slow", (), {}))
     run = asyncio.create_task(worker.run())
     await asyncio.wait_for(started.wait(), 1)
     worker.request_shutdown()
