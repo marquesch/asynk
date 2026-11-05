@@ -10,7 +10,12 @@ if TYPE_CHECKING:
 
 
 class TaskState(enum.Enum):
-    """Lifecycle state of a task as recorded in the store."""
+    """Lifecycle state of a task as recorded in the store.
+
+    This is the public, handle-side API: what `TaskHandle.status` returns. It is
+    distinct from `asynk.hooks.TaskStatus`, the worker-internal outcome type passed
+    to hooks.
+    """
 
     PENDING = "pending"
     RUNNING = "running"
@@ -23,6 +28,10 @@ class TaskState(enum.Enum):
 
 class TaskError(Exception):
     """Raised by `TaskHandle.result` when the task failed.
+
+    This is the public, handle-side API. It is distinct from
+    `asynk.hooks.TaskFailedError`, which is worker-internal and carries the full
+    `TaskResult`. `TaskError` carries only the exception's type name and message.
 
     Attributes:
         type_name: Name of the exception type the task raised.
@@ -103,7 +112,12 @@ async def start_store(app: App) -> Store:
 
 
 async def stop_store(app: App) -> None:
-    """Stops the app's store if `start_store` started it."""
+    """Stops the app's store if `start_store` started it.
+
+    A `Worker` and a `Scheduler` sharing one app in one process share its store,
+    and each stops it independently when it stops: the store is closed as soon as
+    the first of them stops, and restarted lazily on next use.
+    """
     if app.store is None:
         return
     async with app._store_lock():
@@ -138,8 +152,18 @@ class TaskHandle:
     async def result(self, timeout: float | None = None) -> Any:
         """Waits for the task to finish and returns its value.
 
+        Always pass `timeout`. With `timeout=None` this waits forever and can hang
+        if the result is never written: the worker crashed or was killed after
+        `RUNNING` and the broker dropped the message, the result write failed open,
+        the result expired, or a task cancelled at shutdown stays `RUNNING` until
+        its requeued run.
+
+        Results must be JSON-compatible (tuples come back as lists). The result
+        record is written once: if a task is redelivered after its result was
+        recorded, the first result wins.
+
         Args:
-            timeout: Seconds to wait, or None to wait indefinitely.
+            timeout: Seconds to wait, or None to wait indefinitely (see above).
 
         Returns:
             The task's return value, or None if it was skipped.

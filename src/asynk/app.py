@@ -36,6 +36,10 @@ class App:
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
         store: Optional key-value store for task results and other state; None if unused.
+            It is started lazily, once, and shared by task handles, the worker and
+            the scheduler, so use one app and store from one event loop. Reusing one
+            `App` across separate `asyncio.run` calls is not supported when the
+            store is shared.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """

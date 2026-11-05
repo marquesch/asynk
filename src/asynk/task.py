@@ -74,6 +74,11 @@ class Task(Generic[P, R]):
             A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
             the producer's receipt.
 
+        Note:
+            Store calls fail open on errors but have no timeout: a store that hangs
+            rather than raising stalls `delay` before it publishes. Use a store
+            with its own client timeouts.
+
         Raises:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the producer's codec cannot encode an argument.
@@ -109,6 +114,11 @@ class BoundTask(Generic[P, R]):
         Returns:
             A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
             the producer's receipt.
+
+        Note:
+            Store calls fail open on errors but have no timeout: a store that hangs
+            rather than raising stalls `delay` before it publishes. Use a store
+            with its own client timeouts.
 
         Raises:
             NotConfiguredError: If the app has no producer.

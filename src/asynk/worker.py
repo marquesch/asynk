@@ -248,7 +248,9 @@ class Worker(Runner):
         status `FAILED`.
 
         If the app has a store, the task's state and result are recorded there;
-        store errors are logged and never affect the task or its delivery.
+        store errors are logged and never affect the task or its delivery. Store
+        calls have no timeout, so a store that hangs rather than raising delays the
+        task's start (the `RUNNING` write); use a store with its own client timeouts.
 
         Args:
             delivery: The delivery to handle.

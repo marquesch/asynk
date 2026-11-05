@@ -191,6 +191,8 @@ containers, Windows) install the `tzdata` package; UTC works without it.
 Pass a store to the app to record task states and return values:
 
 ```python
+# `producer` and `consumer` come from a transport (see below); run this inside an
+# async function.
 from asynk import App, MemoryStore, TaskState
 
 app = App("demo", producer=producer, consumer=consumer, store=MemoryStore())
@@ -198,7 +200,7 @@ app = App("demo", producer=producer, consumer=consumer, store=MemoryStore())
 handle = await add.delay(1, b=2)  # a TaskHandle
 await handle.status()  # TaskState.PENDING, then RUNNING, ...
 await handle.result(timeout=10)  # 3, once the task has finished
-await app.get_task(handle.task_id).result()  # the same, from just the id
+await app.get_task(handle.task_id).result(timeout=10)  # the same, from just the id
 ```
 
 `delay` always returns a `TaskHandle` with `task_id`, `receipt` (whatever the
@@ -223,6 +225,32 @@ object. A return value the codec cannot serialize is recorded as a `FAILURE`.
 `result()` on an id with no keys raises `TaskNotFoundError` immediately, and
 `result(timeout=...)` raises `TimeoutError` if the task is not done in time.
 
+**Always pass `timeout=` to `result()`.** With the default `timeout=None` it waits
+forever, and it hangs if the result is never written: the worker crashed or was
+killed after `RUNNING` and the broker dropped the message, the result write failed
+open, the result expired, or a task cancelled at shutdown stays `RUNNING` until its
+requeued run.
+
+**Naming.** `TaskState` and `TaskError` are the public handle-side API: what
+`status()` returns and `result()` raises. `TaskStatus` and `TaskFailedError` (in
+`asynk.hooks`) are worker-internal types seen by hooks and the consumer.
+
+**Result values.** Task results must be JSON-compatible: tuples come back as lists,
+and a value that cannot be serialized is recorded as `FAILURE`. `TaskError` carries
+only the exception's type name and message. The result record is written once, so
+if a task is redelivered after its result was recorded, the first result wins.
+
+**Known limitations.**
+
+- Store calls fail open on errors but have no timeout. A store that hangs rather
+  than raising stalls `delay` before it publishes and delays a task's start (the
+  `RUNNING` write). Use a store with its own client timeouts.
+- An app's store is started lazily, once, and shared by handles, the worker and the
+  scheduler. Use one app and store from one event loop; reusing one `App` across
+  separate `asyncio.run` calls is not supported when the store is shared.
+- A `Worker` and a `Scheduler` sharing one app in one process stop the shared store
+  independently, each when it stops.
+
 Records expire after 24 hours by default. Expiry is a property of the store
 (`MemoryStore(ttl=...)`, `SqliteStore(path, ttl=...)`), not of each task.
 
@@ -238,7 +266,7 @@ must raise or document that it is a no-op.
 
 **Scheduler dedupe.** When the app has a store, the scheduler claims
 `claim:<idempotency_key>` before publishing each slot, so schedulers that overlap
-during a deploy publish each slot once. It is automatic. It needs a store shared
+during a deploy normally publish each slot once. It is automatic. It needs a store shared
 by every scheduler: `MemoryStore` only helps within one process, and across pods
 you need a network store such as Redis, implemented by you. Claim keys expire with
 the store's `ttl`. Dedupe is at-most-once in a narrow window: if the scheduler
