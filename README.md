@@ -310,8 +310,8 @@ need distinct directories.
 Hooks extend a worker or scheduler without subclassing it. Each decorator on `App` appends to
 an ordered list, and hooks run in registration order. Hooks may be `def` or
 `async def`, and sync hooks run on the event loop, so keep them cheap.
-Registering the same function twice (same `module.qualname`) is a no-op, so
-importing a module twice does not run its hooks twice.
+Registering the same hook twice is a no-op; hooks that merely share a name, such as
+lambdas or functions made by a factory, are all registered.
 
 | Decorator | Runs | Receives |
 |---|---|---|
