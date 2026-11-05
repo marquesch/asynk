@@ -101,3 +101,12 @@ def test_store_defaults_to_none() -> None:
 def test_store_is_kept() -> None:
     store = MemoryStore()
     assert App("t", store=store).store is store
+
+
+def test_get_task_returns_handle_with_id() -> None:
+    from asynk.results import TaskHandle
+
+    handle = App("t").get_task("abc")
+
+    assert isinstance(handle, TaskHandle)
+    assert handle.task_id == "abc"

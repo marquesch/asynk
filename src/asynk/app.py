@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
-from typing import Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from asynk.hooks import (
     AfterTaskHook,
@@ -15,6 +16,9 @@ from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
+
+if TYPE_CHECKING:
+    from asynk.results import TaskHandle
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -50,9 +54,16 @@ class App:
         self.producer = producer
         self.consumer = consumer
         self.store = store
+        self._store_started = False
+        self._store_lock_obj: asyncio.Lock | None = None
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
+
+    def _store_lock(self) -> asyncio.Lock:
+        if self._store_lock_obj is None:
+            self._store_lock_obj = asyncio.Lock()
+        return self._store_lock_obj
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -161,6 +172,21 @@ class App:
             KeyError: If no task has that name.
         """
         return self._tasks[name]
+
+    def get_task(self, task_id: str) -> TaskHandle:
+        """Returns a handle for reading the status and result of a published task.
+
+        No store lookup happens here; the handle reads the store when used.
+
+        Args:
+            task_id: The task's id (`Envelope.id`).
+
+        Returns:
+            A `TaskHandle`.
+        """
+        from asynk.results import TaskHandle
+
+        return TaskHandle(self, task_id)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
         """Registers a hook run before a worker starts its consumer or a scheduler its loop.
