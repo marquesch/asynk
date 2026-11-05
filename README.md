@@ -91,7 +91,7 @@ python -c "import asyncio; from unix import add; asyncio.run(add.delay(2, 3))"
 `asynk` command works the same when the module is on `sys.path`.
 
 The transport moves bytes: it carries the message bodies that `app.codec`
-produces, one per line, so a body must not contain a newline. To change the wire
+produces; the unix transport writes each body as one line. To change the wire
 format, pass `App(..., codec=MyCodec())`; `unix_transport(path)` and
 `memory_transport()` take no codec.
 
@@ -417,8 +417,8 @@ from asynk import Delivery, TaskResult, TaskStatus
 async def retry(result: TaskResult, delivery: Delivery) -> None:
     if result.status is TaskStatus.FAILED:
         # Publish first, then ack, so a crash in between duplicates instead of loses.
-        retry = result.envelope.retry()  # attempt + 1
-        await producer.publish(retry, app.codec.encode(retry.to_dict()))
+        next_envelope = result.envelope.retry()  # attempt + 1
+        await producer.publish(next_envelope, app.codec.encode(next_envelope.to_dict()))
         await delivery.ack()
 ```
 
