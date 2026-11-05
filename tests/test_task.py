@@ -3,7 +3,8 @@ import uuid
 import pytest
 
 from asynk.app import App, NotConfiguredError
-from asynk.envelope import Envelope, NonJsonArgumentError
+from asynk.codec import EncodeError
+from asynk.envelope import Envelope
 from asynk.transport.memory import memory_transport
 
 
@@ -11,6 +12,9 @@ class FakeProducer:
     def __init__(self, error: Exception | None = None) -> None:
         self.published: list[Envelope] = []
         self.error = error
+
+    def validate(self, envelope: Envelope) -> None:
+        return None
 
     async def publish(self, envelope: Envelope) -> str:
         if self.error is not None:
@@ -49,15 +53,15 @@ async def test_delay_without_producer_raises_not_configured() -> None:
 
 
 async def test_delay_rejects_non_json_args_before_publishing() -> None:
-    producer = FakeProducer()
+    producer, consumer = memory_transport()
     app = App("t", producer=producer)
 
     @app.task()
     async def take(x: object) -> None: ...
 
-    with pytest.raises(NonJsonArgumentError):
+    with pytest.raises(EncodeError):
         await take.delay((1, 2))
-    assert producer.published == []
+    assert consumer._queue.empty()
 
 
 async def test_delay_propagates_producer_exception() -> None:
@@ -131,15 +135,15 @@ async def test_with_metadata_without_producer_raises_not_configured() -> None:
 
 
 async def test_with_metadata_rejects_non_json() -> None:
-    producer = FakeProducer()
+    producer, consumer = memory_transport()
     app = App("t", producer=producer)
 
     @app.task()
     async def noop() -> None: ...
 
-    with pytest.raises(NonJsonArgumentError):
+    with pytest.raises(EncodeError):
         await noop.with_metadata(a=object()).delay()
-    assert producer.published == []
+    assert consumer._queue.empty()
 
 
 async def test_with_metadata_accepts_self_as_a_key() -> None:

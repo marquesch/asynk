@@ -3,11 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timezone, tzinfo
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from asynk.cron import CronExpression
-from asynk.envelope import JSONValue, ensure_json
 from asynk.task import Task
 
 if TYPE_CHECKING:
@@ -32,8 +31,8 @@ class Schedule:
     cron: CronExpression
     expression: str
     tz: tzinfo
-    args: tuple[JSONValue, ...]
-    kwargs: dict[str, JSONValue]
+    args: tuple[object, ...]
+    kwargs: dict[str, object]
 
     @classmethod
     def build(
@@ -44,7 +43,7 @@ class Schedule:
         args: Sequence[object] = (),
         kwargs: Mapping[str, object] | None = None,
     ) -> Schedule:
-        """Parses a cron expression and checks the arguments into a schedule.
+        """Parses a cron expression into a schedule.
 
         Args:
             expression: Five-field cron expression.
@@ -57,20 +56,9 @@ class Schedule:
 
         Raises:
             CronError: If the cron expression is invalid.
-            NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
         """
         cron = CronExpression.parse(expression)
-        call_args = tuple(args)
-        call_kwargs = dict(kwargs or {})
-        ensure_json(list(call_args), "args")
-        ensure_json(call_kwargs, "kwargs")
-        return cls(
-            cron,
-            expression,
-            tz,
-            cast("tuple[JSONValue, ...]", call_args),
-            cast("dict[str, JSONValue]", call_kwargs),
-        )
+        return cls(cron, expression, tz, tuple(args), dict(kwargs or {}))
 
     @property
     def tz_name(self) -> str:

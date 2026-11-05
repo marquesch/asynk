@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from asynk.codec import Codec, DecodeError
+from asynk.codec import Codec, DecodeError, EncodeError
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 
@@ -80,3 +80,49 @@ def test_decode_deeply_nested_raises_decode_error(depth: int) -> None:
 def test_decode_rejects_bad_id_and_nan_metadata(data: bytes) -> None:
     with pytest.raises(DecodeError):
         JsonCodec().decode(data)
+
+
+@pytest.mark.parametrize("value", [None, True, 1, 1.5, "x", [1, {"a": [None]}]])
+def test_validate_accepts_json_values(value: object) -> None:
+    JsonCodec().validate(Envelope.create("t", [value], {"k": value}, {"m": value}))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        (1, 2),
+        float("nan"),
+        float("inf"),
+        {1: "a"},
+        {"a": {1, 2}},
+        object(),
+        [1, [2, (3,)]],
+    ],
+)
+def test_validate_rejects_non_json_values(value: object) -> None:
+    codec = JsonCodec()
+    for env in (
+        Envelope.create("t", [value], {}),
+        Envelope.create("t", [], {"k": value}),
+        Envelope.create("t", [], {}, {"m": value}),
+    ):
+        with pytest.raises(EncodeError):
+            codec.validate(env)
+        with pytest.raises(EncodeError):
+            codec.encode(env)
+
+
+def test_validate_error_message_contains_path() -> None:
+    env = Envelope.create("t", [], {"items": [1, 2, (3,)]})
+    with pytest.raises(EncodeError) as exc:
+        JsonCodec().validate(env)
+    assert "kwargs.items[2]" in str(exc.value)
+
+
+def test_validate_rejects_non_str_kwarg_and_metadata_keys() -> None:
+    codec = JsonCodec()
+    bad_kwargs = Envelope("t", (), {1: "a"}, "id")  # type: ignore[dict-item]
+    bad_meta = Envelope("t", (), {}, "id", metadata={1: "a"})  # type: ignore[dict-item]
+    for env in (bad_kwargs, bad_meta):
+        with pytest.raises(EncodeError):
+            codec.validate(env)

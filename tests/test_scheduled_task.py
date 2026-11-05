@@ -7,13 +7,16 @@ import pytest
 from asynk import ScheduledTask, Task
 from asynk.app import App
 from asynk.cron import CronError
-from asynk.envelope import Envelope, NonJsonArgumentError
+from asynk.envelope import Envelope
 from asynk.scheduled_task import Schedule
 
 
 class FakeProducer:
     def __init__(self) -> None:
         self.published: list[Envelope] = []
+
+    def validate(self, envelope: Envelope) -> None:
+        return None
 
     async def publish(self, envelope: Envelope) -> str:
         self.published.append(envelope)
@@ -151,14 +154,6 @@ def test_unknown_scheduled_task_tz_raises_value_error_naming_scheduled_task() ->
         def unnamed() -> None: ...
 
     assert app.tasks == {}
-
-
-def test_non_json_args_raise() -> None:
-    app = App("t")
-    with pytest.raises(NonJsonArgumentError):
-        app.scheduled_task(cron="* * * * *", args=[object()])
-    with pytest.raises(NonJsonArgumentError):
-        app.scheduled_task(cron="* * * * *", kwargs={"k": object()})
 
 
 def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:

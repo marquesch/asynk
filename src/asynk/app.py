@@ -101,8 +101,9 @@ class App:
     ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
-        The cron expression, arguments and (when `name` is given) timezone are
-        checked immediately; the timezone is otherwise checked when decorating.
+        The cron expression and (when `name` is given) timezone are
+        checked immediately; the timezone is otherwise checked when decorating. The
+        arguments are checked by the producer's codec when a `Scheduler` is created.
 
         Args:
             cron: Five-field cron expression.
@@ -119,9 +120,8 @@ class App:
         Raises:
             CronError: If the cron expression is invalid.
             ValueError: If the timezone is unknown, or the name is already registered.
-            NonJsonArgumentError: If `args` or `kwargs` are not JSON-friendly.
         """
-        # Built now so a bad expression or argument fails at the call.
+        # Built now so a bad expression fails at the call.
         schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
         if tz is not None and name is not None:
             resolve_timezone(tz, f"scheduled task {name!r}")

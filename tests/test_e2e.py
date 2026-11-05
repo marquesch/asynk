@@ -23,7 +23,7 @@ NAMES = [
     "TaskStatus",
     "TaskResult",
     "Worker",
-    "NonJsonArgumentError",
+    "EncodeError",
     "NotConfiguredError",
     "TaskFailedError",
     "DecodeError",
@@ -64,6 +64,9 @@ class ListProducer:
     def __init__(self, wire: list[str]) -> None:
         self._wire = wire
         self._codec = JsonCodec()
+
+    def validate(self, envelope: Envelope) -> None:
+        self._codec.validate(envelope)
 
     async def publish(self, envelope: Envelope) -> str:
         self._wire.append(self._codec.encode(envelope).decode())

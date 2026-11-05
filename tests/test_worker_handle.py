@@ -420,6 +420,9 @@ async def test_hook_failure_with_failing_republish_leaves_default_settlement(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     class BrokenProducer:
+        def validate(self, envelope: Envelope) -> None:
+            return None
+
         async def publish(self, envelope: Envelope) -> None:
             raise ConnectionError("broker down")
 

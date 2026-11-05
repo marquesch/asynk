@@ -28,7 +28,7 @@ async def add(a: int, b: int) -> int:
 async def main() -> None:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
-    await add.delay(2, b=3)  # arguments must be JSON-friendly
+    await add.delay(2, b=3)  # the default JsonCodec needs JSON-friendly arguments
     await asyncio.sleep(0.1)
     worker.request_shutdown()
     await run
@@ -188,6 +188,7 @@ containers, Windows) install the `tzdata` package; UTC works without it.
 
 ```python
 class Producer(Protocol):
+    def validate(self, envelope: Envelope) -> None: ...
     async def publish(self, envelope: Envelope) -> Any: ...
 
 
@@ -211,8 +212,13 @@ class Delivery(Protocol):
     async def reject(self, *, requeue: bool = False) -> None: ...
 ```
 
-`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`) is the only
-thing a producer and a consumer must agree on; `JsonCodec` is the default.
+`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`, and
+`validate(envelope)`) is the only thing a producer and a consumer must agree on;
+`JsonCodec` is the default. The envelope accepts any values; the codec decides
+what it can carry and raises `EncodeError` from `encode` and `validate` for the
+rest (`JsonCodec` rejects tuples, NaN and non-str dict keys, for example).
+`Producer.validate` should delegate to the codec: the scheduler calls it for each
+scheduled task's arguments when it is created, so a bad argument fails at startup.
 `consumer.process(delivery)` wraps the handling: the transport decides what to
 do on success (usually ack) and on an exception (usually reject).
 

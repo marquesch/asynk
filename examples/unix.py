@@ -43,6 +43,9 @@ class Base64JsonCodec:
     def __init__(self) -> None:
         self._json = JsonCodec()
 
+    def validate(self, envelope: Envelope) -> None:
+        self._json.validate(envelope)
+
     def encode(self, envelope: Envelope) -> bytes:
         return base64.b64encode(self._json.encode(envelope))
 

@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from asynk.codec import EncodeError
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, memory_transport
@@ -130,3 +131,10 @@ async def test_malformed_message_is_skipped() -> None:
     await producer.publish(env)
     delivery = await _first(consumer)
     assert delivery.envelope == env
+
+
+def test_producer_validate_delegates_to_codec() -> None:
+    producer, _ = memory_transport()
+    producer.validate(Envelope.create("t", [1], {}))
+    with pytest.raises(EncodeError):
+        producer.validate(Envelope.create("t", [object()], {}))

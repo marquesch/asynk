@@ -27,6 +27,17 @@ class MemoryProducer:
         self._queue = queue
         self._codec = codec
 
+    def validate(self, envelope: Envelope) -> None:
+        """Checks that the codec can encode an envelope.
+
+        Args:
+            envelope: The envelope to check.
+
+        Raises:
+            EncodeError: If the codec cannot encode it.
+        """
+        self._codec.validate(envelope)
+
     async def publish(self, envelope: Envelope) -> str:
         """Encodes and enqueues an envelope.
 
@@ -35,6 +46,9 @@ class MemoryProducer:
 
         Returns:
             The envelope id.
+
+        Raises:
+            EncodeError: If the codec cannot encode the envelope.
         """
         await self._queue.put(self._codec.encode(envelope))
         return envelope.id

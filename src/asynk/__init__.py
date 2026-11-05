@@ -1,9 +1,9 @@
 """asynk: an asyncio task framework."""
 
 from asynk.app import App, NotConfiguredError
-from asynk.codec import Codec, DecodeError
+from asynk.codec import Codec, DecodeError, EncodeError
 from asynk.codec.json import JsonCodec
-from asynk.envelope import Envelope, NonJsonArgumentError
+from asynk.envelope import Envelope
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus
 from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
@@ -20,7 +20,7 @@ __all__ = [
     "Delivery",
     "Envelope",
     "JsonCodec",
-    "NonJsonArgumentError",
+    "EncodeError",
     "NotConfiguredError",
     "Producer",
     "Runner",

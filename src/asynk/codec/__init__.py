@@ -9,8 +9,23 @@ class DecodeError(ValueError):
     """Raised when bytes cannot be decoded into a valid Envelope."""
 
 
+class EncodeError(ValueError):
+    """Raised when an Envelope holds a value the codec cannot encode."""
+
+
 class Codec(Protocol):
     """Converts envelopes to and from the bytes a transport carries."""
+
+    def validate(self, envelope: Envelope) -> None:
+        """Checks that `encode` would accept an envelope, without encoding it.
+
+        Args:
+            envelope: The envelope to check.
+
+        Raises:
+            EncodeError: If the envelope holds a value this codec cannot encode.
+        """
+        ...
 
     def encode(self, envelope: Envelope) -> bytes:
         """Serializes an envelope.
@@ -20,6 +35,9 @@ class Codec(Protocol):
 
         Returns:
             The encoded envelope.
+
+        Raises:
+            EncodeError: If the envelope holds a value this codec cannot encode.
         """
         ...
 
