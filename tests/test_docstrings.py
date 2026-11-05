@@ -11,21 +11,18 @@ from asynk import (
     MemoryStore,
     NullStore,
     Scheduler,
-    SqliteStore,
     Store,
     TaskHandle,
     Worker,
 )
 from asynk.envelope import Envelope
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
-from asynk.transport.unix import UnixConsumer, UnixDelivery, UnixProducer
 
 MEMBER_CLASSES = [
     Store,
     TaskHandle,
     NullStore,
     MemoryStore,
-    SqliteStore,
     Codec,
     JsonCodec,
     App,
@@ -40,9 +37,6 @@ CLASS_ONLY = [
     MemoryProducer,
     MemoryConsumer,
     MemoryDelivery,
-    UnixProducer,
-    UnixConsumer,
-    UnixDelivery,
 ]
 
 

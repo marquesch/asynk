@@ -15,7 +15,6 @@ from asynk.scheduler import Scheduler
 from asynk.store import Store
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
-from asynk.store.sqlite import SqliteStore
 from asynk.task import Task
 from asynk.transport import Consumer, Delivery, Producer
 from asynk.worker import Worker
@@ -51,7 +50,6 @@ __all__ = [
     "Store",
     "MemoryStore",
     "NullStore",
-    "SqliteStore",
     "TaskHandle",
     "TaskState",
     "TaskError",
