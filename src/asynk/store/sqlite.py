@@ -14,7 +14,8 @@ class SqliteStore:
     """`Store` backed by a SQLite file, shareable between processes.
 
     Expiry uses wall-clock time because several processes share the file.
-    Expired rows are removed lazily on `get` and `set`.
+    Expired rows read as missing and are removed lazily by `set`; `get` never writes,
+    so polling does not contend for the write lock.
 
     Args:
         path: Location of the database file.
@@ -43,6 +44,7 @@ class SqliteStore:
         await asyncio.to_thread(self._open)
 
     def _open(self) -> None:
+        self._close()
         conn = sqlite3.connect(
             self._path, check_same_thread=False, isolation_level=None, timeout=30.0
         )
@@ -76,9 +78,12 @@ class SqliteStore:
         with self._lock:
             conn = self._require_conn()
             now = self._clock()
-            conn.execute("DELETE FROM store WHERE key = ? AND expires_at <= ?", (key, now))
-            row = conn.execute("SELECT value FROM store WHERE key = ?", (key,)).fetchone()
-            return None if row is None else bytes(row[0])
+            row = conn.execute(
+                "SELECT value, expires_at FROM store WHERE key = ?", (key,)
+            ).fetchone()
+            if row is None or row[1] <= now:
+                return None  # expired rows are cleared by the next `set` of the key
+            return bytes(row[0])
 
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
         """Writes a value; see `Store.set`."""

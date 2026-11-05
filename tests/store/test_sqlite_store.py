@@ -129,3 +129,46 @@ async def test_data_survives_stop_and_new_instance(
     second = make()
     await second.start()
     assert await second.get("k") == b"v"
+
+
+async def test_get_of_missing_or_live_key_does_not_write(
+    make: Callable[..., SqliteStore], tmp_path: Path
+) -> None:
+    import sqlite3
+
+    store = make()
+    await store.start()
+    await store.set("live", b"v")
+    blocker = sqlite3.connect(tmp_path / "store.db", isolation_level=None)
+    blocker.execute("BEGIN IMMEDIATE")  # holds the write lock
+    try:
+        # a write attempt would wait for the 30s busy timeout
+        assert await asyncio.wait_for(store.get("missing"), 2) is None
+        assert await asyncio.wait_for(store.get("live"), 2) == b"v"
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+
+async def test_expired_row_reads_as_none_and_can_be_set_again(
+    make: Callable[..., SqliteStore],
+) -> None:
+    clock = FakeClock()
+    store = make(ttl=10, clock=clock)
+    await store.start()
+    await store.set("k", b"old")
+    clock.now = 10
+    assert await store.get("k") is None
+    assert await store.set("k", b"new") is True
+    assert await store.get("k") == b"new"
+
+
+async def test_start_twice_does_not_leak_or_raise(make: Callable[..., SqliteStore]) -> None:
+    store = make()
+    await store.start()
+    first = store._conn
+    await store.start()
+    assert store._conn is not first
+    assert await store.get("k") is None
+    with pytest.raises(Exception):  # noqa: B017
+        first.execute("SELECT 1")  # type: ignore[union-attr]
