@@ -71,7 +71,7 @@ class Task(Generic[P, R]):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            NonJsonArgumentError: If any argument is not JSON-friendly.
+            EncodeError: If the producer's codec cannot encode an argument.
         """
         return await self.with_metadata().delay(*args, **kwargs)
 
@@ -106,8 +106,8 @@ class BoundTask(Generic[P, R]):
 
         Raises:
             NotConfiguredError: If the app has no producer.
-            NonJsonArgumentError: If any argument is not JSON-friendly, or the envelope
-                rejects a metadata value.
+            EncodeError: If the producer's codec cannot encode an argument or a
+                metadata value.
         """
         from asynk.app import NotConfiguredError
 

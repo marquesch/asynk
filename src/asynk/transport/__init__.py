@@ -10,6 +10,17 @@ from asynk.envelope import Envelope
 class Producer(Protocol):
     """Sends envelopes to a broker."""
 
+    def validate(self, envelope: Envelope) -> None:
+        """Checks that `publish` could encode an envelope, without sending it.
+
+        Args:
+            envelope: The envelope to check.
+
+        Raises:
+            EncodeError: If the envelope holds a value the producer's codec cannot encode.
+        """
+        ...
+
     async def publish(self, envelope: Envelope) -> Any:
         """Publishes one envelope.
 

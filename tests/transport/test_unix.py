@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from asynk import App, DecodeError, Envelope, JsonCodec, Worker
+from asynk import App, DecodeError, EncodeError, Envelope, JsonCodec, Worker
 from asynk.transport import Delivery
 from asynk.transport.unix import UnixConsumer, UnixProducer, unix_transport
 
@@ -133,6 +133,9 @@ class _ReverseCodec:
     def __init__(self) -> None:
         self._json = JsonCodec()
 
+    def validate(self, envelope: Envelope) -> None:
+        self._json.validate(envelope)
+
     def encode(self, envelope: Envelope) -> bytes:
         return self._json.encode(envelope)[::-1]
 
@@ -177,6 +180,9 @@ class _StrictCodec:
     def __init__(self) -> None:
         self._json = JsonCodec()
 
+    def validate(self, envelope: Envelope) -> None:
+        self._json.validate(envelope)
+
     def encode(self, envelope: Envelope) -> bytes:
         return self._json.encode(envelope)
 
@@ -194,3 +200,10 @@ async def test_codec_never_sees_the_message_delimiter(tmp_path: Path) -> None:
         assert (await _first(consumer)).envelope.task == "t"
     finally:
         await consumer.stop()
+
+
+def test_producer_validate_delegates_to_codec(tmp_path: Path) -> None:
+    producer, _ = unix_transport(tmp_path / "s.sock")
+    producer.validate(Envelope.create("t", [1], {}))
+    with pytest.raises(EncodeError):
+        producer.validate(Envelope.create("t", [object()], {}))

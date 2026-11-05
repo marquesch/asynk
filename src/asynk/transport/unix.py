@@ -40,6 +40,17 @@ class UnixProducer:
         self._path = os.fspath(path)
         self._codec = codec if codec is not None else JsonCodec()
 
+    def validate(self, envelope: Envelope) -> None:
+        """Checks that the codec can encode an envelope.
+
+        Args:
+            envelope: The envelope to check.
+
+        Raises:
+            EncodeError: If the codec cannot encode it.
+        """
+        self._codec.validate(envelope)
+
     async def publish(self, envelope: Envelope) -> str:
         """Encodes an envelope and sends it as one line.
 
@@ -50,11 +61,13 @@ class UnixProducer:
             The envelope id.
 
         Raises:
+            EncodeError: If the codec cannot encode the envelope.
             OSError: If no consumer is listening on the socket.
         """
+        data = self._codec.encode(envelope)
         _, writer = await asyncio.open_unix_connection(self._path)
         try:
-            writer.write(self._codec.encode(envelope) + b"\n")
+            writer.write(data + b"\n")
             await writer.drain()
         finally:
             writer.close()

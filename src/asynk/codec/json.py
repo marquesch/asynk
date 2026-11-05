@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
-from asynk.codec import DecodeError
-from asynk.envelope import Envelope, JSONValue, NonJsonArgumentError, ensure_json
+from asynk.codec import DecodeError, EncodeError
+from asynk.envelope import Envelope
+
+
+def _ensure_json(value: object, path: str) -> None:
+    """Raises `EncodeError` if `value` is not JSON-friendly; `path` locates it."""
+    if value is None or isinstance(value, bool | int | str):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise EncodeError(f"{path}: non-finite float {value!r} is not JSON-friendly")
+        return
+    if isinstance(value, list):
+        for i, item in enumerate(value):
+            _ensure_json(item, f"{path}[{i}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise EncodeError(f"{path}: dict key {key!r} is not a str")
+            _ensure_json(item, f"{path}.{key}")
+        return
+    raise EncodeError(f"{path}: {type(value).__name__} is not JSON-friendly")
 
 
 def _reject_constant(name: str) -> Any:
@@ -14,8 +36,30 @@ def _reject_constant(name: str) -> Any:
 class JsonCodec:
     """Codec that encodes envelopes as compact UTF-8 JSON.
 
-    NaN and infinite floats are rejected in both directions.
+    NaN and infinite floats are rejected in both directions. Only None, bool,
+    int, float, str, lists and str-keyed dicts are accepted; tuples are not.
     """
+
+    def validate(self, envelope: Envelope) -> None:
+        """Checks that an envelope's values are JSON-friendly.
+
+        Args:
+            envelope: The envelope to check.
+
+        Raises:
+            EncodeError: If `args`, `kwargs` or `metadata` hold a value JSON cannot
+                represent, or a dict with non-str keys.
+        """
+        try:
+            for i, arg in enumerate(envelope.args):
+                _ensure_json(arg, f"args[{i}]")
+            for name, containers in (("kwargs", envelope.kwargs), ("metadata", envelope.metadata)):
+                for key, val in containers.items():
+                    if not isinstance(key, str):
+                        raise EncodeError(f"{name}: key {key!r} is not a str")
+                    _ensure_json(val, f"{name}.{key}")
+        except RecursionError as exc:
+            raise EncodeError("value is nested too deeply") from exc
 
     def encode(self, envelope: Envelope) -> bytes:
         """Serializes an envelope to JSON bytes.
@@ -25,7 +69,11 @@ class JsonCodec:
 
         Returns:
             The UTF-8 encoded JSON document.
+
+        Raises:
+            EncodeError: If the envelope holds a value JSON cannot represent.
         """
+        self.validate(envelope)
         payload = {
             "id": envelope.id,
             "task": envelope.task,
@@ -75,19 +123,16 @@ class JsonCodec:
         if not isinstance(metadata, dict):
             raise DecodeError("'metadata' must be an object")
 
-        try:
-            ensure_json(args, "args")
-            ensure_json(kwargs, "kwargs")
-            ensure_json(metadata, "metadata")
-        except (NonJsonArgumentError, RecursionError) as exc:
-            raise DecodeError(str(exc)) from exc
-
-        typed_args: tuple[JSONValue, ...] = tuple(args)
-        return Envelope(
+        envelope = Envelope(
             task=task,
-            args=typed_args,
+            args=tuple(args),
             kwargs=kwargs,
             id=id_,
             attempt=attempt,
             metadata=metadata,
         )
+        try:
+            self.validate(envelope)
+        except EncodeError as exc:
+            raise DecodeError(str(exc)) from exc
+        return envelope

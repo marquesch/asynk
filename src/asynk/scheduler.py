@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
 from asynk.app import App, NotConfiguredError
+from asynk.envelope import Envelope
 from asynk.hooks import run_hooks
 from asynk.probes import ProbeFiles
 from asynk.runner import Role, Runner
@@ -96,6 +97,7 @@ class Scheduler(Runner):
 
         Raises:
             NotConfiguredError: If the app has no producer.
+            EncodeError: If the producer's codec cannot encode a scheduled task's arguments.
             ValueError: If the app has no scheduled tasks, `heartbeat_interval` <= 0, or
                 `grace` is not in [0, 60).
         """
@@ -107,6 +109,10 @@ class Scheduler(Runner):
             raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
         if not 0 <= grace < _MAX_GRACE:
             raise ValueError(f"grace must be in [0, {_MAX_GRACE:g}), got {grace}")
+        for task in app.scheduled_tasks:
+            app.producer.validate(
+                Envelope.create(task.name, task.schedule.args, task.schedule.kwargs)
+            )
         self.app = app
         self.clock: Clock = clock if clock is not None else SystemClock()
         self.probe_dir = probe_dir

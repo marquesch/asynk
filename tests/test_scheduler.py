@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from asynk.app import App, NotConfiguredError
+from asynk.codec import EncodeError
 from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
 from asynk.runner import Runner
@@ -245,6 +246,9 @@ async def test_publish_failure_is_logged_and_loop_continues(
     calls = 0
 
     class Flaky:
+        def validate(self, envelope: Envelope) -> None:
+            return None
+
         async def publish(self, envelope: Envelope) -> Any:
             nonlocal calls
             calls += 1
@@ -275,6 +279,9 @@ class HangingProducer:
         self.calls = 0
         self.hanging = asyncio.Event()
         self.cancelled = 0
+
+    def validate(self, envelope: Envelope) -> None:
+        return None
 
     async def publish(self, envelope: Envelope) -> Any:
         self.calls += 1
@@ -313,6 +320,9 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
     calls: list[str] = []
 
     class SelfCancelling:
+        def validate(self, envelope: Envelope) -> None:
+            return None
+
         async def publish(self, envelope: Envelope) -> Any:
             calls.append(str(envelope.metadata["scheduled_at"]))
             if len(calls) == 1:
@@ -739,3 +749,13 @@ async def test_failing_after_shutdown_raises() -> None:
 
     with pytest.raises(RuntimeError, match="close failed"):
         await _run_blocking(app)
+
+
+async def test_scheduler_rejects_unencodable_schedule_args_at_startup() -> None:
+    app, _ = _app()
+
+    @app.scheduled_task(cron="* * * * *", args=[object()])
+    def bad() -> None: ...
+
+    with pytest.raises(EncodeError):
+        Scheduler(app)
