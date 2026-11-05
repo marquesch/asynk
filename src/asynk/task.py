@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
 
@@ -8,6 +9,9 @@ from asynk.envelope import Envelope
 
 if TYPE_CHECKING:
     from asynk.app import App
+    from asynk.results import TaskHandle
+
+logger = logging.getLogger("asynk")
 
 
 P = ParamSpec("P")
@@ -59,7 +63,7 @@ class Task(Generic[P, R]):
         """
         return BoundTask(self, dict(metadata))
 
-    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any:
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle:
         """Publishes a call to this task for a worker to run.
 
         Args:
@@ -67,7 +71,8 @@ class Task(Generic[P, R]):
             **kwargs: Keyword arguments for the task.
 
         Returns:
-            The producer's receipt.
+            A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
+            the producer's receipt.
 
         Raises:
             NotConfiguredError: If the app has no producer.
@@ -94,7 +99,7 @@ class BoundTask(Generic[P, R]):
         """
         return BoundTask(self._task, {**self._metadata, **metadata})
 
-    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any:
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle:
         """Publishes a call to the task with this object's metadata.
 
         Args:
@@ -102,7 +107,8 @@ class BoundTask(Generic[P, R]):
             **kwargs: Keyword arguments for the task.
 
         Returns:
-            The producer's receipt.
+            A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
+            the producer's receipt.
 
         Raises:
             NotConfiguredError: If the app has no producer.
@@ -110,10 +116,24 @@ class BoundTask(Generic[P, R]):
                 metadata value.
         """
         from asynk.app import NotConfiguredError
+        from asynk.results import (
+            TaskHandle,
+            TaskState,
+            encode_status,
+            start_store,
+            status_key,
+        )
 
         app = self._task.app
         producer = app.producer
         if producer is None:
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
         envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
-        return await producer.publish(envelope)
+        if app.store is not None:
+            try:
+                store = await start_store(app)
+                await store.set(status_key(envelope.id), encode_status(TaskState.PENDING))
+            except Exception:
+                logger.exception("could not record pending state for task %s", envelope.id)
+        receipt = await producer.publish(envelope)
+        return TaskHandle(app, envelope.id, receipt)
