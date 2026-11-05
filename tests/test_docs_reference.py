@@ -8,8 +8,8 @@ REFERENCE = Path(__file__).parent.parent / "docs" / "reference.md"
 
 
 def test_reference_page_lists_every_public_name() -> None:
-    text = REFERENCE.read_text()
+    lines = {line.rstrip() for line in REFERENCE.read_text().splitlines()}
     missing = [
-        name for name in asynk.__all__ if name != "__version__" and f"::: asynk.{name}" not in text
+        name for name in asynk.__all__ if name != "__version__" and f"::: asynk.{name}" not in lines
     ]
     assert missing == []
