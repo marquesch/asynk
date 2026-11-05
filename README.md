@@ -233,12 +233,12 @@ print(await handle.result(timeout=10))
 await app.store.stop()
 ```
 
-**Stores.** Records expire after the store's `ttl` (24 hours by default).
+**Stores.**
 
-- `MemoryStore(ttl=86400.0)` keeps records in one process, so the producer, worker
-  and readers share it. It suits demos and tests.
-- `SqliteStore(path, ttl=86400.0, poll_interval=0.1)` keeps them in a SQLite file
-  shared by processes on one machine.
+- `MemoryStore(ttl=86400.0)` keeps records in one process for `ttl` seconds, so the
+  producer, worker and readers share it. It suits demos and tests.
+- `SqliteStore(path, ttl=86400.0, poll_interval=0.1)` keeps them for `ttl` seconds in
+  a SQLite file shared by processes on one machine.
 
 For anything wider, implement the `Store` protocol over Redis or a database:
 

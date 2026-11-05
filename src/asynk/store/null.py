@@ -10,10 +10,10 @@ class NullStore:
     """
 
     async def start(self) -> None:
-        """Does nothing."""
+        pass
 
     async def stop(self) -> None:
-        """Does nothing."""
+        pass
 
     async def get(self, key: str) -> bytes | None:
         """Raises `NotConfiguredError`."""

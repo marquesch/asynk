@@ -6,8 +6,7 @@ from typing import Protocol
 class Store(Protocol):
     """Key-value storage for task results and other small pieces of state.
 
-    Values are bytes. Keys expire after the time-to-live the store was
-    constructed with; an expired key reads as missing.
+    Values are bytes.
     """
 
     async def start(self) -> None:
@@ -25,7 +24,7 @@ class Store(Protocol):
             key: The key to read.
 
         Returns:
-            The stored value, or None if the key is missing or has expired.
+            The stored value, or None if the key is missing.
         """
         ...
 

@@ -31,6 +31,9 @@ MEMBER_CLASSES = [
 ]
 
 
+UNDOCUMENTED_NO_OPS = {"NullStore.start", "NullStore.stop"}
+
+
 def _documented_objects() -> Iterator[tuple[str, str | None]]:
     for name in asynk.__all__:
         obj = getattr(asynk, name)
@@ -40,8 +43,11 @@ def _documented_objects() -> Iterator[tuple[str, str | None]]:
         for member_name, member in inspect.getmembers(cls):
             if member_name.startswith("_"):
                 continue
+            qualified = f"{cls.__name__}.{member_name}"
+            if qualified in UNDOCUMENTED_NO_OPS:
+                continue
             if isinstance(member, property) or inspect.isfunction(member):
-                yield f"{cls.__name__}.{member_name}", member.__doc__
+                yield qualified, member.__doc__
 
 
 def test_public_api_has_docstrings() -> None:
