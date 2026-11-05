@@ -23,6 +23,7 @@ NAMES = [
     "TaskStatus",
     "TaskResult",
     "Worker",
+    "__version__",
     "EncodeError",
     "NotConfiguredError",
     "TaskFailedError",

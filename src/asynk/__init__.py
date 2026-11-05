@@ -1,5 +1,7 @@
 """asynk: an asyncio task framework."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from asynk.app import App
 from asynk.codec import Codec, DecodeError, EncodeError
 from asynk.codec.json import JsonCodec
@@ -18,7 +20,14 @@ from asynk.task import Task
 from asynk.transport import Consumer, Delivery, Producer
 from asynk.worker import Worker
 
+try:
+    __version__ = version("asynk")
+except PackageNotFoundError:
+    # Imported from a source tree without an installed distribution.
+    __version__ = "0+unknown"
+
 __all__ = [
+    "__version__",
     "App",
     "Codec",
     "Consumer",
