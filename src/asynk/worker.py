@@ -260,16 +260,17 @@ class Worker(Runner):
         try:
             async with self.consumer.process(delivery):
                 try:
-                    result = await self._execute(delivery)
-                    self._log_result(result)
-                    await run_hooks(self.app.hooks.after_task, result, delivery)
+                    try:
+                        result = await self._execute(delivery)
+                        self._log_result(result)
+                        await run_hooks(self.app.hooks.after_task, result, delivery)
+                    except Exception as exc:
+                        result = await self._on_hook_failure(delivery, exc)
+                    await self._record(result)
                 except asyncio.CancelledError:
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
                     raise
-                except Exception as exc:
-                    result = await self._on_hook_failure(delivery, exc)
-                await self._record(result)
                 if not delivery.settled and result.status not in _CLEAN_STATUSES:
                     raise TaskFailedError(result)
         except TaskFailedError as exc:

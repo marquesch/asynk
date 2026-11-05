@@ -315,3 +315,42 @@ async def test_hook_failure_records_retrying_or_failure() -> None:
     with pytest.raises(TaskError) as info:
         await asyncio.wait_for(handle.result(), 1)
     assert (info.value.type_name, info.value.message) == ("OSError", "hook down")
+
+
+class _BlockingSetStore(MemoryStore):
+    """Blocks forever on any write whose value contains `marker`."""
+
+    def __init__(self, marker: bytes) -> None:
+        super().__init__()
+        self._marker = marker
+        self.blocked = asyncio.Event()
+
+    async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
+        if self._marker in value:
+            self.blocked.set()
+            await asyncio.Event().wait()
+        return await super().set(key, value, overwrite=overwrite)
+
+
+@pytest.mark.parametrize("marker", [b"retrying", b"success"])
+async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
+    store = _BlockingSetStore(marker)
+    app, producer, consumer, worker = _setup(store)
+
+    @app.task(name="t1")
+    async def t1() -> int:
+        if marker == b"retrying":
+            raise RuntimeError("fail")
+        return 1
+
+    env = Envelope.create("t1", (), {})
+    await producer.publish(env)
+    delivery = await _next(consumer)
+    handler = asyncio.create_task(worker.handle(delivery))
+    await asyncio.wait_for(store.blocked.wait(), 1)
+    handler.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handler
+    assert delivery.settled
+    redelivered = await _next(consumer)
+    assert redelivered.envelope == env
