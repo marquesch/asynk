@@ -27,6 +27,7 @@ NAMES = [
     "NotConfiguredError",
     "TaskFailedError",
     "DecodeError",
+    "InvalidEnvelopeError",
     "SkipTask",
     "ScheduledTask",
     "Scheduler",

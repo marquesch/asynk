@@ -4,7 +4,9 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
-from asynk.codec import DecodeError
+
+class InvalidEnvelopeError(ValueError):
+    """Raised when data is not a valid envelope."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,11 +71,11 @@ class Envelope:
             The envelope the mapping describes.
 
         Raises:
-            DecodeError: If `data` is not a mapping or a key is missing or has
+            InvalidEnvelopeError: If `data` is not a mapping or a key is missing or has
                 the wrong type.
         """
         if not isinstance(data, Mapping):
-            raise DecodeError("envelope must be a mapping")
+            raise InvalidEnvelopeError("envelope must be a mapping")
 
         task = data.get("task")
         id_ = data.get("id")
@@ -83,17 +85,17 @@ class Envelope:
         metadata = data.get("metadata")
 
         if not isinstance(task, str):
-            raise DecodeError("'task' must be a string")
+            raise InvalidEnvelopeError("'task' must be a string")
         if not isinstance(id_, str):
-            raise DecodeError("'id' must be a string")
+            raise InvalidEnvelopeError("'id' must be a string")
         if not isinstance(args, list):
-            raise DecodeError("'args' must be a list")
+            raise InvalidEnvelopeError("'args' must be a list")
         if not isinstance(kwargs, dict):
-            raise DecodeError("'kwargs' must be an object")
+            raise InvalidEnvelopeError("'kwargs' must be an object")
         if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
-            raise DecodeError("'attempt' must be a non-negative integer")
+            raise InvalidEnvelopeError("'attempt' must be a non-negative integer")
         if not isinstance(metadata, dict):
-            raise DecodeError("'metadata' must be an object")
+            raise InvalidEnvelopeError("'metadata' must be an object")
 
         return cls(
             task=task,

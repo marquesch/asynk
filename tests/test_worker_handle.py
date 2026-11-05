@@ -506,7 +506,7 @@ class _SpyDelivery:
         await self._inner.reject(requeue=requeue)
 
 
-@pytest.mark.parametrize("body", [b"garbage", b"[]", b'{"task": "t"}', b"\xff\xfe"])
+@pytest.mark.parametrize("body", [b"garbage", b"\xff\xfe", b"[]", b'{"task": "t"}', b'{"task": 1}'])
 async def test_undecodable_body_is_rejected_without_requeue(
     body: bytes, caplog: pytest.LogCaptureFixture
 ) -> None:

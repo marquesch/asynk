@@ -9,7 +9,7 @@ from typing import Any, ClassVar, TypeVar
 
 from asynk.app import App, NotConfiguredError
 from asynk.codec import DecodeError, EncodeError
-from asynk.envelope import Envelope
+from asynk.envelope import Envelope, InvalidEnvelopeError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
 from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
@@ -235,8 +235,8 @@ class Worker(Runner):
             async with self.consumer.process(delivery):
                 try:
                     envelope = Envelope.from_dict(self.app.codec.decode(delivery.body))
-                except DecodeError as exc:
-                    logger.warning("rejecting a message that cannot be decoded: %s", exc)
+                except (DecodeError, InvalidEnvelopeError) as exc:
+                    logger.warning("rejecting an undecodable or invalid message: %s", exc)
                     await delivery.reject()
                     return None
                 try:

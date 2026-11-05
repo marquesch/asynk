@@ -1,10 +1,12 @@
+import ast
 import dataclasses
+import inspect
 import uuid
 
 import pytest
 
 from asynk.codec import DecodeError
-from asynk.envelope import Envelope
+from asynk.envelope import Envelope, InvalidEnvelopeError
 
 
 def test_create_generates_uuid4_and_attempt_zero() -> None:
@@ -102,7 +104,7 @@ def test_to_dict_copies_containers() -> None:
 def test_from_dict_rejects_malformed_fields(key: str, value: object, message: str) -> None:
     data = _valid()
     data[key] = value
-    with pytest.raises(DecodeError, match=message):
+    with pytest.raises(InvalidEnvelopeError, match=message):
         Envelope.from_dict(data)
 
 
@@ -110,16 +112,34 @@ def test_from_dict_rejects_malformed_fields(key: str, value: object, message: st
 def test_from_dict_rejects_missing_fields(key: str) -> None:
     data = _valid()
     del data[key]
-    with pytest.raises(DecodeError, match=f"'{key}' must be"):
+    with pytest.raises(InvalidEnvelopeError, match=f"'{key}' must be"):
         Envelope.from_dict(data)
 
 
 @pytest.mark.parametrize("data", [[], "x", None, 1, b"{}"])
 def test_from_dict_rejects_non_mapping(data: object) -> None:
-    with pytest.raises(DecodeError, match="envelope must be a mapping"):
+    with pytest.raises(InvalidEnvelopeError, match="envelope must be a mapping"):
         Envelope.from_dict(data)
 
 
 def test_from_dict_builds_tuple_args() -> None:
     e = Envelope.from_dict({**_valid(), "args": [1, 2]})
     assert e.args == (1, 2)
+
+
+def test_invalid_envelope_error_is_a_value_error_but_not_a_decode_error() -> None:
+    assert issubclass(InvalidEnvelopeError, ValueError)
+    assert not issubclass(InvalidEnvelopeError, DecodeError)
+
+
+def test_envelope_module_does_not_import_the_codec() -> None:
+    import asynk.envelope as module
+
+    tree = ast.parse(inspect.getsource(module))
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+    assert not [name for name in imported if name.startswith("asynk.codec")]
