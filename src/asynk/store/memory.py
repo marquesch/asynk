@@ -19,8 +19,10 @@ class MemoryStore:
         """
         self._ttl = ttl
         self._clock = clock
+        # Every entry has the same ttl, so insertion order is expiry order.
         self._data: dict[str, tuple[bytes, float]] = {}
         self._events: dict[str, asyncio.Event] = {}
+        self._waiters: dict[str, int] = {}
 
     async def start(self) -> None:
         """Does nothing."""
@@ -28,21 +30,27 @@ class MemoryStore:
     async def stop(self) -> None:
         """Does nothing."""
 
+    def _purge(self) -> None:
+        now = self._clock()
+        while self._data:
+            key = next(iter(self._data))
+            if now < self._data[key][1]:
+                break
+            del self._data[key]
+
     async def get(self, key: str) -> bytes | None:
         """Reads a value, or returns None if the key is missing or expired."""
+        self._purge()
         entry = self._data.get(key)
-        if entry is None:
-            return None
-        value, expires_at = entry
-        if self._clock() >= expires_at:
-            del self._data[key]
-            return None
-        return value
+        return None if entry is None else entry[0]
 
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
         """Writes a value; returns False if the key exists and `overwrite` is false."""
-        if not overwrite and await self.get(key) is not None:
-            return False
+        self._purge()
+        if key in self._data:
+            if not overwrite:
+                return False
+            del self._data[key]  # re-insert at the end to keep expiry order
         self._data[key] = (value, self._clock() + self._ttl)
         event = self._events.pop(key, None)
         if event is not None:
@@ -68,7 +76,15 @@ class MemoryStore:
             if remaining is not None and remaining <= 0:
                 return None
             event = self._events.setdefault(key, asyncio.Event())
+            self._waiters[key] = self._waiters.get(key, 0) + 1
             try:
                 await asyncio.wait_for(event.wait(), remaining)
             except asyncio.TimeoutError:  # not the builtin TimeoutError before Python 3.11
                 return await self.get(key)
+            finally:
+                # `set` may have popped the event already; the last waiter out
+                # removes whatever event is left, which only waiters could have made.
+                self._waiters[key] -= 1
+                if self._waiters[key] == 0:
+                    del self._waiters[key]
+                    self._events.pop(key, None)
