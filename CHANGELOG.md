@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `Producer.publish(envelope, body)` takes the encoded body and
   `Delivery.body` carries it; transports no longer take a codec argument.
 - The worker decodes each message and rejects, without requeue, one it cannot decode.
+- **Breaking:** hooks are deduped by object identity and equality instead of
+  `module.qualname`, so partials, lambdas, factory-made hooks and callable instances
+  register; registering the same hook twice is still a no-op.
 - **Breaking:** the `Store` protocol gains `delete(key) -> bool`; third-party stores must
   implement it.
 

@@ -61,18 +61,17 @@ class SkipTask(Exception):
 
 
 class HookRegistry(Generic[H]):
-    """Ordered, idempotent collection of hooks for one event.
+    """Ordered collection of hooks for one event.
 
-    Hooks are keyed by `module.qualname`, so registering the same function again
-    (for example because a module is imported twice) is a no-op. Iterating yields
-    the hooks in registration order.
+    Registering the same hook again, or an equal one such as the same bound method,
+    is a no-op. Iterating yields the hooks in registration order.
     """
 
     def __init__(self) -> None:
-        self._hooks: dict[str, H] = {}
+        self._hooks: list[H] = []
 
     def add(self, hook: H) -> H:
-        """Registers a hook unless one with the same key is already registered.
+        """Registers a hook unless it is already registered.
 
         Args:
             hook: The hook to register.
@@ -80,13 +79,13 @@ class HookRegistry(Generic[H]):
         Returns:
             The hook, unchanged.
         """
-        key = f"{hook.__module__}.{hook.__qualname__}"
-        self._hooks.setdefault(key, hook)
+        if not any(hook is existing or hook == existing for existing in self._hooks):
+            self._hooks.append(hook)
         return hook
 
     def __iter__(self) -> Iterator[H]:
         """Iterates over the hooks in registration order."""
-        return iter(list(self._hooks.values()))
+        return iter(list(self._hooks))
 
 
 @dataclass
