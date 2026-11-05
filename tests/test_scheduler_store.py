@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 import pytest
-from test_scheduler import FakeClock, _at, _published, _run, _slots
+from test_scheduler import FakeClock, HangingProducer, _at, _published, _run, _slots
 
 from asynk.app import App
 from asynk.scheduler import Scheduler
@@ -19,10 +19,11 @@ CLAIM = f"claim:job:{SLOT}"
 class _RecordingStore(MemoryStore):
     """MemoryStore that records lifecycle calls and claims, and can fail claims."""
 
-    def __init__(self, *, fail_claims: bool = False) -> None:
+    def __init__(self, *, fail_claims: bool = False, fail_deletes: bool = False) -> None:
         super().__init__()
         self.events: list[str] = []
         self.fail_claims = fail_claims
+        self.fail_deletes = fail_deletes
 
     async def start(self) -> None:
         self.events.append("start")
@@ -36,6 +37,12 @@ class _RecordingStore(MemoryStore):
             if self.fail_claims:
                 raise ConnectionError("store down")
         return await super().set(key, value, overwrite=overwrite)
+
+    async def delete(self, key: str) -> bool:
+        self.events.append(f"delete {key}")
+        if self.fail_deletes:
+            raise ConnectionError("store down")
+        return await super().delete(key)
 
 
 def _app(store: Any) -> tuple[App, MemoryConsumer]:
@@ -172,3 +179,118 @@ async def test_store_stopped_even_when_a_hook_raises() -> None:
     with pytest.raises(RuntimeError, match="hook"):
         await _run(app, _clock())
     assert store.events == ["start", "stop"]
+
+
+class _FailingProducer:
+    """Producer whose first `failures` publishes raise."""
+
+    def __init__(self, inner: Any, failures: int = 1_000) -> None:
+        self.inner = inner
+        self.failures = failures
+
+    async def publish(self, envelope: Any, body: bytes) -> Any:
+        if self.failures > 0:
+            self.failures -= 1
+            raise ConnectionError("broker down")
+        return await self.inner.publish(envelope, body)
+
+
+async def test_failed_publish_releases_the_claim() -> None:
+    store = _RecordingStore()
+    app, consumer = _app(store)
+    app.producer = _FailingProducer(app.producer)
+    await _run(app, _clock())
+    assert await _published(consumer) == []
+    assert store.events[1:-1] == [f"set {CLAIM} overwrite=False", f"delete {CLAIM}"]
+    assert await store.get(CLAIM) is None
+
+
+async def test_self_cancelled_publish_releases_the_claim() -> None:
+    class SelfCancelling:
+        async def publish(self, envelope: Any, body: bytes) -> Any:
+            raise asyncio.CancelledError
+
+    store = _RecordingStore()
+    app, _ = _app(store)
+    app.producer = SelfCancelling()
+    await _run(app, _clock())
+    assert store.events[1:-1] == [f"set {CLAIM} overwrite=False", f"delete {CLAIM}"]
+
+
+async def test_shutdown_cancelling_the_publish_releases_the_claim() -> None:
+    store = _RecordingStore()
+    app, _ = _app(store)
+    producer = HangingProducer(app.producer, ok=0)
+    app.producer = producer
+    scheduler = Scheduler(
+        app, clock=FakeClock(_at("2026-11-04T11:29:30"), _at("2026-11-04T12:00:00"))
+    )
+    run = asyncio.create_task(scheduler.run())
+    await asyncio.wait_for(producer.hanging.wait(), 1)
+    scheduler.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    assert store.events[1:-1] == [f"set {CLAIM} overwrite=False", f"delete {CLAIM}"]
+    assert await store.get(CLAIM) is None
+
+
+async def test_external_cancellation_of_run_releases_the_claim() -> None:
+    store = _RecordingStore()
+    app, _ = _app(store)
+    producer = HangingProducer(app.producer, ok=0)
+    app.producer = producer
+    scheduler = Scheduler(
+        app, clock=FakeClock(_at("2026-11-04T11:29:30"), _at("2026-11-04T12:00:00"))
+    )
+    run = asyncio.create_task(scheduler.run())
+    await asyncio.wait_for(producer.hanging.wait(), 1)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert await store.get(CLAIM) is None
+
+
+async def test_another_scheduler_can_publish_a_released_slot() -> None:
+    store = MemoryStore()
+    app, consumer = _app(store)
+    failing = _FailingProducer(app.producer)
+    app.producer = failing
+    await _run(app, _clock())
+    failing.failures = 0
+    await _run(app, _clock())
+    assert _slots(await _published(consumer)) == [("job", SLOT)]
+
+
+async def test_failing_release_is_logged_and_the_schedule_continues(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = _RecordingStore(fail_deletes=True)
+    app, consumer = _app(store)
+    app.producer = _FailingProducer(app.producer, failures=1)
+    clock = FakeClock(_at("2026-11-04T11:29:00"), until=_at("2026-11-04T12:31:00"))
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        await _run(app, clock)
+    assert _slots(await _published(consumer)) == [("job", "2026-11-04T12:30:00+00:00")]
+    assert any(
+        r.exc_info is not None
+        and isinstance(r.exc_info[1], ConnectionError)
+        and "release" in r.getMessage()
+        for r in caplog.records
+    )
+    assert "delete " + CLAIM in store.events
+
+
+async def test_no_release_when_the_claim_write_failed() -> None:
+    store = _RecordingStore(fail_claims=True)
+    app, _ = _app(store)
+    app.producer = _FailingProducer(app.producer)
+    await _run(app, _clock())
+    assert not [e for e in store.events if e.startswith("delete")]
+
+
+async def test_published_slot_keeps_its_claim() -> None:
+    store = _RecordingStore()
+    app, consumer = _app(store)
+    await _run(app, _clock())
+    assert _slots(await _published(consumer)) == [("job", SLOT)]
+    assert not [e for e in store.events if e.startswith("delete")]
+    assert await store.get(CLAIM) == b"1"
