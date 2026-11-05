@@ -36,3 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The scheduler releases its dedupe claim when the publish fails or is cancelled.
+- `MemoryStore` purges expired keys and frees wait events instead of keeping them
+  for the life of the store.
