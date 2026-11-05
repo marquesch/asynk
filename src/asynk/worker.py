@@ -10,6 +10,15 @@ from typing import Any, ClassVar, TypeVar
 from asynk.app import App, NotConfiguredError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
+from asynk.results import (
+    TaskState,
+    encode_result,
+    encode_status,
+    result_key,
+    start_store,
+    status_key,
+    stop_store,
+)
 from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
@@ -17,6 +26,13 @@ from asynk.transport import Consumer, Delivery
 T = TypeVar("T")
 
 _CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
+
+_TERMINAL_STATES = {
+    TaskStatus.SUCCESS: TaskState.SUCCESS,
+    TaskStatus.SKIPPED: TaskState.SKIPPED,
+    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
+    TaskStatus.RETRIES_EXCEEDED: TaskState.FAILURE,
+}
 
 logger = logging.getLogger("asynk")
 
@@ -110,13 +126,34 @@ class Worker(Runner):
 
         Startup and shutdown hooks run around the consumer; see `App.before_startup`
         and its siblings. A hook that raises makes this method raise.
+
+        If the app has a store, it is started before the consumer and stopped
+        after it; store errors are logged and never stop the worker.
         """
         await run_hooks(self.app.hooks.before_startup, self)
-        await self.consumer.start()
+        await self._start_store()
         try:
-            await self._serve()
+            await self.consumer.start()
+            try:
+                await self._serve()
+            finally:
+                await run_hooks(self.app.hooks.after_shutdown, self)
         finally:
-            await run_hooks(self.app.hooks.after_shutdown, self)
+            await self._stop_store()
+
+    async def _start_store(self) -> None:
+        if self.app.store is None:
+            return
+        try:
+            await start_store(self.app)
+        except Exception:
+            logger.exception("failed to start the store")
+
+    async def _stop_store(self) -> None:
+        try:
+            await stop_store(self.app)
+        except Exception:
+            logger.exception("failed to stop the store")
 
     async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)
@@ -210,6 +247,9 @@ class Worker(Runner):
         incremented (up to the task's `max_retries`), and the returned result has
         status `FAILED`.
 
+        If the app has a store, the task's state and result are recorded there;
+        store errors are logged and never affect the task or its delivery.
+
         Args:
             delivery: The delivery to handle.
 
@@ -229,6 +269,7 @@ class Worker(Runner):
                     raise
                 except Exception as exc:
                     result = await self._on_hook_failure(delivery, exc)
+                await self._record(result)
                 if not delivery.settled and result.status not in _CLEAN_STATUSES:
                     raise TaskFailedError(result)
         except TaskFailedError as exc:
@@ -264,6 +305,63 @@ class Worker(Runner):
                 else:
                     await delivery.ack()
         return TaskResult(envelope, status, error=exc)
+
+    async def _record_state(self, task_id: str, state: TaskState) -> None:
+        if self.app.store is None:
+            return
+        try:
+            store = await start_store(self.app)
+            await store.set(status_key(task_id), encode_status(state), overwrite=True)
+        except Exception:
+            logger.exception("failed to record state %s for task id=%s", state.value, task_id)
+
+    async def _record(self, result: TaskResult) -> None:
+        if self.app.store is None:
+            return
+        envelope = result.envelope
+        state = _TERMINAL_STATES.get(result.status)
+        if state is None:
+            await self._record_state(envelope.id, TaskState.RETRYING)
+            return
+        try:
+            record = self._encode_outcome(result, state)
+            if record is None:
+                state = TaskState.FAILURE
+                record = encode_result(
+                    state,
+                    error=(
+                        "ResultNotSerializable",
+                        f"task {envelope.task!r} returned a value of type "
+                        f"{type(result.value).__name__!r} that cannot be stored as JSON",
+                    ),
+                )
+            store = await start_store(self.app)
+            await store.set(status_key(envelope.id), encode_status(state), overwrite=True)
+            await store.set(result_key(envelope.id), record)
+        except Exception:
+            logger.exception(
+                "failed to record result for task %r (id=%s)", envelope.task, envelope.id
+            )
+
+    @staticmethod
+    def _encode_outcome(result: TaskResult, state: TaskState) -> bytes | None:
+        if result.status is TaskStatus.SUCCESS:
+            try:
+                return encode_result(state, value=result.value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "result of task %r (id=%s) is not JSON-serializable; recording a failure",
+                    result.envelope.task,
+                    result.envelope.id,
+                    exc_info=True,
+                )
+                return None
+        if result.status is TaskStatus.SKIPPED:
+            return encode_result(state)
+        if result.status is TaskStatus.UNKNOWN_TASK:
+            return encode_result(state, error=("UnknownTask", result.envelope.task))
+        error = result.error
+        return encode_result(state, error=(type(error).__name__, str(error)))
 
     @staticmethod
     def _log_result(result: TaskResult) -> None:
@@ -302,6 +400,7 @@ class Worker(Runner):
             await run_hooks(self.app.hooks.before_task, envelope, delivery)
         except SkipTask:
             return TaskResult(envelope, TaskStatus.SKIPPED)
+        await self._record_state(envelope.id, TaskState.RUNNING)
         try:
             value: Any
             if task.is_async:
