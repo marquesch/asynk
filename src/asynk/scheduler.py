@@ -65,7 +65,10 @@ class Scheduler(Runner):
     If the app has a store, each slot is claimed there under
     `"claim:<idempotency_key>"` before publishing, so schedulers sharing the
     store (for example during a deploy overlap) publish each slot only once.
-    Store errors are logged and the slot is published anyway.
+    Store errors are logged and the slot is published anyway (fail open).
+    The claim is at-most-once in a narrow window: if the claim is written and
+    then shutdown cancels the publish, or the publish fails, nothing releases
+    the claim and that slot is lost. This is accepted.
 
     Attributes:
         app: The app whose scheduled tasks are published.

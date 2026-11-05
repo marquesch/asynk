@@ -39,8 +39,12 @@ async def main() -> None:
     run_worker = asyncio.create_task(worker.run())
 
     # delay() only enqueues; arguments must be JSON-friendly.
-    await add.delay(2, b=3)
+    handle = await add.delay(2, b=3)
     await shout.delay("hello")
+
+    # The handle reads the app's store: wait for the task and print its return value.
+    print("result:", await handle.result(timeout=5))
+    print("status:", (await handle.status()).value)
 
     # The scheduler publishes scheduled tasks as their cron slots come due, and the
     # worker runs them like any other message. A Monday, from 08:28:30 to 08:31:30

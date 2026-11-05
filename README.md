@@ -140,12 +140,14 @@ example on a half-open connection) stops refreshing it and `asynk health
 liveness` fails. That is intended: run the scheduler under a supervisor (such as a
 Kubernetes liveness probe) that restarts it.
 
-**Run exactly one scheduler.** There is no locking or coordination, so a second
-scheduler publishes every slot twice. Duplicates are also possible around restarts
-and failovers. Each publish carries `metadata["idempotency_key"]`, which is
-`"<task name>:<slot as UTC ISO instant>"`, and `metadata["scheduled_at"]`, the
-slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
-can, given a store shared by all workers (a set in memory only works for one):
+**Run one scheduler.** Without a store there is no locking or coordination, so a
+second scheduler publishes every slot twice. Duplicates are also possible around
+restarts and failovers. With a store the scheduler dedupes slots itself (see
+[Results and the store](#results-and-the-store)). Each publish carries
+`metadata["idempotency_key"]`, which is `"<task name>:<slot as UTC ISO instant>"`,
+and `metadata["scheduled_at"]`, the slot as a UTC ISO instant. Without a store, a
+`before_task` hook can dedupe, given a store shared by all workers (a set in
+memory only works for one):
 
 ```python
 from asynk import App, Delivery, Envelope, SkipTask
@@ -183,6 +185,71 @@ slot twice in one process: it waits for the next slot after the last one handled
 
 Only non-UTC timezones need a time zone database. On systems without one (slim
 containers, Windows) install the `tzdata` package; UTC works without it.
+
+## Results and the store
+
+Pass a store to the app to record task states and return values:
+
+```python
+from asynk import App, MemoryStore, TaskState
+
+app = App("demo", producer=producer, consumer=consumer, store=MemoryStore())
+
+handle = await add.delay(1, b=2)  # a TaskHandle
+await handle.status()  # TaskState.PENDING, then RUNNING, ...
+await handle.result(timeout=10)  # 3, once the task has finished
+await app.get_task(handle.task_id).result()  # the same, from just the id
+```
+
+`delay` always returns a `TaskHandle` with `task_id`, `receipt` (whatever the
+producer returned), `status()` and `result(timeout=None)`. `app.get_task(task_id)`
+builds a handle from an id, for example in another request or process sharing the
+store. `status()` and `result()` need a store and raise `NotConfiguredError`
+without one; `delay` itself does not.
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | published, not started yet |
+| `RUNNING` | a worker is running it |
+| `RETRYING` | an attempt failed and a retry was published |
+| `SUCCESS` | finished; `result()` returns the value |
+| `FAILURE` | failed for good (retries exceeded, unknown task, or an un-serializable return value) |
+| `SKIPPED` | a `before_task` hook raised `SkipTask`; `result()` returns `None` |
+| `UNKNOWN` | the store has no keys for this id (never existed, or expired) |
+
+A failed task makes `result()` raise `TaskError`, which carries the original
+exception's type name and message (`.type_name`, `.message`), not the exception
+object. A return value the codec cannot serialize is recorded as a `FAILURE`.
+`result()` on an id with no keys raises `TaskNotFoundError` immediately, and
+`result(timeout=...)` raises `TimeoutError` if the task is not done in time.
+
+Records expire after 24 hours by default. Expiry is a property of the store
+(`MemoryStore(ttl=...)`, `SqliteStore(path, ttl=...)`), not of each task.
+
+- `MemoryStore` lives in one process, so the producer, worker and readers must
+  share it. Use it for demos and tests.
+- `SqliteStore(path)` is a file shared by processes on one machine.
+
+For anything wider, implement the `Store` protocol (`start`, `stop`, `get`,
+`set(key, value, *, overwrite=False) -> bool`, `wait(key, timeout=None)`) over
+Redis or a database. `wait` exists so `result()` can block until a value is
+written: each store decides how (polling or push). A store that cannot wait
+must raise or document that it is a no-op.
+
+**Scheduler dedupe.** When the app has a store, the scheduler claims
+`claim:<idempotency_key>` before publishing each slot, so schedulers that overlap
+during a deploy publish each slot once. It is automatic. It needs a store shared
+by every scheduler: `MemoryStore` only helps within one process, and across pods
+you need a network store such as Redis, implemented by you. Claim keys expire with
+the store's `ttl`. Dedupe is at-most-once in a narrow window: if the scheduler
+writes its claim and shutdown cancels the publish (or the publish fails), that
+slot is lost, because nothing releases the claim. Store errors fail open: the
+scheduler logs them and publishes anyway, so a duplicate task is possible, a
+failed task is not.
+
+**Breaking changes.** `delay` now returns a `TaskHandle`; the producer's receipt
+is at `handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`,
+and `get_task` now takes a task id.
 
 ## Producer and consumer protocols
 
