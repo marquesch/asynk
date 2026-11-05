@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from asynk.app import App, NotConfiguredError
+from asynk.logging import configure_logging
 from asynk.probes import check_probe, default_probe_dir
 from asynk.scheduler import Scheduler
 from asynk.worker import Worker
@@ -83,11 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_worker(args: argparse.Namespace) -> int:
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        stream=sys.stderr,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(args.log_level)
     app = load_app(args.app)
     options: dict[str, Any] = {
         key: value
@@ -110,11 +107,7 @@ def _run_worker(args: argparse.Namespace) -> int:
 
 
 def _run_scheduler(args: argparse.Namespace) -> int:
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        stream=sys.stderr,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(args.log_level)
     app = load_app(args.app)
     options: dict[str, Any] = {}
     if args.heartbeat_interval is not None:
