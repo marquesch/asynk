@@ -264,15 +264,7 @@ shared store; `MemoryStore` covers one process, and several machines need a netw
 store. A scheduler releases its claim when its publish fails or is cancelled, so
 another scheduler can publish that slot.
 
-**Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
-`handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
-`get_task` takes a task id. `Codec` is now a generic value serializer with
-`validate(value)`, `encode(value)` and `decode(data)`, owned by the app through
-`App(codec=...)`. `Producer.publish(envelope, body)` takes the encoded body and
-`Delivery.body` carries it; `Producer.validate` and `Delivery.envelope` are gone,
-and transports no longer take a codec argument. `MemoryProducer.publish_raw` is
-removed. The worker decodes each message and rejects, without requeue, one it
-cannot decode. `Store` gains a required `delete` method.
+See [CHANGELOG.md](CHANGELOG.md) for breaking changes.
 
 ## Producer and consumer protocols
 
