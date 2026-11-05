@@ -48,7 +48,7 @@ class Store(Protocol):
 
         Args:
             key: The key to wait for.
-            timeout: Seconds to wait, or None to wait indefinitely.
+            timeout: Seconds to wait.
 
         Returns:
             The value, or None if `timeout` elapsed first.

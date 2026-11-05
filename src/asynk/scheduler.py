@@ -59,9 +59,7 @@ class Scheduler(Runner):
     Fire times are decided with the wall clock, re-read after every wake, so a
     slot is never published twice by one scheduler even if the clock steps back.
     Each publish carries an `idempotency_key` of `"<task name>:<slot>"` and a
-    `scheduled_at`, the slot as a UTC ISO-8601 instant. Each slot is claimed in
-    the app's store under `"claim:<idempotency_key>"` before publishing, so
-    schedulers sharing the store publish each slot once.
+    `scheduled_at`, the slot as a UTC ISO-8601 instant.
 
     Attributes:
         app: The app whose scheduled tasks are published.

@@ -265,7 +265,8 @@ store.
 
 **Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
 `handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
-`get_task` takes a task id.
+`get_task` takes a task id. Custom codecs must now implement `encode_value` and
+`decode_value`.
 
 ## Producer and consumer protocols
 
@@ -295,8 +296,9 @@ class Delivery(Protocol):
     async def reject(self, *, requeue: bool = False) -> None: ...
 ```
 
-`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`, and
-`validate(envelope)`) is the only thing a producer and a consumer must agree on;
+`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`,
+`validate(envelope)`, `encode_value(value) -> bytes` and `decode_value(bytes) -> object`
+for arbitrary values such as stored results) is the only thing a producer and a consumer must agree on;
 `JsonCodec` is the default. The envelope accepts any values; the codec decides
 what it can carry and raises `EncodeError` from `encode` and `validate` for the
 rest (`JsonCodec` rejects tuples, NaN and non-str dict keys, for example).

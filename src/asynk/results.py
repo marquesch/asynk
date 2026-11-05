@@ -158,7 +158,7 @@ class TaskHandle:
         """Waits for the task to finish and returns its value.
 
         Args:
-            timeout: Seconds to wait, or None to wait indefinitely.
+            timeout: Seconds to wait.
 
         Returns:
             The task's return value, or None if it was skipped.
