@@ -38,7 +38,7 @@ class Clock(Protocol):
 
 
 class SystemClock:
-    """The real clock: UTC wall time, and the event loop's monotonic sleep."""
+    """The real clock: UTC wall time and `asyncio.sleep`."""
 
     def now(self) -> datetime:
         """Returns the current time in UTC."""
@@ -67,10 +67,8 @@ class Scheduler(Runner):
         app: The app whose scheduled tasks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
-        heartbeat_interval: Seconds between probe file updates. The main loop
-            writes the probe, so a loop stuck in a hung publish stops beating
-            and its liveness probe goes stale. It is also the longest single
-            sleep, so the wall clock is re-read at least this often.
+        heartbeat_interval: Seconds between probe file updates, and the longest
+            single sleep.
         grace: Seconds a slot may be late and still fire; older slots are
             skipped with a warning.
         role: Always "scheduler".

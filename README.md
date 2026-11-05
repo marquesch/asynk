@@ -193,90 +193,79 @@ Pass a store to the app to record task states and return values:
 ```python
 # `producer` and `consumer` come from a transport (see below); run this inside an
 # async function.
-from asynk import App, MemoryStore, TaskState
+from asynk import App, MemoryStore
 
 app = App("demo", producer=producer, consumer=consumer, store=MemoryStore())
 
 handle = await add.delay(1, b=2)  # a TaskHandle
-await handle.status()  # TaskState.PENDING, then RUNNING, ...
+await handle.state()  # TaskState.PENDING, then RUNNING, ...
 await handle.result(timeout=10)  # 3, once the task has finished
 await app.get_task(handle.task_id).result(timeout=10)  # the same, from just the id
 ```
 
-`delay` always returns a `TaskHandle` with `task_id`, `receipt` (whatever the
-producer returned), `status()` and `result(timeout=None)`. `app.get_task(task_id)`
-builds a handle from an id, for example in another request or process sharing the
-store. `status()` and `result()` need a store and raise `NotConfiguredError`
-without one; `delay` itself does not.
+`delay` returns a `TaskHandle` with `task_id`, `receipt` (whatever the producer
+returned), `state()` and `result(timeout=None)`. `app.get_task(task_id)` builds a
+handle from an id, for example in another request or process sharing the store.
+`result(timeout=...)` raises `TimeoutError` when the task is not done in time, and
+`TaskNotFoundError` for an id the store has no record of.
 
-| Status | Meaning |
+| State | Meaning |
 |---|---|
 | `PENDING` | published, not started yet |
 | `RUNNING` | a worker is running it |
 | `RETRYING` | an attempt failed and a retry was published |
 | `SUCCESS` | finished; `result()` returns the value |
-| `FAILURE` | failed for good (retries exceeded, unknown task, or an un-serializable return value) |
+| `FAILURE` | failed for good; `result()` raises `TaskError` |
 | `SKIPPED` | a `before_task` hook raised `SkipTask`; `result()` returns `None` |
-| `UNKNOWN` | the store has no keys for this id (never existed, or expired) |
+| `UNKNOWN` | the store has no record for this id |
 
-A failed task makes `result()` raise `TaskError`, which carries the original
-exception's type name and message (`.type_name`, `.message`), not the exception
-object. A return value the codec cannot serialize is recorded as a `FAILURE`.
-`result()` on an id with no keys raises `TaskNotFoundError` immediately, and
-`result(timeout=...)` raises `TimeoutError` if the task is not done in time.
+A failed task makes `result()` raise `TaskError`, which carries the failure's type
+name and message as `.type_name` and `.message`.
 
-**Always pass `timeout=` to `result()`.** With the default `timeout=None` it waits
-forever, and it hangs if the result is never written: the worker crashed or was
-killed after `RUNNING` and the broker dropped the message, the result write failed
-open, the result expired, or a task cancelled at shutdown stays `RUNNING` until its
-requeued run.
+**Store lifecycle.** The app starts its store in its `before_startup` hooks and
+stops it in its `after_shutdown` hooks, so a worker and a scheduler need nothing
+extra. A producer-only script starts and stops the store itself:
 
-**Naming.** `TaskState` and `TaskError` are the public handle-side API: what
-`status()` returns and `result()` raises. `TaskStatus` and `TaskFailedError` (in
-`asynk.hooks`) are worker-internal types seen by hooks and the consumer.
+```python
+await app.store.start()
+handle = await add.delay(1, b=2)
+print(await handle.result(timeout=10))
+await app.store.stop()
+```
 
-**Result values.** Task results must be JSON-compatible: tuples come back as lists,
-and a value that cannot be serialized is recorded as `FAILURE`. `TaskError` carries
-only the exception's type name and message. The result record is written once, so
-if a task is redelivered after its result was recorded, the first result wins.
+**Stores.** Records expire after the store's `ttl` (24 hours by default).
 
-**Known limitations.**
+- `MemoryStore(ttl=86400.0)` keeps records in one process, so the producer, worker
+  and readers share it. It suits demos and tests.
+- `SqliteStore(path, ttl=86400.0, poll_interval=0.1)` keeps them in a SQLite file
+  shared by processes on one machine.
 
-- Store calls fail open on errors but have no timeout. A store that hangs rather
-  than raising stalls `delay` before it publishes and delays a task's start (the
-  `RUNNING` write). Use a store with its own client timeouts.
-- An app's store is started lazily, once, and shared by handles, the worker and the
-  scheduler. Use one app and store from one event loop; reusing one `App` across
-  separate `asyncio.run` calls is not supported when the store is shared.
-- A `Worker` and a `Scheduler` sharing one app in one process stop the shared store
-  independently, each when it stops.
+For anything wider, implement the `Store` protocol over Redis or a database:
 
-Records expire after 24 hours by default. Expiry is a property of the store
-(`MemoryStore(ttl=...)`, `SqliteStore(path, ttl=...)`), not of each task.
+```python
+class Store(Protocol):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def get(self, key: str) -> bytes | None: ...
+    async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool: ...
+    async def wait(self, key: str, timeout: float | None = None) -> bytes | None: ...
+```
 
-- `MemoryStore` lives in one process, so the producer, worker and readers must
-  share it. Use it for demos and tests.
-- `SqliteStore(path)` is a file shared by processes on one machine.
+`set` returns `False` when the key exists and `overwrite` is false; `wait` returns
+the value once it is written, or `None` when `timeout` elapses.
 
-For anything wider, implement the `Store` protocol (`start`, `stop`, `get`,
-`set(key, value, *, overwrite=False) -> bool`, `wait(key, timeout=None)`) over
-Redis or a database. `wait` blocks until a value is
-written, by polling or push as the store sees fit.
+**Codec.** States and results are encoded with `app.codec` (`JsonCodec()` by
+default). Pass `App(..., codec=MyCodec())` to store them another way, for example
+pickled values that keep tuples.
 
-**Scheduler dedupe.** When the app has a store, the scheduler claims
-`claim:<idempotency_key>` before publishing each slot, so schedulers that overlap
-during a deploy normally publish each slot once. It is automatic. It needs a store shared
-by every scheduler: `MemoryStore` only helps within one process, and across pods
-you need a network store such as Redis, implemented by you. Claim keys expire with
-the store's `ttl`. Dedupe is at-most-once in a narrow window: if the scheduler
-writes its claim and shutdown cancels the publish (or the publish fails), that
-slot is lost, because nothing releases the claim. Store errors fail open: the
-scheduler logs them and publishes anyway, so a duplicate task is possible, a
-failed task is not.
+**Scheduler dedupe.** Schedulers that share a store claim each slot before
+publishing it, so overlapping schedulers publish each slot once. Give them one
+shared store; `MemoryStore` covers one process, and several machines need a network
+store.
 
-**Breaking changes.** `delay` now returns a `TaskHandle`; the producer's receipt
-is at `handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`,
-and `get_task` now takes a task id.
+**Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
+`handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
+`get_task` takes a task id.
 
 ## Producer and consumer protocols
 

@@ -36,8 +36,8 @@ def _reject_constant(name: str) -> Any:
 class JsonCodec:
     """Codec that encodes envelopes as compact UTF-8 JSON.
 
-    NaN and infinite floats are rejected in both directions. Only None, bool,
-    int, float, str, lists and str-keyed dicts are accepted; tuples are not.
+    Accepts None, bool, int, float, str, lists and str-keyed dicts. NaN and
+    infinite floats are rejected in both directions.
     """
 
     def validate(self, envelope: Envelope) -> None:

@@ -6,16 +6,17 @@ from collections.abc import Callable
 
 
 class MemoryStore:
-    """Store that keeps values in memory within one process.
-
-    Args:
-        ttl: Seconds a key lives after it is written.
-        clock: Monotonic time source, replaceable for tests.
-    """
+    """Store that keeps values in memory within one process."""
 
     def __init__(
         self, ttl: float = 86400.0, *, clock: Callable[[], float] = time.monotonic
     ) -> None:
+        """Initializes the store.
+
+        Args:
+            ttl: Seconds a key lives after it is written.
+            clock: Monotonic time source, replaceable for tests.
+        """
         self._ttl = ttl
         self._clock = clock
         self._data: dict[str, tuple[bytes, float]] = {}

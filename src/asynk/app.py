@@ -33,7 +33,7 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
-        store: Key-value store for task states and results.
+        store: Key-value store for task states, task results and scheduler claim keys.
         codec: Codec that encodes task states and results.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
@@ -55,8 +55,8 @@ class App:
             name: Name of the app.
             producer: Used by `Task.delay`; None if the app only consumes.
             consumer: Used by `Worker`; None if the app only produces.
-            store: Key-value store for task states and results; defaults to a
-                `NullStore`.
+            store: Key-value store for task states, task results and scheduler
+                claim keys; defaults to a `NullStore`.
             codec: Codec that encodes task states and results; defaults to a
                 `JsonCodec`.
             tz: Default timezone for scheduled tasks.
@@ -84,6 +84,7 @@ class App:
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
+        """The registered tasks, by name, as a read-only mapping."""
         return MappingProxyType(self._tasks)
 
     @property

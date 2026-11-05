@@ -53,7 +53,20 @@ def encode_state(codec: Codec, state: TaskState) -> bytes:
 
 
 def decode_state(codec: Codec, data: bytes) -> TaskState:
-    """Decodes a state record written by `encode_state`."""
+    """Decodes a state record written by `encode_state`.
+
+    Args:
+        codec: The codec the record was encoded with.
+        data: The encoded record.
+
+    Returns:
+        The recorded state.
+
+    Raises:
+        DecodeError: If `codec` cannot decode `data`.
+        KeyError: If the record has no state.
+        ValueError: If the recorded state is not a `TaskState` value.
+    """
     record = cast("dict[str, Any]", codec.decode_value(data))
     return TaskState(record["state"])
 
@@ -88,9 +101,18 @@ def encode_result(
 def decode_result(codec: Codec, data: bytes) -> tuple[TaskState, object, tuple[str, str] | None]:
     """Decodes a result record written by `encode_result`.
 
+    Args:
+        codec: The codec the record was encoded with.
+        data: The encoded record.
+
     Returns:
         The state, the value, and the error's type name and message (None
         unless the task failed).
+
+    Raises:
+        DecodeError: If `codec` cannot decode `data`.
+        KeyError: If the record has no state, or its error has no type or message.
+        ValueError: If the recorded state is not a `TaskState` value.
     """
     record = cast("dict[str, Any]", codec.decode_value(data))
     error = record.get("error")

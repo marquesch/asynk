@@ -85,6 +85,7 @@ class HookRegistry(Generic[H]):
         return hook
 
     def __iter__(self) -> Iterator[H]:
+        """Iterates over the hooks in registration order."""
         return iter(list(self._hooks.values()))
 
 

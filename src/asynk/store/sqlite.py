@@ -13,12 +13,6 @@ class SqliteStore:
 
     Expired keys read as missing. `wait` polls the file every `poll_interval`
     seconds.
-
-    Args:
-        path: Location of the database file.
-        ttl: Seconds a key lives after it is written.
-        poll_interval: Seconds between reads while in `wait`.
-        clock: Wall-clock time source, replaceable for tests.
     """
 
     def __init__(
@@ -29,6 +23,14 @@ class SqliteStore:
         poll_interval: float = 0.1,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        """Initializes the store.
+
+        Args:
+            path: Location of the database file.
+            ttl: Seconds a key lives after it is written.
+            poll_interval: Seconds between reads while in `wait`.
+            clock: Wall-clock time source, replaceable for tests.
+        """
         self._path = os.fspath(path)
         self._ttl = ttl
         self._poll_interval = poll_interval
@@ -68,7 +70,11 @@ class SqliteStore:
         return self._conn
 
     async def get(self, key: str) -> bytes | None:
-        """Reads a value, or returns None if the key is missing or expired."""
+        """Reads a value, or returns None if the key is missing or expired.
+
+        Raises:
+            RuntimeError: If the store has not been started.
+        """
         return await asyncio.to_thread(self._get, key)
 
     def _get(self, key: str) -> bytes | None:
