@@ -295,7 +295,7 @@ class Worker(Runner):
     async def _execute(self, delivery: Delivery) -> TaskResult:
         envelope = delivery.envelope
         try:
-            task = self.app.get_task(envelope.task)
+            task = self.app.registered_task(envelope.task)
         except KeyError:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
         try:

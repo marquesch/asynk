@@ -12,6 +12,7 @@ from asynk.hooks import (
     LifecycleHook,
 )
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
+from asynk.store import Store
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
 
@@ -30,6 +31,7 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
+        store: Optional key-value store for task results and other state; None if unused.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
@@ -40,12 +42,14 @@ class App:
         *,
         producer: Producer | None = None,
         consumer: Consumer | None = None,
+        store: Store | None = None,
         tz: str = "UTC",
     ) -> None:
         self.name = name
         self.tz = resolve_timezone(tz, f"app {name!r}")
         self.producer = producer
         self.consumer = consumer
+        self.store = store
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
@@ -144,7 +148,7 @@ class App:
             raise ValueError(f"task {task_name!r} is already registered")
         return task_name
 
-    def get_task(self, name: str) -> Task[..., Any]:
+    def registered_task(self, name: str) -> Task[..., Any]:
         """Looks up a registered task.
 
         Args:

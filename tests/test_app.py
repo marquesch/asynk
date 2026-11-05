@@ -3,6 +3,7 @@ import inspect
 import pytest
 
 from asynk.app import App
+from asynk.store.memory import MemoryStore
 
 
 def test_task_registers_with_default_name() -> None:
@@ -13,7 +14,7 @@ def test_task_registers_with_default_name() -> None:
 
     expected = f"t.{fn.func.__qualname__}"
     assert fn.name == expected
-    assert app.get_task(expected) is fn
+    assert app.registered_task(expected) is fn
     assert app.tasks[expected] is fn
 
 
@@ -53,7 +54,7 @@ def test_duplicate_name_raises_value_error() -> None:
 
 def test_unknown_task_raises_key_error() -> None:
     with pytest.raises(KeyError):
-        App("t").get_task("nope")
+        App("t").registered_task("nope")
 
 
 async def test_direct_call_runs_function() -> None:
@@ -91,3 +92,12 @@ def test_app_without_producer_or_consumer_is_valid() -> None:
     assert app.name == "t"
     assert app.producer is None
     assert app.consumer is None
+
+
+def test_store_defaults_to_none() -> None:
+    assert App("t").store is None
+
+
+def test_store_is_kept() -> None:
+    store = MemoryStore()
+    assert App("t", store=store).store is store
