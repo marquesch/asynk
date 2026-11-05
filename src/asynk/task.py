@@ -6,10 +6,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
 
 from asynk.envelope import Envelope
+from asynk.errors import NotConfiguredError
+from asynk.results import TaskHandle, TaskState, encode_state, state_key
 
 if TYPE_CHECKING:
     from asynk.app import App
-    from asynk.results import TaskHandle
 
 logger = logging.getLogger("asynk")
 
@@ -74,11 +75,6 @@ class Task(Generic[P, R]):
             A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
             the producer's receipt.
 
-        Note:
-            Store calls fail open on errors but have no timeout: a store that hangs
-            rather than raising stalls `delay` before it publishes. Use a store
-            with its own client timeouts.
-
         Raises:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the producer's codec cannot encode an argument.
@@ -115,35 +111,20 @@ class BoundTask(Generic[P, R]):
             A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
             the producer's receipt.
 
-        Note:
-            Store calls fail open on errors but have no timeout: a store that hangs
-            rather than raising stalls `delay` before it publishes. Use a store
-            with its own client timeouts.
-
         Raises:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the producer's codec cannot encode an argument or a
                 metadata value.
         """
-        from asynk.app import NotConfiguredError
-        from asynk.results import (
-            TaskHandle,
-            TaskState,
-            encode_status,
-            start_store,
-            status_key,
-        )
-
         app = self._task.app
         producer = app.producer
         if producer is None:
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
         envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
-        if app.store is not None:
-            try:
-                store = await start_store(app)
-                await store.set(status_key(envelope.id), encode_status(TaskState.PENDING))
-            except Exception:
-                logger.exception("could not record pending state for task %s", envelope.id)
+        try:
+            await app.store.set(state_key(envelope.id), encode_state(app.codec, TaskState.PENDING))
+        except Exception:
+            # Fail open: a store outage must not prevent publishing.
+            logger.exception("could not record pending state for task %s", envelope.id)
         receipt = await producer.publish(envelope)
-        return TaskHandle(app, envelope.id, receipt)
+        return TaskHandle(envelope.id, app.store, app.codec, receipt)

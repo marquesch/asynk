@@ -8,17 +8,10 @@ from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
 from asynk.app import App, NotConfiguredError
+from asynk.codec import EncodeError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
-from asynk.results import (
-    TaskState,
-    encode_result,
-    encode_status,
-    result_key,
-    start_store,
-    status_key,
-    stop_store,
-)
+from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
 from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
@@ -126,34 +119,13 @@ class Worker(Runner):
 
         Startup and shutdown hooks run around the consumer; see `App.before_startup`
         and its siblings. A hook that raises makes this method raise.
-
-        If the app has a store, it is started before the consumer and stopped
-        after it; store errors are logged and never stop the worker.
         """
         await run_hooks(self.app.hooks.before_startup, self)
-        await self._start_store()
+        await self.consumer.start()
         try:
-            await self.consumer.start()
-            try:
-                await self._serve()
-            finally:
-                await run_hooks(self.app.hooks.after_shutdown, self)
+            await self._serve()
         finally:
-            await self._stop_store()
-
-    async def _start_store(self) -> None:
-        if self.app.store is None:
-            return
-        try:
-            await start_store(self.app)
-        except Exception:
-            logger.exception("failed to start the store")
-
-    async def _stop_store(self) -> None:
-        try:
-            await stop_store(self.app)
-        except Exception:
-            logger.exception("failed to stop the store")
+            await run_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)
@@ -245,12 +217,8 @@ class Worker(Runner):
         `before_task` and `after_task` hooks run around the task. If a hook raises,
         the error is logged and the message is redelivered with `attempt`
         incremented (up to the task's `max_retries`), and the returned result has
-        status `FAILED`.
-
-        If the app has a store, the task's state and result are recorded there;
-        store errors are logged and never affect the task or its delivery. Store
-        calls have no timeout, so a store that hangs rather than raising delays the
-        task's start (the `RUNNING` write); use a store with its own client timeouts.
+        status `FAILED`. The task's state and result are recorded in the app's
+        store.
 
         Args:
             delivery: The delivery to handle.
@@ -310,61 +278,59 @@ class Worker(Runner):
         return TaskResult(envelope, status, error=exc)
 
     async def _record_state(self, task_id: str, state: TaskState) -> None:
-        if self.app.store is None:
-            return
         try:
-            store = await start_store(self.app)
-            await store.set(status_key(task_id), encode_status(state), overwrite=True)
+            await self.app.store.set(
+                state_key(task_id), encode_state(self.app.codec, state), overwrite=True
+            )
         except Exception:
+            # Fail open: store errors never affect the task or its delivery.
             logger.exception("failed to record state %s for task id=%s", state.value, task_id)
 
     async def _record(self, result: TaskResult) -> None:
-        if self.app.store is None:
-            return
         envelope = result.envelope
         state = _TERMINAL_STATES.get(result.status)
         if state is None:
             await self._record_state(envelope.id, TaskState.RETRYING)
             return
         try:
-            record = self._encode_outcome(result, state)
-            if record is None:
-                state = TaskState.FAILURE
-                record = encode_result(
-                    state,
-                    error=(
-                        "ResultNotSerializable",
-                        f"task {envelope.task!r} returned a value of type "
-                        f"{type(result.value).__name__!r} that cannot be stored as JSON",
-                    ),
-                )
-            store = await start_store(self.app)
-            await store.set(status_key(envelope.id), encode_status(state), overwrite=True)
-            await store.set(result_key(envelope.id), record)
+            state, record = self._encode_outcome(result, state)
+            await self.app.store.set(
+                state_key(envelope.id), encode_state(self.app.codec, state), overwrite=True
+            )
+            await self.app.store.set(result_key(envelope.id), record)
         except Exception:
+            # Fail open: store errors never affect the task or its delivery.
             logger.exception(
                 "failed to record result for task %r (id=%s)", envelope.task, envelope.id
             )
 
-    @staticmethod
-    def _encode_outcome(result: TaskResult, state: TaskState) -> bytes | None:
+    def _encode_outcome(self, result: TaskResult, state: TaskState) -> tuple[TaskState, bytes]:
+        codec = self.app.codec
+        envelope = result.envelope
         if result.status is TaskStatus.SUCCESS:
             try:
-                return encode_result(state, value=result.value)
-            except (TypeError, ValueError):
+                return state, encode_result(codec, state, value=result.value)
+            except EncodeError as exc:
                 logger.warning(
-                    "result of task %r (id=%s) is not JSON-serializable; recording a failure",
-                    result.envelope.task,
-                    result.envelope.id,
+                    "result of task %r (id=%s) cannot be encoded; recording a failure",
+                    envelope.task,
+                    envelope.id,
                     exc_info=True,
                 )
-                return None
+                error = (
+                    "ResultNotSerializable",
+                    f"task {envelope.task!r} returned a value of type "
+                    f"{type(result.value).__name__!r} that cannot be encoded: {exc}",
+                )
+                return TaskState.FAILURE, encode_result(codec, TaskState.FAILURE, error=error)
         if result.status is TaskStatus.SKIPPED:
-            return encode_result(state)
+            return state, encode_result(codec, state)
         if result.status is TaskStatus.UNKNOWN_TASK:
-            return encode_result(state, error=("UnknownTask", result.envelope.task))
-        error = result.error
-        return encode_result(state, error=(type(error).__name__, str(error)))
+            return state, encode_result(codec, state, error=("UnknownTask", envelope.task))
+        error_value = result.error
+        return state, encode_result(
+            codec, state, error=(type(error_value).__name__, str(error_value))
+        )
 
     @staticmethod
     def _log_result(result: TaskResult) -> None:

@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from asynk.app import App, NotConfiguredError
 from asynk.codec import EncodeError
 from asynk.envelope import Envelope
-from asynk.results import TaskHandle, TaskState, decode_status, status_key
+from asynk.results import TaskHandle, TaskState, decode_state, state_key
 from asynk.store.memory import MemoryStore
 from asynk.transport.memory import memory_transport
 
@@ -179,9 +180,9 @@ async def test_delay_writes_pending_before_publish() -> None:
 
     class CheckingProducer(FakeProducer):
         async def publish(self, envelope: Envelope) -> str:
-            data = await store.get(status_key(envelope.id))
+            data = await store.get(state_key(envelope.id))
             assert data is not None
-            seen.append(decode_status(data))
+            seen.append(decode_state(app.codec, data))
             return await super().publish(envelope)
 
     app = App("t", producer=CheckingProducer(), store=store)
@@ -194,8 +195,9 @@ async def test_delay_writes_pending_before_publish() -> None:
     assert seen == [TaskState.PENDING]
 
 
-async def test_delay_without_store_still_returns_handle() -> None:
-    app = App("t", producer=FakeProducer())
+async def test_delay_works_with_default_null_store() -> None:
+    producer = FakeProducer()
+    app = App("t", producer=producer)
 
     @app.task()
     async def noop() -> None: ...
@@ -203,6 +205,21 @@ async def test_delay_without_store_still_returns_handle() -> None:
     handle = await noop.delay()
 
     assert handle.receipt == "handle-1"
+    assert handle.task_id == producer.published[0].id
+    with pytest.raises(NotConfiguredError):
+        await handle.state()
+
+
+async def test_delay_handle_reads_the_app_store() -> None:
+    store = MemoryStore()
+    app = App("t", producer=FakeProducer(), store=store)
+
+    @app.task()
+    async def noop() -> None: ...
+
+    handle = await noop.delay()
+
+    assert await handle.state() is TaskState.PENDING
 
 
 async def test_delay_publish_failure_propagates() -> None:
@@ -215,7 +232,7 @@ async def test_delay_publish_failure_propagates() -> None:
         await noop.delay()
 
 
-async def test_delay_continues_when_store_raises() -> None:
+async def test_delay_continues_when_store_raises(caplog: pytest.LogCaptureFixture) -> None:
     class BrokenStore(MemoryStore):
         async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
             raise OSError("store down")
@@ -226,7 +243,11 @@ async def test_delay_continues_when_store_raises() -> None:
     @app.task()
     async def noop() -> None: ...
 
-    handle = await noop.delay()
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        handle = await noop.delay()
 
     assert len(producer.published) == 1
     assert handle.task_id == producer.published[0].id
+    [record] = [r for r in caplog.records if r.name == "asynk"]
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], OSError)

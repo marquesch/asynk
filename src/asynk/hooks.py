@@ -14,11 +14,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
-    """Outcome of running a task, as seen by hooks and the consumer.
-
-    Worker-internal. The public, handle-side equivalent is
-    `asynk.results.TaskState`, which `TaskHandle.status` returns.
-    """
+    """Outcome of running a task, as seen by hooks and the consumer."""
 
     SUCCESS = "success"
     FAILED = "failed"
@@ -119,9 +115,6 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
 
 class TaskFailedError(Exception):
     """Raised inside `Consumer.process` when the task did not succeed.
-
-    Worker-internal. The public, handle-side equivalent is
-    `asynk.results.TaskError`, which `TaskHandle.result` raises.
 
     Attributes:
         result: The failed task's result.

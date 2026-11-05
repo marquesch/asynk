@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 import enum
-import json
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from asynk.app import App
-    from asynk.store import Store
+from asynk.codec import Codec
+from asynk.store import Store
 
 
 class TaskState(enum.Enum):
-    """Lifecycle state of a task as recorded in the store.
-
-    This is the public, handle-side API: what `TaskHandle.status` returns. It is
-    distinct from `asynk.hooks.TaskStatus`, the worker-internal outcome type passed
-    to hooks.
-    """
+    """Lifecycle state of a task as recorded in the store."""
 
     PENDING = "pending"
     RUNNING = "running"
@@ -28,10 +21,6 @@ class TaskState(enum.Enum):
 
 class TaskError(Exception):
     """Raised by `TaskHandle.result` when the task failed.
-
-    This is the public, handle-side API. It is distinct from
-    `asynk.hooks.TaskFailedError`, which is worker-internal and carries the full
-    `TaskResult`. `TaskError` carries only the exception's type name and message.
 
     Attributes:
         type_name: Name of the exception type the task raised.
@@ -48,39 +37,62 @@ class TaskNotFoundError(LookupError):
     """Raised by `TaskHandle.result` for a task id the store does not know."""
 
 
-def status_key(task_id: str) -> str:
-    return f"status:{task_id}"
+def state_key(task_id: str) -> str:
+    """Returns the store key holding a task's state."""
+    return f"state:{task_id}"
 
 
 def result_key(task_id: str) -> str:
+    """Returns the store key holding a task's result."""
     return f"result:{task_id}"
 
 
-def encode_status(state: TaskState) -> bytes:
-    return json.dumps({"state": state.value}).encode()
+def encode_state(codec: Codec, state: TaskState) -> bytes:
+    """Encodes a state record with `codec`."""
+    return codec.encode_value({"state": state.value})
 
 
-def decode_status(data: bytes) -> TaskState:
-    return TaskState(json.loads(data)["state"])
+def decode_state(codec: Codec, data: bytes) -> TaskState:
+    """Decodes a state record written by `encode_state`."""
+    record = cast("dict[str, Any]", codec.decode_value(data))
+    return TaskState(record["state"])
 
 
 def encode_result(
-    state: TaskState, *, value: object = None, error: tuple[str, str] | None = None
+    codec: Codec,
+    state: TaskState,
+    *,
+    value: object = None,
+    error: tuple[str, str] | None = None,
 ) -> bytes:
-    """Encodes a result record.
+    """Encodes a result record with `codec`.
+
+    Args:
+        codec: The codec that encodes the record.
+        state: The task's final state.
+        value: The task's return value.
+        error: The exception's type name and message, for a failed task.
+
+    Returns:
+        The encoded record.
 
     Raises:
-        TypeError: If `value` is not JSON-serializable.
-        ValueError: If `value` is not JSON-serializable (for example a circular reference).
+        EncodeError: If `codec` cannot encode `value`.
     """
     record: dict[str, Any] = {"state": state.value, "value": value}
     if error is not None:
         record["error"] = {"type": error[0], "message": error[1]}
-    return json.dumps(record).encode()
+    return codec.encode_value(record)
 
 
-def decode_result(data: bytes) -> tuple[TaskState, object, tuple[str, str] | None]:
-    record = json.loads(data)
+def decode_result(codec: Codec, data: bytes) -> tuple[TaskState, object, tuple[str, str] | None]:
+    """Decodes a result record written by `encode_result`.
+
+    Returns:
+        The state, the value, and the error's type name and message (None
+        unless the task failed).
+    """
+    record = cast("dict[str, Any]", codec.decode_value(data))
     error = record.get("error")
     return (
         TaskState(record["state"]),
@@ -89,98 +101,58 @@ def decode_result(data: bytes) -> tuple[TaskState, object, tuple[str, str] | Non
     )
 
 
-def _require_store(app: App) -> Store:
-    from asynk.app import NotConfiguredError
-
-    if app.store is None:
-        raise NotConfiguredError(f"app {app.name!r} has no store configured")
-    return app.store
-
-
-async def start_store(app: App) -> Store:
-    """Starts the app's store at most once and returns it.
-
-    Raises:
-        NotConfiguredError: If the app has no store.
-    """
-    store = _require_store(app)
-    async with app._store_lock():
-        if not app._store_started:
-            await store.start()
-            app._store_started = True
-    return store
-
-
-async def stop_store(app: App) -> None:
-    """Stops the app's store if `start_store` started it.
-
-    A `Worker` and a `Scheduler` sharing one app in one process share its store,
-    and each stops it independently when it stops: the store is closed as soon as
-    the first of them stops, and restarted lazily on next use.
-    """
-    if app.store is None:
-        return
-    async with app._store_lock():
-        if app._store_started:
-            await app.store.stop()
-            app._store_started = False
-
-
 class TaskHandle:
-    """Reference to a published task, used to read its status and result.
+    """Reference to a published task, used to read its state and result.
 
     Attributes:
         task_id: The task's id (`Envelope.id`).
         receipt: Whatever the producer returned when publishing, if anything.
     """
 
-    def __init__(self, app: App, task_id: str, receipt: Any = None) -> None:
-        self._app = app
+    def __init__(self, task_id: str, store: Store, codec: Codec, receipt: Any = None) -> None:
+        """Initializes the handle.
+
+        Args:
+            task_id: The task's id (`Envelope.id`).
+            store: The store holding the task's records.
+            codec: The codec the records were encoded with.
+            receipt: Whatever the producer returned when publishing, if anything.
+        """
         self.task_id = task_id
         self.receipt = receipt
+        self._store = store
+        self._codec = codec
 
-    async def status(self) -> TaskState:
+    async def state(self) -> TaskState:
         """Reads the task's state; `UNKNOWN` if the store has no record of it.
 
         Raises:
-            NotConfiguredError: If the app has no store.
+            NotConfiguredError: If no store is configured.
         """
-        store = await start_store(self._app)
-        data = await store.get(status_key(self.task_id))
-        return TaskState.UNKNOWN if data is None else decode_status(data)
+        data = await self._store.get(state_key(self.task_id))
+        return TaskState.UNKNOWN if data is None else decode_state(self._codec, data)
 
     async def result(self, timeout: float | None = None) -> Any:
         """Waits for the task to finish and returns its value.
 
-        Always pass `timeout`. With `timeout=None` this waits forever and can hang
-        if the result is never written: the worker crashed or was killed after
-        `RUNNING` and the broker dropped the message, the result write failed open,
-        the result expired, or a task cancelled at shutdown stays `RUNNING` until
-        its requeued run.
-
-        Results must be JSON-compatible (tuples come back as lists). The result
-        record is written once: if a task is redelivered after its result was
-        recorded, the first result wins.
-
         Args:
-            timeout: Seconds to wait, or None to wait indefinitely (see above).
+            timeout: Seconds to wait, or None to wait indefinitely.
 
         Returns:
             The task's return value, or None if it was skipped.
 
         Raises:
-            NotConfiguredError: If the app has no store.
+            NotConfiguredError: If no store is configured.
             TaskNotFoundError: If the store has no record of the task.
             TimeoutError: If no result arrived within `timeout`.
             TaskError: If the task failed.
         """
-        store = await start_store(self._app)
-        if await store.get(status_key(self.task_id)) is None:
+        if await self._store.get(state_key(self.task_id)) is None:
             raise TaskNotFoundError(self.task_id)
-        data = await store.wait(result_key(self.task_id), timeout)
+        data = await self._store.wait(result_key(self.task_id), timeout)
         if data is None:
             raise TimeoutError(f"task {self.task_id!r} has no result yet")
-        state, value, error = decode_result(data)
+        state, value, error = decode_result(self._codec, data)
         if state is TaskState.FAILURE:
             type_name, message = error or ("Exception", "")
             raise TaskError(type_name, message)

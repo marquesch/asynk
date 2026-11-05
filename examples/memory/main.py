@@ -44,7 +44,7 @@ async def main() -> None:
 
     # The handle reads the app's store: wait for the task and print its return value.
     print("result:", await handle.result(timeout=5))
-    print("status:", (await handle.status()).value)
+    print("state:", (await handle.state()).value)
 
     # The scheduler publishes scheduled tasks as their cron slots come due, and the
     # worker runs them like any other message. A Monday, from 08:28:30 to 08:31:30

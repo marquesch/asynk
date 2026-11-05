@@ -11,7 +11,6 @@ from asynk.app import App, NotConfiguredError
 from asynk.envelope import Envelope
 from asynk.hooks import run_hooks
 from asynk.probes import ProbeFiles
-from asynk.results import start_store, stop_store
 from asynk.runner import Role, Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.signals import shutdown_signals
@@ -60,15 +59,9 @@ class Scheduler(Runner):
     Fire times are decided with the wall clock, re-read after every wake, so a
     slot is never published twice by one scheduler even if the clock steps back.
     Each publish carries an `idempotency_key` of `"<task name>:<slot>"` and a
-    `scheduled_at`, the slot as a UTC ISO-8601 instant.
-
-    If the app has a store, each slot is claimed there under
-    `"claim:<idempotency_key>"` before publishing, so schedulers sharing the
-    store (for example during a deploy overlap) publish each slot only once.
-    Store errors are logged and the slot is published anyway (fail open).
-    The claim is at-most-once in a narrow window: if the claim is written and
-    then shutdown cancels the publish, or the publish fails, nothing releases
-    the claim and that slot is lost. This is accepted.
+    `scheduled_at`, the slot as a UTC ISO-8601 instant. Each slot is claimed in
+    the app's store under `"claim:<idempotency_key>"` before publishing, so
+    schedulers sharing the store publish each slot once.
 
     Attributes:
         app: The app whose scheduled tasks are published.
@@ -150,33 +143,12 @@ class Scheduler(Runner):
 
         Startup and shutdown hooks run around the loop; see `App.before_startup`
         and its siblings. A hook that raises makes this method raise.
-
-        If the app has a store, it is started before the loop and stopped
-        after it; store errors are logged and never stop the scheduler.
         """
         await run_hooks(self.app.hooks.before_startup, self)
-        await self._start_store()
         try:
-            try:
-                await self._serve()
-            finally:
-                await run_hooks(self.app.hooks.after_shutdown, self)
+            await self._serve()
         finally:
-            await self._stop_store()
-
-    async def _start_store(self) -> None:
-        if self.app.store is None:
-            return
-        try:
-            await start_store(self.app)
-        except Exception:
-            logger.exception("failed to start the store")
-
-    async def _stop_store(self) -> None:
-        try:
-            await stop_store(self.app)
-        except Exception:
-            logger.exception("failed to stop the store")
+            await run_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         self._beat()
@@ -239,43 +211,28 @@ class Scheduler(Runner):
     ) -> bool:
         """Claims and publishes one slot.
 
-        Returns False if shutdown cancelled the claim or the publish; True once
+        Returns False if shutdown cancelled the publish; True once
         the slot is handled (published, claimed by another scheduler, or failed).
         """
         scheduled_at = _utc_iso(slot)
         idempotency_key = f"{task.name}:{scheduled_at}"
-        if self.app.store is not None:
-            claim = asyncio.ensure_future(self._claim(idempotency_key))
-            try:
-                finished = await self._race(claim, shutdown)
-            except Exception:
-                logger.exception(
-                    "failed to claim scheduled task %r for slot %s; publishing anyway",
-                    task.name,
-                    scheduled_at,
-                )
-            else:
-                if not finished and shutdown.done():
-                    logger.warning(
-                        "shutdown cancelled the claim of scheduled task %r for slot %s; "
-                        "slot not published",
-                        task.name,
-                        scheduled_at,
-                    )
-                    return False
-                if not finished:
-                    logger.error(
-                        "claim of scheduled task %r for slot %s was cancelled; publishing anyway",
-                        task.name,
-                        scheduled_at,
-                    )
-                elif not claim.result():
-                    logger.info(
-                        "scheduled task %r for slot %s already claimed; skipping",
-                        task.name,
-                        scheduled_at,
-                    )
-                    return True
+        try:
+            claimed = await self.app.store.set(f"claim:{idempotency_key}", b"1")
+        except Exception:
+            # Fail open: a store outage must not stop the schedule.
+            logger.exception(
+                "failed to claim scheduled task %r for slot %s; publishing anyway",
+                task.name,
+                scheduled_at,
+            )
+            claimed = True
+        if not claimed:
+            logger.info(
+                "scheduled task %r for slot %s already claimed; skipping",
+                task.name,
+                scheduled_at,
+            )
+            return True
         schedule = task.schedule
         publish = task.with_metadata(
             idempotency_key=idempotency_key,
@@ -306,10 +263,6 @@ class Scheduler(Runner):
             return False
         logger.debug("published scheduled task %r for slot %s", task.name, scheduled_at)
         return True
-
-    async def _claim(self, idempotency_key: str) -> bool:
-        store = await start_store(self.app)
-        return await store.set(f"claim:{idempotency_key}", b"1")
 
     async def _sleep(self, seconds: float, shutdown: asyncio.Future[Any]) -> None:
         await self._race(self.clock.sleep(seconds), shutdown)

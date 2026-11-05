@@ -44,7 +44,7 @@ async def test_success_stores_value_and_state() -> None:
     result = await worker.handle(await _next(consumer))
     assert result.status is TaskStatus.SUCCESS
     assert await asyncio.wait_for(app.get_task(handle.task_id).result(), 1) == 3
-    assert await handle.status() is TaskState.SUCCESS
+    assert await handle.state() is TaskState.SUCCESS
 
 
 async def test_failure_after_retries_exceeded_stores_error_type_and_message() -> None:
@@ -57,7 +57,7 @@ async def test_failure_after_retries_exceeded_stores_error_type_and_message() ->
     handle = await boom.delay()
     result = await worker.handle(await _next(consumer))
     assert result.status is TaskStatus.RETRIES_EXCEEDED
-    assert await handle.status() is TaskState.FAILURE
+    assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await asyncio.wait_for(handle.result(), 1)
     assert info.value.type_name == "ValueError"
@@ -79,13 +79,13 @@ async def test_retrying_then_success_keeps_one_id() -> None:
     first = await _next(consumer)
     result = await worker.handle(first)
     assert result.status is TaskStatus.FAILED
-    assert await handle.status() is TaskState.RETRYING
+    assert await handle.state() is TaskState.RETRYING
     await producer.publish(first.envelope.retry())
     second = await _next(consumer)
     assert second.envelope.id == handle.task_id
     result = await worker.handle(second)
     assert result.status is TaskStatus.SUCCESS
-    assert await handle.status() is TaskState.SUCCESS
+    assert await handle.state() is TaskState.SUCCESS
     assert await asyncio.wait_for(handle.result(), 1) == "ok"
 
 
@@ -104,7 +104,7 @@ async def test_skipped_task_result_returns_none() -> None:
     handle = await t1.delay()
     result = await worker.handle(await _next(consumer))
     assert result.status is TaskStatus.SKIPPED
-    assert await handle.status() is TaskState.SKIPPED
+    assert await handle.state() is TaskState.SKIPPED
     assert await asyncio.wait_for(handle.result(), 1) is None
 
 
@@ -115,7 +115,7 @@ async def test_unknown_task_marks_failure() -> None:
     result = await worker.handle(await _next(consumer))
     assert result.status is TaskStatus.UNKNOWN_TASK
     handle = app.get_task(env.id)
-    assert await handle.status() is TaskState.FAILURE
+    assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await asyncio.wait_for(handle.result(), 1)
     assert info.value.type_name == "UnknownTask"
@@ -134,13 +134,13 @@ async def test_running_state_visible_while_task_executes() -> None:
         return 5
 
     handle = await slow.delay()
-    assert await handle.status() is TaskState.PENDING
+    assert await handle.state() is TaskState.PENDING
     runner = asyncio.create_task(worker.handle(await _next(consumer)))
     await asyncio.wait_for(started.wait(), 1)
-    assert await handle.status() is TaskState.RUNNING
+    assert await handle.state() is TaskState.RUNNING
     release.set()
     await asyncio.wait_for(runner, 1)
-    assert await handle.status() is TaskState.SUCCESS
+    assert await handle.state() is TaskState.SUCCESS
 
 
 async def test_unserializable_return_value_becomes_failure(
@@ -158,7 +158,7 @@ async def test_unserializable_return_value_becomes_failure(
         result = await worker.handle(delivery)
     assert result.status is TaskStatus.SUCCESS
     assert delivery.settled
-    assert await handle.status() is TaskState.FAILURE
+    assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await asyncio.wait_for(handle.result(), 1)
     assert info.value.type_name == "ResultNotSerializable"
@@ -169,10 +169,10 @@ async def test_unserializable_return_value_becomes_failure(
 
 class _BrokenStore:
     async def start(self) -> None:
-        raise RuntimeError("start")
+        return None
 
     async def stop(self) -> None:
-        raise RuntimeError("stop")
+        return None
 
     async def get(self, key: str) -> bytes | None:
         raise RuntimeError("get")
@@ -272,16 +272,32 @@ def _spy_setup(fail: bool = False) -> tuple[list[str], Worker]:
         consumer=_SpyConsumer(consumer, calls, fail),
         store=_SpyStore(calls),
     )
+
+    @app.before_startup
+    def user_startup(runner: object) -> None:
+        calls.append("user.before_startup")
+
+    @app.after_shutdown
+    def user_shutdown(runner: object) -> None:
+        calls.append("user.after_shutdown")
+
     return calls, Worker(app)
 
 
-async def test_worker_starts_and_stops_store() -> None:
+async def test_worker_starts_and_stops_store_through_app_hooks() -> None:
     calls, worker = _spy_setup()
     run = asyncio.create_task(worker.run())
     await asyncio.sleep(0.05)
     worker.request_shutdown()
     await asyncio.wait_for(run, 1)
-    assert calls == ["store.start", "consumer.start", "consumer.stop", "store.stop"]
+    assert calls == [
+        "store.start",
+        "user.before_startup",
+        "consumer.start",
+        "consumer.stop",
+        "store.stop",
+        "user.after_shutdown",
+    ]
 
 
 async def test_worker_stops_store_when_serving_raises() -> None:
@@ -289,7 +305,7 @@ async def test_worker_stops_store_when_serving_raises() -> None:
     with pytest.raises(RuntimeError, match="serve failed"):
         await asyncio.wait_for(worker.run(), 1)
     assert calls[0] == "store.start"
-    assert calls[-1] == "store.stop"
+    assert "store.stop" in calls
 
 
 async def test_hook_failure_records_retrying_or_failure() -> None:
@@ -306,12 +322,12 @@ async def test_hook_failure_records_retrying_or_failure() -> None:
     handle = await once.delay()
     result = await worker.handle(await _next(consumer))
     assert result.status is TaskStatus.FAILED
-    assert await handle.status() is TaskState.RETRYING
+    assert await handle.state() is TaskState.RETRYING
     retried = await _next(consumer)
     assert retried.envelope.id == handle.task_id
     result = await worker.handle(retried)
     assert result.status is TaskStatus.RETRIES_EXCEEDED
-    assert await handle.status() is TaskState.FAILURE
+    assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await asyncio.wait_for(handle.result(), 1)
     assert (info.value.type_name, info.value.message) == ("OSError", "hook down")
@@ -354,3 +370,33 @@ async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
     assert delivery.settled
     redelivered = await _next(consumer)
     assert redelivered.envelope == env
+
+
+async def test_worker_run_raises_when_store_start_fails() -> None:
+    class FailingStart(MemoryStore):
+        async def start(self) -> None:
+            raise RuntimeError("start failed")
+
+    _, _, _, worker = _setup(FailingStart())
+    with pytest.raises(RuntimeError, match="start failed"):
+        await asyncio.wait_for(worker.run(), 1)
+
+
+async def test_worker_with_null_store_runs_tasks(caplog: pytest.LogCaptureFixture) -> None:
+    producer, consumer = memory_transport()
+    app = App("t", producer=producer, consumer=consumer)
+    worker = Worker(app)
+    done = asyncio.Event()
+
+    @app.task(name="t1")
+    async def t1() -> int:
+        done.set()
+        return 1
+
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        await t1.delay()
+        run = asyncio.create_task(worker.run())
+        await asyncio.wait_for(done.wait(), 1)
+        worker.request_shutdown()
+        await asyncio.wait_for(run, 1)
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
+from asynk.codec import Codec
+from asynk.codec.json import JsonCodec
 from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
     AfterTaskHook,
@@ -13,13 +14,13 @@ from asynk.hooks import (
     Hooks,
     LifecycleHook,
 )
+from asynk.results import TaskHandle
+from asynk.runner import Runner
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
+from asynk.store.null import NullStore
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
-
-if TYPE_CHECKING:
-    from asynk.results import TaskHandle
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -32,11 +33,8 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
-        store: Optional key-value store for task results and other state; None if unused.
-            It is started lazily, once, and shared by task handles, the worker and
-            the scheduler, so use one app and store from one event loop. Reusing one
-            `App` across separate `asyncio.run` calls is not supported when the
-            store is shared.
+        store: Key-value store for task states and results.
+        codec: Codec that encodes task states and results.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
@@ -48,23 +46,41 @@ class App:
         producer: Producer | None = None,
         consumer: Consumer | None = None,
         store: Store | None = None,
+        codec: Codec | None = None,
         tz: str = "UTC",
     ) -> None:
+        """Initializes the app.
+
+        Args:
+            name: Name of the app.
+            producer: Used by `Task.delay`; None if the app only consumes.
+            consumer: Used by `Worker`; None if the app only produces.
+            store: Key-value store for task states and results; defaults to a
+                `NullStore`.
+            codec: Codec that encodes task states and results; defaults to a
+                `JsonCodec`.
+            tz: Default timezone for scheduled tasks.
+
+        Raises:
+            ValueError: If the timezone is unknown.
+        """
         self.name = name
         self.tz = resolve_timezone(tz, f"app {name!r}")
         self.producer = producer
         self.consumer = consumer
-        self.store = store
-        self._store_started = False
-        self._store_lock_obj: asyncio.Lock | None = None
+        self.store: Store = store if store is not None else NullStore()
+        self.codec: Codec = codec if codec is not None else JsonCodec()
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
+        self.hooks.before_startup.add(self._start_store)
+        self.hooks.after_shutdown.add(self._stop_store)
 
-    def _store_lock(self) -> asyncio.Lock:
-        if self._store_lock_obj is None:
-            self._store_lock_obj = asyncio.Lock()
-        return self._store_lock_obj
+    async def _start_store(self, runner: Runner) -> None:
+        await self.store.start()
+
+    async def _stop_store(self, runner: Runner) -> None:
+        await self.store.stop()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -175,19 +191,15 @@ class App:
         return self._tasks[name]
 
     def get_task(self, task_id: str) -> TaskHandle:
-        """Returns a handle for reading the status and result of a published task.
-
-        No store lookup happens here; the handle reads the store when used.
+        """Returns a handle for reading the state and result of a published task.
 
         Args:
             task_id: The task's id (`Envelope.id`).
 
         Returns:
-            A `TaskHandle`.
+            A `TaskHandle` reading this app's store with this app's codec.
         """
-        from asynk.results import TaskHandle
-
-        return TaskHandle(self, task_id)
+        return TaskHandle(task_id, self.store, self.codec)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
         """Registers a hook run before a worker starts its consumer or a scheduler its loop.

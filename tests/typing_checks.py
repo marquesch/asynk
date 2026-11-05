@@ -22,7 +22,7 @@ async def scheduled(a: int, b: int = 0) -> int:
 async def _checks() -> None:
     await add.delay(1, b=2)
     _task_id: str = (await add.delay(1, b=2)).task_id
-    _state: TaskState = await (await add.delay(1, b=2)).status()
+    _state: TaskState = await (await add.delay(1, b=2)).state()
     await add.delay("x")  # type: ignore[arg-type]
     await add.delay()  # type: ignore[call-arg]
     await add.delay(1, c=3)  # type: ignore[call-arg]

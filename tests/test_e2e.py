@@ -33,6 +33,7 @@ NAMES = [
     "Runner",
     "Store",
     "MemoryStore",
+    "NullStore",
     "SqliteStore",
     "TaskHandle",
     "TaskState",
@@ -270,7 +271,7 @@ async def test_delay_then_await_result() -> None:
     run = asyncio.create_task(worker.run())
     handle = await add.delay(1, b=2)
     assert await asyncio.wait_for(handle.result(), 5) == 3
-    assert await handle.status() is asynk.TaskState.SUCCESS
+    assert await handle.state() is asynk.TaskState.SUCCESS
     assert await app.get_task(handle.task_id).result() == 3
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)

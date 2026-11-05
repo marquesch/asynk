@@ -17,15 +17,12 @@ CLAIM = f"claim:job:{SLOT}"
 
 
 class _RecordingStore(MemoryStore):
-    """MemoryStore that counts lifecycle calls and can fail or hang on claims."""
+    """MemoryStore that records lifecycle calls and claims, and can fail claims."""
 
-    def __init__(self, *, fail_claims: bool = False, hang_claims: bool = False) -> None:
+    def __init__(self, *, fail_claims: bool = False) -> None:
         super().__init__()
         self.events: list[str] = []
         self.fail_claims = fail_claims
-        self.hang_claims = hang_claims
-        self.hanging = asyncio.Event()
-        self.cancelled = 0
 
     async def start(self) -> None:
         self.events.append("start")
@@ -38,13 +35,6 @@ class _RecordingStore(MemoryStore):
             self.events.append(f"set {key} overwrite={overwrite}")
             if self.fail_claims:
                 raise ConnectionError("store down")
-            if self.hang_claims:
-                self.hanging.set()
-                try:
-                    await asyncio.Event().wait()
-                except asyncio.CancelledError:
-                    self.cancelled += 1
-                    raise
         return await super().set(key, value, overwrite=overwrite)
 
 
@@ -112,52 +102,63 @@ async def test_store_error_fails_open_and_still_publishes(
     assert isinstance(record.exc_info[1], ConnectionError)
 
 
-async def test_without_store_publishes_as_before() -> None:
+async def test_scheduler_with_null_store_always_publishes() -> None:
     app, consumer = _app(None)
-    await _run(app, _clock())
-    assert _slots(await _published(consumer)) == [("job", SLOT)]
+    clock = _clock()
+    first = Scheduler(app, clock=clock)
+    second = Scheduler(app, clock=clock)
+
+    def stop_both() -> None:
+        first.request_shutdown()
+        second.request_shutdown()
+
+    clock.on_limit = stop_both
+    await asyncio.wait_for(asyncio.gather(first.run(), second.run()), 1)
+    assert _slots(await _published(consumer)) == [("job", SLOT), ("job", SLOT)]
 
 
-async def test_scheduler_starts_and_stops_store() -> None:
+async def test_scheduler_starts_and_stops_store_through_app_hooks() -> None:
     store = _RecordingStore()
     app, consumer = _app(store)
+
+    @app.before_startup
+    def user_startup(runner: Any) -> None:
+        store.events.append("user.before_startup")
+
+    @app.after_shutdown
+    def user_shutdown(runner: Any) -> None:
+        store.events.append("user.after_shutdown")
+
     await _run(app, _clock())
-    assert store.events[0] == "start"
-    assert store.events[-1] == "stop"
-    assert store.events.count("start") == 1
-    assert store.events.count("stop") == 1
-    assert not app._store_started
+    assert store.events == [
+        "start",
+        "user.before_startup",
+        f"set {CLAIM} overwrite=False",
+        "stop",
+        "user.after_shutdown",
+    ]
 
 
-async def test_store_start_failure_is_logged_not_raised(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_store_start_failure_propagates() -> None:
     class Broken(MemoryStore):
         async def start(self) -> None:
             raise RuntimeError("start failed")
 
     app, consumer = _app(Broken())
-    with caplog.at_level(logging.ERROR, logger="asynk"):
+    with pytest.raises(RuntimeError, match="start failed"):
         await _run(app, _clock())
-    # Starting fails on every attempt, so claims fail open and the slot still publishes.
-    assert _slots(await _published(consumer)) == [("job", SLOT)]
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
-    assert "failed to start the store" in messages
+    assert await _published(consumer) == []
 
 
-async def test_store_stop_failure_is_logged_not_raised(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_store_stop_failure_propagates() -> None:
     class Broken(MemoryStore):
         async def stop(self) -> None:
             raise RuntimeError("stop failed")
 
     app, consumer = _app(Broken())
-    with caplog.at_level(logging.ERROR, logger="asynk"):
+    with pytest.raises(RuntimeError, match="stop failed"):
         await _run(app, _clock())
     assert _slots(await _published(consumer)) == [("job", SLOT)]
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
-    assert messages == ["failed to stop the store"]
 
 
 async def test_store_stopped_even_when_a_hook_raises() -> None:
@@ -171,16 +172,3 @@ async def test_store_stopped_even_when_a_hook_raises() -> None:
     with pytest.raises(RuntimeError, match="hook"):
         await _run(app, _clock())
     assert store.events == ["start", "stop"]
-
-
-async def test_shutdown_interrupts_hung_claim_without_publishing() -> None:
-    store = _RecordingStore(hang_claims=True)
-    app, consumer = _app(store)
-    scheduler = Scheduler(app, clock=_clock())
-    run = asyncio.create_task(scheduler.run())
-    await asyncio.wait_for(store.hanging.wait(), 1)
-    scheduler.request_shutdown()
-    await asyncio.wait_for(run, 1)
-    assert store.cancelled == 1
-    assert await _published(consumer) == []
-    assert store.events[-1] == "stop"
