@@ -84,6 +84,41 @@ class JsonCodec:
         }
         return json.dumps(payload, allow_nan=False, separators=(",", ":")).encode("utf-8")
 
+    def encode_value(self, value: object) -> bytes:
+        """Serializes a JSON-friendly value to JSON bytes.
+
+        Args:
+            value: The value to serialize.
+
+        Returns:
+            The UTF-8 encoded JSON document.
+
+        Raises:
+            EncodeError: If `value` is not JSON-friendly.
+        """
+        try:
+            _ensure_json(value, "value")
+        except RecursionError as exc:
+            raise EncodeError("value is nested too deeply") from exc
+        return json.dumps(value, allow_nan=False, separators=(",", ":")).encode("utf-8")
+
+    def decode_value(self, data: bytes) -> object:
+        """Deserializes JSON bytes into a value.
+
+        Args:
+            data: A UTF-8 encoded JSON document.
+
+        Returns:
+            The decoded value.
+
+        Raises:
+            DecodeError: If `data` is not a valid JSON document.
+        """
+        try:
+            return json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
+        except (ValueError, RecursionError) as exc:
+            raise DecodeError(f"invalid JSON: {exc}") from exc
+
     def decode(self, data: bytes) -> Envelope:
         """Deserializes JSON bytes into an envelope.
 
@@ -96,10 +131,7 @@ class JsonCodec:
         Raises:
             DecodeError: If `data` is not valid JSON or lacks a well-formed envelope.
         """
-        try:
-            obj = json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
-        except (ValueError, RecursionError) as exc:
-            raise DecodeError(f"invalid JSON: {exc}") from exc
+        obj = self.decode_value(data)
         if not isinstance(obj, dict):
             raise DecodeError("envelope must be a JSON object")
 
