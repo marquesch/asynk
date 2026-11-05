@@ -207,13 +207,17 @@ class Scheduler(Runner):
     ) -> bool:
         """Claims and publishes one slot.
 
-        Returns False if shutdown cancelled the publish; True once
-        the slot is handled (published, claimed by another scheduler, or failed).
+        The claim is released unless the publish succeeded. Returns False if
+        shutdown cancelled the publish; True once the slot is handled
+        (published, claimed by another scheduler, or failed).
         """
         scheduled_at = _utc_iso(slot)
         idempotency_key = f"{task.name}:{scheduled_at}"
+        claim_key = f"claim:{idempotency_key}"
+        claim_written = False
         try:
-            claimed = await self.app.store.set(f"claim:{idempotency_key}", b"1")
+            claimed = await self.app.store.set(claim_key, b"1")
+            claim_written = claimed
         except Exception:
             # Fail open: a store outage must not stop the schedule.
             logger.exception(
@@ -234,22 +238,27 @@ class Scheduler(Runner):
             idempotency_key=idempotency_key,
             scheduled_at=scheduled_at,
         ).delay(*schedule.args, **schedule.kwargs)
+        published = False
         try:
-            finished = await self._race(publish, shutdown)
-        except Exception:
-            logger.exception(
-                "failed to publish scheduled task %r for slot %s", task.name, scheduled_at
-            )
-            return True
-        if not finished and not shutdown.done():
-            # The publish cancelled itself: a failed publish, so the slot advances.
-            logger.error(
-                "publish of scheduled task %r for slot %s was cancelled; slot skipped",
-                task.name,
-                scheduled_at,
-            )
-            return True
-        if not finished:
+            try:
+                finished = await self._race(publish, shutdown)
+            except Exception:
+                logger.exception(
+                    "failed to publish scheduled task %r for slot %s", task.name, scheduled_at
+                )
+                return True
+            if finished:
+                published = True
+                logger.debug("published scheduled task %r for slot %s", task.name, scheduled_at)
+                return True
+            if not shutdown.done():
+                # The publish cancelled itself: a failed publish, so the slot advances.
+                logger.error(
+                    "publish of scheduled task %r for slot %s was cancelled; slot skipped",
+                    task.name,
+                    scheduled_at,
+                )
+                return True
             logger.warning(
                 "shutdown cancelled the publish of scheduled task %r for slot %s; "
                 "slot not published",
@@ -257,8 +266,23 @@ class Scheduler(Runner):
                 scheduled_at,
             )
             return False
-        logger.debug("published scheduled task %r for slot %s", task.name, scheduled_at)
-        return True
+        finally:
+            # Also runs when the whole `run()` task is cancelled from outside.
+            if claim_written and not published:
+                await self._release_claim(claim_key, task, scheduled_at)
+
+    async def _release_claim(
+        self, claim_key: str, task: ScheduledTask[..., Any], scheduled_at: str
+    ) -> None:
+        try:
+            await self.app.store.delete(claim_key)
+        except Exception:
+            # Fail open, like the claim: a store outage must not stop the schedule.
+            logger.exception(
+                "failed to release the claim of scheduled task %r for slot %s",
+                task.name,
+                scheduled_at,
+            )
 
     async def _sleep(self, seconds: float, shutdown: asyncio.Future[Any]) -> None:
         await self._race(self.clock.sleep(seconds), shutdown)

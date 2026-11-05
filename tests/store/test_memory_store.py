@@ -71,3 +71,23 @@ async def test_wait_ignores_expired_value() -> None:
     await store.set("k", b"old")
     clock.now = 11.0
     assert await store.wait("k", timeout=0.05) is None
+
+
+async def test_delete_existing_key_removes_it_and_returns_true() -> None:
+    store = MemoryStore()
+    await store.set("k", b"v")
+    assert await store.delete("k") is True
+    assert await store.get("k") is None
+    assert await store.set("k", b"new") is True
+
+
+async def test_delete_missing_key_returns_false() -> None:
+    assert await MemoryStore().delete("k") is False
+
+
+async def test_delete_expired_key_returns_false() -> None:
+    clock = FakeClock()
+    store = MemoryStore(ttl=10.0, clock=clock)
+    await store.set("k", b"v")
+    clock.now = 11.0
+    assert await store.delete("k") is False

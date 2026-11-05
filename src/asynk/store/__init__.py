@@ -53,3 +53,14 @@ class Store(Protocol):
             The value, or None if `timeout` elapsed first.
         """
         ...
+
+    async def delete(self, key: str) -> bool:
+        """Removes a key.
+
+        Args:
+            key: The key to remove.
+
+        Returns:
+            True if the key existed and was removed, False if it was missing or expired.
+        """
+        ...

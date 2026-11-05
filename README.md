@@ -247,10 +247,12 @@ class Store(Protocol):
     async def get(self, key: str) -> bytes | None: ...
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool: ...
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None: ...
+    async def delete(self, key: str) -> bool: ...
 ```
 
 `set` returns `False` when the key exists and `overwrite` is false; `wait` returns
-the value once it is written, or `None` when `timeout` elapses.
+the value once it is written, or `None` when `timeout` elapses; `delete` returns
+whether the key existed and was removed.
 
 **Codec.** Task results and states are encoded with `app.codec`, the same codec
 that encodes messages (`JsonCodec()` by default). Pass `App(..., codec=MyCodec())`
@@ -259,7 +261,8 @@ to use another format, for example pickled values that keep tuples.
 **Scheduler dedupe.** Schedulers that share a store claim each slot before
 publishing it, so overlapping schedulers publish each slot once. Give them one
 shared store; `MemoryStore` covers one process, and several machines need a network
-store.
+store. A scheduler releases its claim when its publish fails or is cancelled, so
+another scheduler can publish that slot.
 
 **Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
 `handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
@@ -269,7 +272,7 @@ store.
 `Delivery.body` carries it; `Producer.validate` and `Delivery.envelope` are gone,
 and transports no longer take a codec argument. `MemoryProducer.publish_raw` is
 removed. The worker decodes each message and rejects, without requeue, one it
-cannot decode.
+cannot decode. `Store` gains a required `delete` method.
 
 ## Producer and consumer protocols
 
