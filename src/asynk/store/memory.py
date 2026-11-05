@@ -78,8 +78,9 @@ class MemoryStore:
             event = self._events.setdefault(key, asyncio.Event())
             self._waiters[key] = self._waiters.get(key, 0) + 1
             try:
-                await asyncio.wait_for(event.wait(), remaining)
-            except asyncio.TimeoutError:  # not the builtin TimeoutError before Python 3.11
+                async with asyncio.timeout(remaining):
+                    await event.wait()
+            except TimeoutError:
                 return await self.get(key)
             finally:
                 # `set` may have popped the event already; the last waiter out

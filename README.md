@@ -1,6 +1,6 @@
 # asynk
 
-asynk is a small asyncio task framework (Python 3.10+, standard library only).
+asynk is a small asyncio task framework (Python 3.11+, standard library only).
 Producers and consumers are decoupled: the core only knows an `Envelope`, a
 `Codec` and two protocols, so any broker can sit behind them. An in-memory
 transport ships for development and testing.

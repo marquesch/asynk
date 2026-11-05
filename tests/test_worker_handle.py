@@ -24,10 +24,7 @@ def _setup() -> tuple[App, Any, Any, Worker]:
 
 
 async def _next(consumer: Any) -> Delivery:
-    try:
-        return await asyncio.wait_for(anext(consumer.deliveries()), 1)
-    except asyncio.TimeoutError as exc:  # noqa: UP041 - distinct from TimeoutError before 3.11
-        raise TimeoutError from exc
+    return await asyncio.wait_for(anext(consumer.deliveries()), 1)
 
 
 async def _handle(worker: Worker, delivery: Delivery) -> TaskResult:

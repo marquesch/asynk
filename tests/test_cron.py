@@ -1,11 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from asynk.cron import CronError, CronExpression
 
-UTC = timezone.utc
 NY = ZoneInfo("America/New_York")
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 KOLKATA = ZoneInfo("Asia/Kolkata")

@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import asynk
 from asynk import App, Delivery, Envelope, Runner, SkipTask, TaskResult, Worker
@@ -208,8 +208,8 @@ async def test_scheduler_publishes_and_worker_runs() -> None:
     schedulers = []
     for _ in range(2):
         clock = _StepClock(
-            datetime(2026, 11, 4, 11, 29, tzinfo=timezone.utc),
-            datetime(2026, 11, 4, 11, 31, tzinfo=timezone.utc),
+            datetime(2026, 11, 4, 11, 29, tzinfo=UTC),
+            datetime(2026, 11, 4, 11, 31, tzinfo=UTC),
         )
         scheduler = Scheduler(app, clock=clock)
         clock.on_limit = scheduler.request_shutdown
@@ -239,8 +239,8 @@ async def test_lifecycle_hooks_fire_in_the_worker_and_the_scheduler() -> None:
         events.append((runner.role, "after_shutdown"))
 
     clock = _StepClock(
-        datetime(2026, 11, 4, 11, 29, tzinfo=timezone.utc),
-        datetime(2026, 11, 4, 11, 31, tzinfo=timezone.utc),
+        datetime(2026, 11, 4, 11, 29, tzinfo=UTC),
+        datetime(2026, 11, 4, 11, 31, tzinfo=UTC),
     )
     scheduler = Scheduler(app, clock=clock)
     clock.on_limit = scheduler.request_shutdown

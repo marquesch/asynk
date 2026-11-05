@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
@@ -42,7 +42,7 @@ class SystemClock:
 
     def now(self) -> datetime:
         """Returns the current time in UTC."""
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     async def sleep(self, seconds: float) -> None:
         """Waits for `seconds` using `asyncio.sleep`.
@@ -310,7 +310,7 @@ class Scheduler(Runner):
     def _now(self) -> datetime:
         # Normalized to UTC so comparisons and subtractions with slots (which
         # carry each scheduled task's zone) are between instants, never wall times.
-        return self.clock.now().astimezone(timezone.utc)
+        return self.clock.now().astimezone(UTC)
 
     def _beat(self) -> None:
         if self._probes is None:
@@ -322,4 +322,4 @@ class Scheduler(Runner):
 
 
 def _utc_iso(slot: datetime) -> str:
-    return slot.astimezone(timezone.utc).isoformat()
+    return slot.astimezone(UTC).isoformat()

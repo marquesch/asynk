@@ -33,7 +33,7 @@ fires once, at its first occurrence (`fold=0`).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 _MONTH_NAMES = {
     name: i
@@ -164,7 +164,7 @@ class CronExpression:
         tz = after.tzinfo
         if tz is None or after.utcoffset() is None:
             raise ValueError(f"after must be timezone-aware, got {after!r}")
-        after_utc = after.astimezone(timezone.utc)
+        after_utc = after.astimezone(UTC)
         # Normalize to the wall time that `tz` itself gives this instant, so a
         # non-normalized `after` (such as fold=1 inside a DST gap) starts at the
         # right wall minute. Existing fold=0 wall times map to instants in order,
@@ -189,7 +189,7 @@ class CronExpression:
                         candidate = wall.replace(tzinfo=tz)
                         if not _exists(candidate):
                             continue
-                        if candidate.astimezone(timezone.utc) <= after_utc:
+                        if candidate.astimezone(UTC) <= after_utc:
                             continue
                         return candidate
             day += timedelta(days=1)
@@ -260,5 +260,5 @@ def _first_of_next_month(day: date) -> date:
 def _exists(local: datetime) -> bool:
     # A wall time in a DST gap does not survive a round trip through UTC.
     tz = local.tzinfo
-    back = local.astimezone(timezone.utc).astimezone(tz)
+    back = local.astimezone(UTC).astimezone(tz)
     return back.replace(tzinfo=None) == local.replace(tzinfo=None)
