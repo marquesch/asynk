@@ -190,6 +190,9 @@ class _BrokenStore:
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
         raise RuntimeError("wait")
 
+    async def delete(self, key: str) -> bool:
+        raise RuntimeError("delete")
+
 
 class _FailingSetStore(MemoryStore):
     async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:

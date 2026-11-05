@@ -49,6 +49,13 @@ class MemoryStore:
             event.set()
         return True
 
+    async def delete(self, key: str) -> bool:
+        """Removes a key; returns False if it is missing or expired."""
+        if await self.get(key) is None:
+            return False
+        del self._data[key]
+        return True
+
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
         """Waits until the key has a value; returns None if `timeout` elapses first."""
         loop = asyncio.get_running_loop()

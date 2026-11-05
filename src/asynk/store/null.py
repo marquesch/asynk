@@ -6,7 +6,8 @@ from asynk.errors import NotConfiguredError
 class NullStore:
     """Store for apps with no store configured.
 
-    `set` always reports a write, and `get` and `wait` raise `NotConfiguredError`.
+    `set` always reports a write, `delete` reports that nothing was removed, and
+    `get` and `wait` raise `NotConfiguredError`.
     """
 
     async def start(self) -> None:
@@ -26,3 +27,7 @@ class NullStore:
     async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
         """Raises `NotConfiguredError`."""
         raise NotConfiguredError("no store configured")
+
+    async def delete(self, key: str) -> bool:
+        """Returns False: nothing is stored."""
+        return False

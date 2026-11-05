@@ -132,3 +132,15 @@ class SqliteStore:
             if remaining <= 0:
                 return None
             await asyncio.sleep(min(self._poll_interval, remaining))
+
+    async def delete(self, key: str) -> bool:
+        """Removes a key; returns False if it is missing or expired."""
+        return await asyncio.to_thread(self._delete, key)
+
+    def _delete(self, key: str) -> bool:
+        with self._lock:
+            conn = self._require_conn()
+            now = self._clock()
+            cursor = conn.execute("DELETE FROM store WHERE key = ? AND expires_at > ?", (key, now))
+            conn.commit()
+            return cursor.rowcount == 1

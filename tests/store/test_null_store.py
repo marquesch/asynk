@@ -12,6 +12,10 @@ async def test_set_always_reports_written() -> None:
     assert await store.set("k", b"v") is True
 
 
+async def test_delete_reports_nothing_removed() -> None:
+    assert await NullStore().delete("k") is False
+
+
 async def test_get_raises_not_configured() -> None:
     with pytest.raises(NotConfiguredError, match="no store configured"):
         await NullStore().get("k")
