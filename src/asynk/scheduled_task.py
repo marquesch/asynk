@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timezone, tzinfo
+from datetime import UTC, tzinfo
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -103,7 +103,7 @@ def resolve_timezone(key: str, owner: str) -> tzinfo:
         ValueError: If the timezone is unknown or malformed.
     """
     if key == "UTC":
-        return timezone.utc
+        return UTC
     try:
         return ZoneInfo(key)
     except (ZoneInfoNotFoundError, ValueError) as exc:

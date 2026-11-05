@@ -1,5 +1,5 @@
 from dataclasses import fields
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
@@ -75,7 +75,7 @@ def test_duplicate_name_with_task_raises_value_error() -> None:
 
 
 def test_app_tz_default_is_utc() -> None:
-    assert App("t").tz is timezone.utc
+    assert App("t").tz is UTC
 
 
 def test_scheduled_task_uses_app_tz_by_default() -> None:
@@ -123,7 +123,7 @@ def test_schedule_defaults() -> None:
 def test_schedule_has_no_catch_up() -> None:
     assert "catch_up" not in {f.name for f in fields(Schedule)}
     with pytest.raises(TypeError):
-        Schedule.build("* * * * *", tz=timezone.utc, catch_up=True)  # type: ignore[call-arg]
+        Schedule.build("* * * * *", tz=UTC, catch_up=True)  # type: ignore[call-arg]
 
 
 def test_invalid_cron_raises_at_decoration() -> None:
@@ -193,11 +193,11 @@ def test_default_utc_does_not_need_tz_database() -> None:
     @app.scheduled_task(cron="* * * * *")
     def f() -> None: ...
 
-    assert app.tz is timezone.utc
-    assert f.schedule.tz is timezone.utc
-    now = datetime(2026, 1, 1, 12, 0, 30, tzinfo=timezone.utc)
+    assert app.tz is UTC
+    assert f.schedule.tz is UTC
+    now = datetime(2026, 1, 1, 12, 0, 30, tzinfo=UTC)
     assert f.schedule.cron.next_after(now.astimezone(f.schedule.tz)) == datetime(
-        2026, 1, 1, 12, 1, tzinfo=timezone.utc
+        2026, 1, 1, 12, 1, tzinfo=UTC
     )
 
 
@@ -208,7 +208,7 @@ def test_explicit_utc_does_not_need_tz_database() -> None:
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="n")
     def f() -> None: ...
 
-    assert f.schedule.tz is timezone.utc
+    assert f.schedule.tz is UTC
 
 
 @pytest.mark.usefixtures("no_tzdb")

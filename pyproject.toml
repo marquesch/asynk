@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Carlos Marques", email = "chmarques93@gmail.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["asyncio", "task-queue", "tasks", "workers", "scheduler"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -15,7 +15,6 @@ classifiers = [
     "Framework :: AsyncIO",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -50,7 +49,7 @@ pythonpath = ["."]
 
 [tool.mypy]
 strict = true
-python_version = "3.10"
+python_version = "3.11"
 files = ["src", "tests", "examples"]
 
 [tool.ruff]
@@ -58,3 +57,5 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]
+# Public APIs take a plain `timeout` argument by design.
+ignore = ["ASYNC109"]

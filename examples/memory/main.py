@@ -4,7 +4,7 @@ Run it with `python examples/memory/main.py`.
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from tasks import add, app, shout
 
@@ -50,8 +50,8 @@ async def main() -> None:
     # worker runs them like any other message. A Monday, from 08:28:30 to 08:31:30
     # virtual UTC: three `tick` slots and the 08:30 `morning_report`.
     clock = FastClock(
-        start=datetime(2026, 1, 5, 8, 28, 30, tzinfo=timezone.utc),
-        stop=datetime(2026, 1, 5, 8, 31, 30, tzinfo=timezone.utc),
+        start=datetime(2026, 1, 5, 8, 28, 30, tzinfo=UTC),
+        stop=datetime(2026, 1, 5, 8, 31, 30, tzinfo=UTC),
     )
     scheduler = Scheduler(app, clock=clock)
     run_scheduler = asyncio.create_task(scheduler.run())

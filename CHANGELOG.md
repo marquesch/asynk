@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** Python 3.11 is now the minimum supported version.
 - **Breaking:** `delay` returns a `TaskHandle`; the producer's receipt is at
   `handle.receipt`.
 - **Breaking:** `App.get_task(name)` was renamed `App.registered_task(name)`, and

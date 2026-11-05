@@ -5,7 +5,7 @@ import logging
 import os
 import signal
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -20,8 +20,6 @@ from asynk.probes import ProbeFiles
 from asynk.runner import Runner
 from asynk.scheduler import Scheduler, SystemClock
 from asynk.transport.memory import MemoryConsumer, memory_transport
-
-UTC = timezone.utc
 
 
 def _at(text: str) -> datetime:
