@@ -57,6 +57,12 @@ class Base64JsonCodec:
             raise DecodeError(f"invalid base64: {exc}") from exc
         return self._json.decode(raw)
 
+    def encode_value(self, value: object) -> bytes:
+        return self._json.encode_value(value)
+
+    def decode_value(self, data: bytes) -> object:
+        return self._json.decode_value(data)
+
 
 # Each process builds both ends but uses only the one it needs: the worker's
 # consumer creates and listens on the socket file, while the producer and the

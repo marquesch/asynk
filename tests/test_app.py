@@ -3,6 +3,11 @@ import inspect
 import pytest
 
 from asynk.app import App
+from asynk.codec.json import JsonCodec
+from asynk.hooks import run_hooks
+from asynk.results import TaskHandle, TaskState, encode_state, state_key
+from asynk.store.memory import MemoryStore
+from asynk.store.null import NullStore
 
 
 def test_task_registers_with_default_name() -> None:
@@ -13,7 +18,7 @@ def test_task_registers_with_default_name() -> None:
 
     expected = f"t.{fn.func.__qualname__}"
     assert fn.name == expected
-    assert app.get_task(expected) is fn
+    assert app.registered_task(expected) is fn
     assert app.tasks[expected] is fn
 
 
@@ -53,7 +58,7 @@ def test_duplicate_name_raises_value_error() -> None:
 
 def test_unknown_task_raises_key_error() -> None:
     with pytest.raises(KeyError):
-        App("t").get_task("nope")
+        App("t").registered_task("nope")
 
 
 async def test_direct_call_runs_function() -> None:
@@ -91,3 +96,70 @@ def test_app_without_producer_or_consumer_is_valid() -> None:
     assert app.name == "t"
     assert app.producer is None
     assert app.consumer is None
+
+
+def test_store_defaults_to_null_store() -> None:
+    assert isinstance(App("t").store, NullStore)
+
+
+def test_store_is_kept() -> None:
+    store = MemoryStore()
+    assert App("t", store=store).store is store
+
+
+def test_codec_defaults_to_json_codec() -> None:
+    assert isinstance(App("t").codec, JsonCodec)
+
+
+def test_codec_is_kept() -> None:
+    codec = JsonCodec()
+    assert App("t", codec=codec).codec is codec
+
+
+class _SpyStore(MemoryStore):
+    def __init__(self, calls: list[str]) -> None:
+        super().__init__()
+        self._calls = calls
+
+    async def start(self) -> None:
+        self._calls.append("store.start")
+
+    async def stop(self) -> None:
+        self._calls.append("store.stop")
+
+
+async def test_store_hooks_start_and_stop_the_store() -> None:
+    calls: list[str] = []
+    app = App("t", store=_SpyStore(calls))
+
+    @app.before_startup
+    def user_startup(runner: object) -> None:
+        calls.append("user.before_startup")
+
+    @app.after_shutdown
+    def user_shutdown(runner: object) -> None:
+        calls.append("user.after_shutdown")
+
+    runner = object()
+    await run_hooks(app.hooks.before_startup, runner)
+    await run_hooks(app.hooks.after_shutdown, runner)
+
+    assert calls == [
+        "store.start",
+        "user.before_startup",
+        "store.stop",
+        "user.after_shutdown",
+    ]
+
+
+async def test_get_task_returns_handle_bound_to_store_and_codec() -> None:
+    store = MemoryStore()
+    app = App("t", store=store)
+    await store.set(state_key("abc"), encode_state(app.codec, TaskState.RUNNING))
+
+    handle = app.get_task("abc")
+
+    assert isinstance(handle, TaskHandle)
+    assert handle.task_id == "abc"
+    assert handle.receipt is None
+    assert await handle.state() is TaskState.RUNNING

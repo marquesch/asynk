@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
-    """Outcome of running a task."""
+    """Outcome of running a task, as seen by hooks and the consumer."""
 
     SUCCESS = "success"
     FAILED = "failed"
@@ -85,6 +85,7 @@ class HookRegistry(Generic[H]):
         return hook
 
     def __iter__(self) -> Iterator[H]:
+        """Iterates over the hooks in registration order."""
         return iter(list(self._hooks.values()))
 
 

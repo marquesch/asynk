@@ -5,22 +5,25 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, ParamSpec, TypeVar
 
+from asynk.codec import Codec
+from asynk.codec.json import JsonCodec
+from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
     AfterTaskHook,
     BeforeTaskHook,
     Hooks,
     LifecycleHook,
 )
+from asynk.results import TaskHandle
+from asynk.runner import Runner
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
+from asynk.store import Store
+from asynk.store.null import NullStore
 from asynk.task import Task
 from asynk.transport import Consumer, Producer
 
 P = ParamSpec("P")
 R = TypeVar("R")
-
-
-class NotConfiguredError(RuntimeError):
-    """Raised when an app lacks a component required by the operation."""
 
 
 class App:
@@ -30,6 +33,8 @@ class App:
         name: Name of the app.
         producer: Used by `Task.delay`; None if the app only consumes.
         consumer: Used by `Worker`; None if the app only produces.
+        store: Key-value store for task states, task results and scheduler claim keys.
+        codec: Codec that encodes task states and results.
         tz: Default timezone for scheduled tasks.
         hooks: The hooks registered through the `before_*` and `after_*` decorators.
     """
@@ -40,18 +45,46 @@ class App:
         *,
         producer: Producer | None = None,
         consumer: Consumer | None = None,
+        store: Store | None = None,
+        codec: Codec | None = None,
         tz: str = "UTC",
     ) -> None:
+        """Initializes the app.
+
+        Args:
+            name: Name of the app.
+            producer: Used by `Task.delay`; None if the app only consumes.
+            consumer: Used by `Worker`; None if the app only produces.
+            store: Key-value store for task states, task results and scheduler
+                claim keys; defaults to a `NullStore`.
+            codec: Codec that encodes task states and results; defaults to a
+                `JsonCodec`.
+            tz: Default timezone for scheduled tasks.
+
+        Raises:
+            ValueError: If the timezone is unknown.
+        """
         self.name = name
         self.tz = resolve_timezone(tz, f"app {name!r}")
         self.producer = producer
         self.consumer = consumer
+        self.store: Store = store if store is not None else NullStore()
+        self.codec: Codec = codec if codec is not None else JsonCodec()
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
+        self.hooks.before_startup.add(self._start_store)
+        self.hooks.after_shutdown.add(self._stop_store)
+
+    async def _start_store(self, runner: Runner) -> None:
+        await self.store.start()
+
+    async def _stop_store(self, runner: Runner) -> None:
+        await self.store.stop()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
+        """The registered tasks, by name, as a read-only mapping."""
         return MappingProxyType(self._tasks)
 
     @property
@@ -144,7 +177,7 @@ class App:
             raise ValueError(f"task {task_name!r} is already registered")
         return task_name
 
-    def get_task(self, name: str) -> Task[..., Any]:
+    def registered_task(self, name: str) -> Task[..., Any]:
         """Looks up a registered task.
 
         Args:
@@ -157,6 +190,17 @@ class App:
             KeyError: If no task has that name.
         """
         return self._tasks[name]
+
+    def get_task(self, task_id: str) -> TaskHandle:
+        """Returns a handle for reading the state and result of a published task.
+
+        Args:
+            task_id: The task's id (`Envelope.id`).
+
+        Returns:
+            A `TaskHandle` reading this app's store with this app's codec.
+        """
+        return TaskHandle(task_id, self.store, self.codec)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
         """Registers a hook run before a worker starts its consumer or a scheduler its loop.

@@ -142,6 +142,12 @@ class _ReverseCodec:
     def decode(self, data: bytes) -> Envelope:
         return self._json.decode(data[::-1])
 
+    def encode_value(self, value: object) -> bytes:
+        return self._json.encode_value(value)
+
+    def decode_value(self, data: bytes) -> object:
+        return self._json.decode_value(data)
+
 
 async def test_custom_codec_is_used_on_both_sides(tmp_path: Path) -> None:
     producer, consumer = unix_transport(tmp_path / "s.sock", _ReverseCodec())
@@ -190,6 +196,12 @@ class _StrictCodec:
         if data.endswith(b"\n"):
             raise DecodeError("delimiter leaked into the message")
         return self._json.decode(data)
+
+    def encode_value(self, value: object) -> bytes:
+        return self._json.encode_value(value)
+
+    def decode_value(self, data: bytes) -> object:
+        return self._json.decode_value(data)
 
 
 async def test_codec_never_sees_the_message_delimiter(tmp_path: Path) -> None:

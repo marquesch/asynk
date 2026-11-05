@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
 from asynk.app import App, NotConfiguredError
+from asynk.codec import EncodeError
 from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
 from asynk.probes import ProbeFiles
+from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
 from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
@@ -17,6 +19,13 @@ from asynk.transport import Consumer, Delivery
 T = TypeVar("T")
 
 _CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
+
+_TERMINAL_STATES = {
+    TaskStatus.SUCCESS: TaskState.SUCCESS,
+    TaskStatus.SKIPPED: TaskState.SKIPPED,
+    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
+    TaskStatus.RETRIES_EXCEEDED: TaskState.FAILURE,
+}
 
 logger = logging.getLogger("asynk")
 
@@ -208,7 +217,8 @@ class Worker(Runner):
         `before_task` and `after_task` hooks run around the task. If a hook raises,
         the error is logged and the message is redelivered with `attempt`
         incremented (up to the task's `max_retries`), and the returned result has
-        status `FAILED`.
+        status `FAILED`. The task's state and result are recorded in the app's
+        store.
 
         Args:
             delivery: The delivery to handle.
@@ -220,15 +230,17 @@ class Worker(Runner):
         try:
             async with self.consumer.process(delivery):
                 try:
-                    result = await self._execute(delivery)
-                    self._log_result(result)
-                    await run_hooks(self.app.hooks.after_task, result, delivery)
+                    try:
+                        result = await self._execute(delivery)
+                        self._log_result(result)
+                        await run_hooks(self.app.hooks.after_task, result, delivery)
+                    except Exception as exc:
+                        result = await self._on_hook_failure(delivery, exc)
+                    await self._record(result)
                 except asyncio.CancelledError:
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
                     raise
-                except Exception as exc:
-                    result = await self._on_hook_failure(delivery, exc)
                 if not delivery.settled and result.status not in _CLEAN_STATUSES:
                     raise TaskFailedError(result)
         except TaskFailedError as exc:
@@ -265,6 +277,61 @@ class Worker(Runner):
                     await delivery.ack()
         return TaskResult(envelope, status, error=exc)
 
+    async def _record_state(self, task_id: str, state: TaskState) -> None:
+        try:
+            await self.app.store.set(
+                state_key(task_id), encode_state(self.app.codec, state), overwrite=True
+            )
+        except Exception:
+            # Fail open: store errors never affect the task or its delivery.
+            logger.exception("failed to record state %s for task id=%s", state.value, task_id)
+
+    async def _record(self, result: TaskResult) -> None:
+        envelope = result.envelope
+        state = _TERMINAL_STATES.get(result.status)
+        if state is None:
+            await self._record_state(envelope.id, TaskState.RETRYING)
+            return
+        try:
+            state, record = self._encode_outcome(result, state)
+            await self.app.store.set(
+                state_key(envelope.id), encode_state(self.app.codec, state), overwrite=True
+            )
+            await self.app.store.set(result_key(envelope.id), record)
+        except Exception:
+            # Fail open: store errors never affect the task or its delivery.
+            logger.exception(
+                "failed to record result for task %r (id=%s)", envelope.task, envelope.id
+            )
+
+    def _encode_outcome(self, result: TaskResult, state: TaskState) -> tuple[TaskState, bytes]:
+        codec = self.app.codec
+        envelope = result.envelope
+        if result.status is TaskStatus.SUCCESS:
+            try:
+                return state, encode_result(codec, state, value=result.value)
+            except EncodeError as exc:
+                logger.warning(
+                    "result of task %r (id=%s) cannot be encoded; recording a failure",
+                    envelope.task,
+                    envelope.id,
+                    exc_info=True,
+                )
+                error = (
+                    "ResultNotSerializable",
+                    f"task {envelope.task!r} returned a value of type "
+                    f"{type(result.value).__name__!r} that cannot be encoded: {exc}",
+                )
+                return TaskState.FAILURE, encode_result(codec, TaskState.FAILURE, error=error)
+        if result.status is TaskStatus.SKIPPED:
+            return state, encode_result(codec, state)
+        if result.status is TaskStatus.UNKNOWN_TASK:
+            return state, encode_result(codec, state, error=("UnknownTask", envelope.task))
+        error_value = result.error
+        return state, encode_result(
+            codec, state, error=(type(error_value).__name__, str(error_value))
+        )
+
     @staticmethod
     def _log_result(result: TaskResult) -> None:
         name = result.envelope.task
@@ -295,13 +362,14 @@ class Worker(Runner):
     async def _execute(self, delivery: Delivery) -> TaskResult:
         envelope = delivery.envelope
         try:
-            task = self.app.get_task(envelope.task)
+            task = self.app.registered_task(envelope.task)
         except KeyError:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
         try:
             await run_hooks(self.app.hooks.before_task, envelope, delivery)
         except SkipTask:
             return TaskResult(envelope, TaskStatus.SKIPPED)
+        await self._record_state(envelope.id, TaskState.RUNNING)
         try:
             value: Any
             if task.is_async:

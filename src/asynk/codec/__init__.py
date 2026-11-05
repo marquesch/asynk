@@ -54,3 +54,31 @@ class Codec(Protocol):
             DecodeError: If `data` is not a valid encoded envelope.
         """
         ...
+
+    def encode_value(self, value: object) -> bytes:
+        """Serializes an arbitrary value.
+
+        Args:
+            value: The value to serialize.
+
+        Returns:
+            The encoded value.
+
+        Raises:
+            EncodeError: If `value` cannot be encoded by this codec.
+        """
+        ...
+
+    def decode_value(self, data: bytes) -> object:
+        """Deserializes a value.
+
+        Args:
+            data: Bytes previously produced by `encode_value`.
+
+        Returns:
+            The decoded value.
+
+        Raises:
+            DecodeError: If `data` is not a valid encoded value.
+        """
+        ...

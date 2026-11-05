@@ -126,3 +126,34 @@ def test_validate_rejects_non_str_kwarg_and_metadata_keys() -> None:
     for env in (bad_kwargs, bad_meta):
         with pytest.raises(EncodeError):
             codec.validate(env)
+
+
+def test_encode_value_roundtrips_plain_data() -> None:
+    codec = JsonCodec()
+    value = {"a": [1, 2.5, None, True, "x"]}
+    assert codec.decode_value(codec.encode_value(value)) == value
+
+
+def test_encode_value_rejects_tuple() -> None:
+    with pytest.raises(EncodeError):
+        JsonCodec().encode_value((1, 2))
+
+
+def test_encode_value_rejects_non_str_key() -> None:
+    with pytest.raises(EncodeError):
+        JsonCodec().encode_value({1: "a"})
+
+
+def test_encode_value_rejects_nan() -> None:
+    with pytest.raises(EncodeError):
+        JsonCodec().encode_value(float("nan"))
+
+
+def test_decode_value_rejects_invalid_json() -> None:
+    with pytest.raises(DecodeError):
+        JsonCodec().decode_value(b"{not json")
+
+
+def test_decode_value_rejects_nan_constant() -> None:
+    with pytest.raises(DecodeError):
+        JsonCodec().decode_value(b"NaN")

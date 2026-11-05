@@ -35,7 +35,7 @@ async def test_scheduled_task_is_registered_as_task() -> None:
     assert isinstance(add, Task)
     assert app.tasks[add.name] is add
     assert add(1, b=2) == 3
-    assert await add.delay(1, b=2) == "handle"
+    assert (await add.delay(1, b=2)).receipt == "handle"
     assert producer.published[0].task == add.name
 
 

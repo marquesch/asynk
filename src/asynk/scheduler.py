@@ -38,7 +38,7 @@ class Clock(Protocol):
 
 
 class SystemClock:
-    """The real clock: UTC wall time, and the event loop's monotonic sleep."""
+    """The real clock: UTC wall time and `asyncio.sleep`."""
 
     def now(self) -> datetime:
         """Returns the current time in UTC."""
@@ -65,10 +65,8 @@ class Scheduler(Runner):
         app: The app whose scheduled tasks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
-        heartbeat_interval: Seconds between probe file updates. The main loop
-            writes the probe, so a loop stuck in a hung publish stops beating
-            and its liveness probe goes stale. It is also the longest single
-            sleep, so the wall clock is re-read at least this often.
+        heartbeat_interval: Seconds between probe file updates, and the longest
+            single sleep.
         grace: Seconds a slot may be late and still fire; older slots are
             skipped with a warning.
         role: Always "scheduler".
@@ -207,11 +205,33 @@ class Scheduler(Runner):
     async def _fire(
         self, task: ScheduledTask[..., Any], slot: datetime, shutdown: asyncio.Future[Any]
     ) -> bool:
-        """Publishes one slot; returns False if shutdown cancelled the publish."""
+        """Claims and publishes one slot.
+
+        Returns False if shutdown cancelled the publish; True once
+        the slot is handled (published, claimed by another scheduler, or failed).
+        """
         scheduled_at = _utc_iso(slot)
+        idempotency_key = f"{task.name}:{scheduled_at}"
+        try:
+            claimed = await self.app.store.set(f"claim:{idempotency_key}", b"1")
+        except Exception:
+            # Fail open: a store outage must not stop the schedule.
+            logger.exception(
+                "failed to claim scheduled task %r for slot %s; publishing anyway",
+                task.name,
+                scheduled_at,
+            )
+            claimed = True
+        if not claimed:
+            logger.info(
+                "scheduled task %r for slot %s already claimed; skipping",
+                task.name,
+                scheduled_at,
+            )
+            return True
         schedule = task.schedule
         publish = task.with_metadata(
-            idempotency_key=f"{task.name}:{scheduled_at}",
+            idempotency_key=idempotency_key,
             scheduled_at=scheduled_at,
         ).delay(*schedule.args, **schedule.kwargs)
         try:

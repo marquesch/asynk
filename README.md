@@ -140,12 +140,14 @@ example on a half-open connection) stops refreshing it and `asynk health
 liveness` fails. That is intended: run the scheduler under a supervisor (such as a
 Kubernetes liveness probe) that restarts it.
 
-**Run exactly one scheduler.** There is no locking or coordination, so a second
-scheduler publishes every slot twice. Duplicates are also possible around restarts
-and failovers. Each publish carries `metadata["idempotency_key"]`, which is
-`"<task name>:<slot as UTC ISO instant>"`, and `metadata["scheduled_at"]`, the
-slot as a UTC ISO instant. asynk does not dedupe for you; a `before_task` hook
-can, given a store shared by all workers (a set in memory only works for one):
+**Run one scheduler.** Without a store there is no locking or coordination, so a
+second scheduler publishes every slot twice. Duplicates are also possible around
+restarts and failovers. With a store the scheduler dedupes slots itself (see
+[Results and the store](#results-and-the-store)). Each publish carries
+`metadata["idempotency_key"]`, which is `"<task name>:<slot as UTC ISO instant>"`,
+and `metadata["scheduled_at"]`, the slot as a UTC ISO instant. Without a store, a
+`before_task` hook can dedupe, given a store shared by all workers (a set in
+memory only works for one):
 
 ```python
 from asynk import App, Delivery, Envelope, SkipTask
@@ -184,6 +186,88 @@ slot twice in one process: it waits for the next slot after the last one handled
 Only non-UTC timezones need a time zone database. On systems without one (slim
 containers, Windows) install the `tzdata` package; UTC works without it.
 
+## Results and the store
+
+Pass a store to the app to record task states and return values:
+
+```python
+# `producer` and `consumer` come from a transport (see below); run this inside an
+# async function.
+from asynk import App, MemoryStore
+
+app = App("demo", producer=producer, consumer=consumer, store=MemoryStore())
+
+handle = await add.delay(1, b=2)  # a TaskHandle
+await handle.state()  # TaskState.PENDING, then RUNNING, ...
+await handle.result(timeout=10)  # 3, once the task has finished
+await app.get_task(handle.task_id).result(timeout=10)  # the same, from just the id
+```
+
+`delay` returns a `TaskHandle` with `task_id`, `receipt` (whatever the producer
+returned), `state()` and `result(timeout=None)`. `app.get_task(task_id)` builds a
+handle from an id, for example in another request or process sharing the store.
+`result(timeout=...)` raises `TimeoutError` when the task is not done in time, and
+`TaskNotFoundError` for an id the store has no record of.
+
+| State | Meaning |
+|---|---|
+| `PENDING` | published, not started yet |
+| `RUNNING` | a worker is running it |
+| `RETRYING` | an attempt failed and a retry was published |
+| `SUCCESS` | finished; `result()` returns the value |
+| `FAILURE` | failed for good; `result()` raises `TaskError` |
+| `SKIPPED` | a `before_task` hook raised `SkipTask`; `result()` returns `None` |
+| `UNKNOWN` | the store has no record for this id |
+
+A failed task makes `result()` raise `TaskError`, which carries the failure's type
+name and message as `.type_name` and `.message`.
+
+**Store lifecycle.** The app starts its store in its `before_startup` hooks and
+stops it in its `after_shutdown` hooks, so a worker and a scheduler need nothing
+extra. A producer-only script starts and stops the store itself:
+
+```python
+await app.store.start()
+handle = await add.delay(1, b=2)
+print(await handle.result(timeout=10))
+await app.store.stop()
+```
+
+**Stores.**
+
+- `MemoryStore(ttl=86400.0)` keeps records in one process for `ttl` seconds, so the
+  producer, worker and readers share it. It suits demos and tests.
+- `SqliteStore(path, ttl=86400.0, poll_interval=0.1)` keeps them for `ttl` seconds in
+  a SQLite file shared by processes on one machine.
+
+For anything wider, implement the `Store` protocol over Redis or a database:
+
+```python
+class Store(Protocol):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def get(self, key: str) -> bytes | None: ...
+    async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool: ...
+    async def wait(self, key: str, timeout: float | None = None) -> bytes | None: ...
+```
+
+`set` returns `False` when the key exists and `overwrite` is false; `wait` returns
+the value once it is written, or `None` when `timeout` elapses.
+
+**Codec.** States and results are encoded with `app.codec` (`JsonCodec()` by
+default). Pass `App(..., codec=MyCodec())` to store them another way, for example
+pickled values that keep tuples.
+
+**Scheduler dedupe.** Schedulers that share a store claim each slot before
+publishing it, so overlapping schedulers publish each slot once. Give them one
+shared store; `MemoryStore` covers one process, and several machines need a network
+store.
+
+**Breaking changes.** `delay` returns a `TaskHandle`; the producer's receipt is at
+`handle.receipt`. `App.get_task(name)` was renamed `App.registered_task(name)`, and
+`get_task` takes a task id. Custom codecs must now implement `encode_value` and
+`decode_value`.
+
 ## Producer and consumer protocols
 
 ```python
@@ -212,8 +296,9 @@ class Delivery(Protocol):
     async def reject(self, *, requeue: bool = False) -> None: ...
 ```
 
-`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`, and
-`validate(envelope)`) is the only thing a producer and a consumer must agree on;
+`Codec` (`encode(envelope) -> bytes`, `decode(bytes) -> Envelope`,
+`validate(envelope)`, `encode_value(value) -> bytes` and `decode_value(bytes) -> object`
+for arbitrary values such as stored results) is the only thing a producer and a consumer must agree on;
 `JsonCodec` is the default. The envelope accepts any values; the codec decides
 what it can carry and raises `EncodeError` from `encode` and `validate` for the
 rest (`JsonCodec` rejects tuples, NaN and non-str dict keys, for example).
