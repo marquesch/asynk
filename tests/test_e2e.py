@@ -247,9 +247,16 @@ async def test_lifecycle_hooks_fire_in_the_worker_and_the_scheduler() -> None:
     await asyncio.wait_for(scheduler.run(), 5)
     assert events == [("scheduler", "before_startup"), ("scheduler", "after_shutdown")]
 
+    worker_started = asyncio.Event()
+
+    @app.after_startup
+    def mark_worker_started(runner: Runner) -> None:
+        if runner.role == "worker":
+            worker_started.set()
+
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(worker_started.wait(), 5)
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
     assert events[2:] == [("worker", "before_startup"), ("worker", "after_shutdown")]

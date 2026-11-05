@@ -539,6 +539,7 @@ async def test_hung_publish_stops_beating(tmp_path: Path, monkeypatch: pytest.Mo
     run = asyncio.create_task(scheduler.run())
     await asyncio.wait_for(producer.hanging.wait(), 1)
     stuck_at = len(beats)
+    # Absence of beats is the behavior: it can only be observed over real time.
     await asyncio.sleep(0.02)  # 20 real heartbeat intervals
     assert len(beats) == stuck_at
     scheduler.request_shutdown()
