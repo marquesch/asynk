@@ -2,26 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, ParamSpec, TypeVar
 
+from asynk import errors
 from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
+from asynk.envelope import Envelope
 from asynk.hooks import (
     Hooks,
     LifecycleHook,
     Middleware,
 )
 from asynk.options import TaskOptions
-from asynk.results import TaskHandle
+from asynk.results import TaskHandle, TaskState, encode_state, state_key
 from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.store.null import NullStore
 from asynk.task import Task
-from asynk.transport import Consumer, Producer
+from asynk.transport import Consumer, Producer, PublishOptions
+
+logger = logging.getLogger("asynk")
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -116,7 +121,7 @@ class App:
 
         def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
-            task = Task(self, func, task_name, policy)
+            task = Task(func, task_name, policy, self.publish)
             self._tasks[task_name] = task
             return task
 
@@ -159,7 +164,7 @@ class App:
         def decorator(func: Callable[P, Awaitable[R]]) -> ScheduledTask[P, R]:
             task_name = self._claim_name(name, func)
             zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
-            task = ScheduledTask(self, func, task_name, policy, replace(schedule, tz=zone))
+            task = ScheduledTask(func, task_name, policy, self.publish, replace(schedule, tz=zone))
             self._tasks[task_name] = task
             self._scheduled_tasks.append(task)
             return task
@@ -176,6 +181,56 @@ class App:
         if task_name in self._tasks:
             raise ValueError(f"task {task_name!r} is already registered")
         return task_name
+
+    async def send(self, envelope: Envelope, options: PublishOptions | None = None) -> Any:
+        """Encodes an envelope and publishes it, without recording any state.
+
+        Args:
+            envelope: The envelope to send.
+            options: Publish options such as a delay.
+
+        Returns:
+            The producer's receipt.
+
+        Raises:
+            NotConfiguredError: If the app has no producer.
+            EncodeError: If the codec cannot encode the envelope.
+        """
+        if self.producer is None:
+            raise errors.NotConfiguredError(f"app {self.name!r} has no producer configured")
+        body = self.codec.encode(envelope.to_dict())
+        return await self.producer.publish(envelope, body, options)
+
+    async def publish(
+        self, envelope: Envelope, options: PublishOptions | None = None
+    ) -> TaskHandle:
+        """Publishes an envelope for a worker to run.
+
+        After the envelope is sent, the task's state is set to `PENDING` unless a
+        worker has already recorded one. A store failure is logged and does not
+        fail the publish.
+
+        Args:
+            envelope: The envelope to publish.
+            options: Publish options such as a delay.
+
+        Returns:
+            A `TaskHandle` whose `task_id` is the envelope id and whose `receipt` is
+            the producer's receipt.
+
+        Raises:
+            NotConfiguredError: If the app has no producer.
+            EncodeError: If the codec cannot encode the envelope.
+        """
+        receipt = await self.send(envelope, options)
+        try:
+            await self.store.set(
+                state_key(envelope.id), encode_state(self.codec, TaskState.PENDING)
+            )
+        except Exception:
+            # Fail open: a store outage must not fail a message that was sent.
+            logger.exception("could not record pending state for task %s", envelope.id)
+        return TaskHandle(envelope.id, self.store, self.codec, receipt)
 
     def registered_task(self, name: str) -> Task[..., Any]:
         """Looks up a registered task.

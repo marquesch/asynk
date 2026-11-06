@@ -3,30 +3,25 @@
 from __future__ import annotations
 
 import inspect
-import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Generic, ParamSpec, TypeVar
+from typing import Generic, ParamSpec, TypeAlias, TypeVar
 
 from asynk.envelope import Envelope
-from asynk.errors import NotConfiguredError
-from asynk.results import TaskHandle, TaskState, encode_state, state_key
+from asynk.results import TaskHandle
 from asynk.retry import RetryPolicy
-
-if TYPE_CHECKING:
-    from asynk.app import App
-
-logger = logging.getLogger("asynk")
-
+from asynk.transport import PublishOptions
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+Publish: TypeAlias = Callable[[Envelope, PublishOptions | None], Awaitable[TaskHandle]]
+"""Publishes an envelope for a worker to run and returns its handle; `App.publish`."""
 
 
 class Task(Generic[P, R]):
     """A registered async function that can be called directly or enqueued with `delay`.
 
     Attributes:
-        app: The app the task is registered with.
         func: The wrapped `async def` function.
         name: Unique name used to route messages to this task.
         retry: The task's retry policy; None for no retries.
@@ -34,17 +29,17 @@ class Task(Generic[P, R]):
 
     def __init__(
         self,
-        app: App,
         func: Callable[P, Awaitable[R]],
         name: str,
         retry: RetryPolicy | None,
+        publish: Publish,
     ) -> None:
         if not inspect.iscoroutinefunction(func):
             raise TypeError(
                 f"task {getattr(func, '__qualname__', func)!r} must be an async def function "
                 "(wrap blocking work with asyncio.to_thread inside the task)"
             )
-        self.app = app
+        self._publish = publish
         self.func = func
         self.name = name
         self.retry = retry
@@ -116,16 +111,5 @@ class BoundTask(Generic[P, R]):
             EncodeError: If the app's codec cannot encode an argument or a
                 metadata value.
         """
-        app = self._task.app
-        producer = app.producer
-        if producer is None:
-            raise NotConfiguredError(f"app {app.name!r} has no producer configured")
         envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
-        body = app.codec.encode(envelope.to_dict())
-        try:
-            await app.store.set(state_key(envelope.id), encode_state(app.codec, TaskState.PENDING))
-        except Exception:
-            # Fail open: a store outage must not prevent publishing.
-            logger.exception("could not record pending state for task %s", envelope.id)
-        receipt = await producer.publish(envelope, body)
-        return TaskHandle(envelope.id, app.store, app.codec, receipt)
+        return await self._task._publish(envelope, None)

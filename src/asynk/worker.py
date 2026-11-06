@@ -297,8 +297,7 @@ class Worker(Runner):
         return TaskResult(envelope, status, error=exc)
 
     async def _publish_retry(self, envelope: Envelope, delivery: Delivery) -> None:
-        producer = self.app.producer
-        if producer is None:
+        if self.app.producer is None:
             logger.error(
                 "cannot publish a retry of task %r (id=%s): the app has no producer; requeueing",
                 envelope.task,
@@ -309,11 +308,8 @@ class Worker(Runner):
         try:
             retry = envelope.retry()
             delay = retry_delay(self._policy(envelope.task), envelope.attempt)
-            body = self.app.codec.encode(retry.to_dict())
-            if delay is None:
-                await producer.publish(retry, body)
-            else:
-                await producer.publish(retry, body, PublishOptions(delay=delay))
+            options = None if delay is None else PublishOptions(delay=delay)
+            await self.app.send(retry, options)
         except Exception:
             logger.exception(
                 "failed to publish a retry of task %r (id=%s); requeueing",

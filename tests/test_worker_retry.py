@@ -287,13 +287,15 @@ async def test_backoff_is_passed_as_publish_options(monkeypatch: pytest.MonkeyPa
     assert [delay for delay, _, _ in timers] == [2.0, 4.0]
 
 
-async def test_no_backoff_publishes_without_options_to_a_two_argument_producer() -> None:
+async def test_no_backoff_publishes_without_options() -> None:
     app, recording, consumer, worker = _setup()
-    published: list[Envelope] = []
+    published: list[tuple[Envelope, PublishOptions | None]] = []
 
-    class TwoArgumentProducer:
-        async def publish(self, envelope: Envelope, body: bytes) -> str:
-            published.append(envelope)
+    class OptionsProducer:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> str:
+            published.append((envelope, options))
             return await recording.inner.publish(envelope, body)
 
     @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
@@ -302,12 +304,12 @@ async def test_no_backoff_publishes_without_options_to_a_two_argument_producer()
 
     env = Envelope.create("boom", (), {})
     await publish_envelope(recording.inner, env)
-    app.producer = cast(Any, TwoArgumentProducer())
+    app.producer = cast(Any, OptionsProducer())
     delivery = _SpyDelivery(await _next(consumer))
     result = await _handle(worker, delivery)
     assert result.status is TaskStatus.RETRYING
     assert delivery.calls == [("ack", None)]
-    assert published == [env.retry()]
+    assert published == [(env.retry(), None)]
     assert decode_delivery(await _next(consumer)) == env.retry()
 
 
