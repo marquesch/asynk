@@ -1,0 +1,58 @@
+"""`RedisStore`, a store on Redis shared by several processes."""
+
+from __future__ import annotations
+
+from redis.asyncio import Redis
+
+
+class RedisStore:
+    """Store on Redis that several processes and machines share."""
+
+    def __init__(
+        self,
+        url: str | None = None,
+        *,
+        client: Redis | None = None,
+        ttl: float = 86400.0,
+        prefix: str = "asynk:",
+        max_poll_interval: float = 1.0,
+    ) -> None:
+        """Initializes the store.
+
+        Args:
+            url: Redis URL, such as `redis://localhost:6379/0`. The store creates
+                and closes its own client. Give either `url` or `client`.
+            client: Redis asyncio client, created with `decode_responses=False`.
+                The caller owns it and closes it.
+            ttl: Seconds a key lives after it is written.
+            prefix: Text put before every key, so several apps can share one Redis.
+            max_poll_interval: Longest pause in seconds between the checks `wait`
+                makes for a value.
+
+        Raises:
+            ValueError: If not exactly one of `url` and `client` is given, or
+                `ttl` or `max_poll_interval` is not positive.
+        """
+        if (url is None) == (client is None):
+            raise ValueError("RedisStore needs exactly one of url and client")
+        if ttl <= 0:
+            raise ValueError(f"ttl must be > 0, got {ttl}")
+        if max_poll_interval <= 0:
+            raise ValueError(f"max_poll_interval must be > 0, got {max_poll_interval}")
+        if client is None:
+            assert url is not None
+            client = Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=5.0)
+        self._client = client
+        self._owns_client = url is not None
+        self._ttl_ms = max(1, round(ttl * 1000))
+        self._prefix = prefix
+        self._max_poll_interval = max_poll_interval
+
+    async def start(self) -> None:
+        """Does nothing: the client connects on first use."""
+
+    async def stop(self) -> None:
+        """Closes the client if the store created it."""
+        if self._owns_client:
+            self._owns_client = False
+            await self._client.aclose()

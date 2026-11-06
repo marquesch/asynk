@@ -1,8 +1,12 @@
 import ast
 import importlib
+import importlib.util
 import inspect
 import pkgutil
+import sys
 from types import ModuleType
+
+import pytest
 
 import asynk
 import asynk.errors
@@ -23,8 +27,15 @@ PUBLIC_ERRORS = {
 PRIVATE_OUTSIDE = {"asynk.cli.CliError"}
 
 
+# Optional extras: scanned only when their client is installed.
+OPTIONAL_PACKAGES = {"asynk.store.redis": "redis"}
+
+
 def _modules() -> list[ModuleType]:
     names = [m.name for m in pkgutil.walk_packages(asynk.__path__, "asynk.")]
+    for package, client in OPTIONAL_PACKAGES.items():
+        if importlib.util.find_spec(client) is None:
+            names = [n for n in names if n != package and not n.startswith(package + ".")]
     return [asynk, *(importlib.import_module(name) for name in names)]
 
 
@@ -36,6 +47,20 @@ def _defined_exceptions(module: ModuleType) -> list[type[BaseException]]:
         and issubclass(obj, BaseException)
         and obj.__module__ == module.__name__
     ]
+
+
+def test_module_scan_skips_the_redis_package_without_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert "asynk.store.redis" in {m.__name__ for m in _modules()}
+    monkeypatch.setitem(sys.modules, "redis", None)
+    for name in [
+        n for n in sys.modules if n == "asynk.store.redis" or n.startswith("asynk.store.redis.")
+    ]:
+        monkeypatch.delitem(sys.modules, name)
+    names = {m.__name__ for m in _modules()}
+    assert not {n for n in names if n.startswith("asynk.store.redis")}
+    assert "asynk.store.memory" in names
 
 
 def test_errors_module_defines_the_public_errors() -> None:
