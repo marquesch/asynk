@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
+from timer_helpers import spy_on_delivery_timers
 
 from asynk import Exponential, RetryPolicy, TaskError
 from asynk.app import App
@@ -253,14 +254,7 @@ async def test_app_default_policy_applies() -> None:
 
 
 async def test_backoff_is_passed_as_publish_options(monkeypatch: pytest.MonkeyPatch) -> None:
-    loop = asyncio.get_running_loop()
-    scheduled: list[float] = []
-
-    def fake_call_later(delay: float, callback: Callable[..., Any], *args: Any) -> Any:
-        scheduled.append(delay)
-        return loop.call_soon(callback, *args)
-
-    monkeypatch.setattr(loop, "call_later", fake_call_later)
+    timers = spy_on_delivery_timers(monkeypatch, run_now=True)
     app, producer, consumer, worker = _setup()
 
     @app.task(name="constant", retry={"backoff": 2.0})
@@ -285,7 +279,7 @@ async def test_backoff_is_passed_as_publish_options(monkeypatch: pytest.MonkeyPa
         PublishOptions(delay=4.0),
     ]
     assert producer.published[1][0] == env.retry()
-    assert scheduled == [2.0, 4.0]
+    assert [delay for delay, _, _ in timers] == [2.0, 4.0]
 
 
 async def test_no_backoff_publishes_without_options_to_a_two_argument_producer() -> None:
@@ -511,17 +505,7 @@ async def test_unknown_task_is_not_retried() -> None:
 async def test_retries_with_backoff_through_the_memory_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    loop = asyncio.get_running_loop()
-    original = loop.call_later
-    delays: list[float] = []
-
-    def fake_call_later(delay: float, callback: Callable[..., Any], *args: Any) -> Any:
-        if getattr(callback, "__name__", "") != "put_nowait":
-            return original(delay, callback, *args)
-        delays.append(delay)
-        return loop.call_soon(callback, *args)
-
-    monkeypatch.setattr(loop, "call_later", fake_call_later)
+    timers = spy_on_delivery_timers(monkeypatch, run_now=True)
     producer, consumer = memory_transport()
     app = App("t", producer=producer, consumer=consumer, store=MemoryStore())
     calls: list[int] = []
@@ -542,7 +526,7 @@ async def test_retries_with_backoff_through_the_memory_transport(
     assert await handle.result(timeout=5) == "ok"
     worker.request_shutdown()
     await run
-    assert delays == [1, 2]
+    assert [delay for delay, _, _ in timers] == [1, 2]
     assert len(calls) == 3
 
 
