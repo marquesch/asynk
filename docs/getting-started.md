@@ -56,4 +56,12 @@ asynk worker tasks:app --concurrency 10
 
 ## What next
 
-See the [API reference](reference.md) for every public class and function.
+[Concepts](concepts.md) explains the envelope, codec, transport and store. The
+guides cover [scheduled tasks](guides/scheduled-tasks.md),
+[results and the store](guides/results.md) and
+[deployment](guides/delivery-and-shutdown.md). See the
+[API reference](reference.md) for every public class and function.
+
+The repository's
+[`examples/memory/`](https://github.com/marquesch/asynk/tree/master/examples/memory)
+runs a worker and a scheduler in one process, with a fast virtual clock.

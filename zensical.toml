@@ -10,7 +10,21 @@ superpowers/
 nav = [
   { "Home" = "index.md" },
   { "Getting started" = "getting-started.md" },
+  { "Concepts" = "concepts.md" },
+  { "Guides" = [
+    { "Scheduled tasks" = "guides/scheduled-tasks.md" },
+    { "Results and the store" = "guides/results.md" },
+    { "Publishing with metadata" = "guides/metadata.md" },
+    { "Probes" = "guides/probes.md" },
+    { "Delivery guarantees and shutdown" = "guides/delivery-and-shutdown.md" },
+  ] },
+  { "Advanced" = [
+    { "Lifecycle hooks" = "advanced/lifecycle-hooks.md" },
+    { "Writing a custom transport" = "advanced/custom-transport.md" },
+    { "Writing a custom store" = "advanced/custom-store.md" },
+  ] },
   { "API reference" = "reference.md" },
+  { "Changelog" = "changelog.md" },
 ]
 
 # Zensical replaces its default extensions when any are configured, so the
