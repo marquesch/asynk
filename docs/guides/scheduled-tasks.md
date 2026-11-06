@@ -9,7 +9,7 @@ other message.
 ```
 
 A scheduled task is an ordinary task with fixed `args` and `kwargs`; it also
-accepts `name` and `max_retries`. `tz` defaults to the app's timezone,
+accepts `name` and `retry`. `tz` defaults to the app's timezone,
 `App(name, tz="UTC")`. In production, run the scheduler from the command line:
 
 ```bash

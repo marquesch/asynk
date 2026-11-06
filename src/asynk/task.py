@@ -5,11 +5,12 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Generic, ParamSpec, TypeVar
 
 from asynk.envelope import Envelope
 from asynk.errors import NotConfiguredError
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
+from asynk.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from asynk.app import App
@@ -28,9 +29,7 @@ class Task(Generic[P, R]):
         app: The app the task is registered with.
         func: The wrapped function, sync or async.
         name: Unique name used to route messages to this task.
-        max_retries: Attempts after which a failure is reported as
-            `RETRIES_EXCEEDED` instead of `FAILED`; None for no limit.
-        options: Extra options passed to the decorator that registered the task.
+        retry: The task's retry policy; None for no retries.
     """
 
     def __init__(
@@ -38,14 +37,12 @@ class Task(Generic[P, R]):
         app: App,
         func: Callable[P, R],
         name: str,
-        max_retries: int | None,
-        options: dict[str, Any],
+        retry: RetryPolicy | None,
     ) -> None:
         self.app = app
         self.func = func
         self.name = name
-        self.max_retries = max_retries
-        self.options = options
+        self.retry = retry
 
     @property
     def is_async(self) -> bool:

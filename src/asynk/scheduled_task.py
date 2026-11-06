@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, tzinfo
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from asynk.cron import CronExpression
+from asynk.retry import RetryPolicy
 from asynk.task import Task
 
 if TYPE_CHECKING:
@@ -80,11 +81,10 @@ class ScheduledTask(Task[P, R]):
         app: App,
         func: Callable[P, R],
         name: str,
-        max_retries: int | None,
-        options: dict[str, Any],
+        retry: RetryPolicy | None,
         schedule: Schedule,
     ) -> None:
-        super().__init__(app, func, name, max_retries, options)
+        super().__init__(app, func, name, retry)
         self.schedule = schedule
 
 

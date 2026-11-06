@@ -8,6 +8,8 @@
 
 ::: asynk.ScheduledTask
 
+::: asynk.TaskOptions
+
 ::: asynk.Scheduler
     options:
       inherited_members: true
@@ -26,9 +28,19 @@
 
 ::: asynk.Next
 
+## Retries
+
+::: asynk.RetryPolicy
+
+::: asynk.Exponential
+
+::: asynk.Backoff
+
 ## Transport protocols
 
 ::: asynk.Producer
+
+::: asynk.PublishOptions
 
 ::: asynk.Consumer
 

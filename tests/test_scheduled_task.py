@@ -4,17 +4,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-from asynk import CronError, ScheduledTask, Task
+from asynk import CronError, ScheduledTask, Task, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
+from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule
+from asynk.transport import PublishOptions
 
 
 class FakeProducer:
     def __init__(self) -> None:
         self.published: list[Envelope] = []
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
         self.published.append(envelope)
         return "handle"
 
@@ -167,14 +171,18 @@ def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:
     assert list(app.scheduled_tasks) == [first, second]
 
 
-def test_max_retries_and_options_kept() -> None:
+def test_scheduled_task_retry_policy() -> None:
     app = App("t")
 
-    @app.scheduled_task(cron="* * * * *", max_retries=3, queue="q")
+    @app.scheduled_task(cron="* * * * *", options=TaskOptions(retry=RetryPolicy(max_retries=3)))
     def f() -> None: ...
 
-    assert f.max_retries == 3
-    assert f.options == {"queue": "q"}
+    @app.scheduled_task(cron="* * * * *")
+    def g() -> None: ...
+
+    assert f.retry == RetryPolicy(max_retries=3)
+    assert g.retry is None
+    assert len(app.scheduled_tasks) == 2
 
 
 @pytest.fixture

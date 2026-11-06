@@ -58,6 +58,8 @@ a worker with `asynk worker tasks:app`.
 - **Type-checked `delay`**: calls are checked against the task's signature.
 - **Cron scheduled tasks** with per-slot dedupe when schedulers share a store.
 - **Task results** through a store, with states and awaitable handles.
+- **Retries with backoff**: a retry policy per app or per task, with exponential
+  backoff and an exception filter.
 - **Lifecycle hooks** shared by workers and the scheduler.
 - **Middleware** around every task: timing, metrics, vetoes, cleanup.
 - **Health probes and graceful shutdown**, ready for Kubernetes.

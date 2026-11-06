@@ -18,7 +18,9 @@ from asynk.errors import (
     TaskNotFoundError,
 )
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.options import TaskOptions
 from asynk.results import TaskHandle, TaskState
+from asynk.retry import Backoff, Exponential, RetryPolicy
 from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.scheduler import Scheduler
@@ -26,7 +28,7 @@ from asynk.store import Store
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
 from asynk.task import Task
-from asynk.transport import Consumer, Delivery, Producer
+from asynk.transport import Consumer, Delivery, Producer, PublishOptions
 from asynk.worker import Worker
 
 try:
@@ -40,6 +42,7 @@ __all__ = [
     "__version__",
     "App",
     "AsynkError",
+    "Backoff",
     "Codec",
     "Consumer",
     "CronError",
@@ -50,9 +53,12 @@ __all__ = [
     "InvalidEnvelopeError",
     "JsonCodec",
     "EncodeError",
+    "Exponential",
     "NotConfiguredError",
     "Next",
     "Producer",
+    "PublishOptions",
+    "RetryPolicy",
     "Runner",
     "Task",
     "TaskCall",
@@ -65,6 +71,7 @@ __all__ = [
     "MemoryStore",
     "NullStore",
     "TaskHandle",
+    "TaskOptions",
     "TaskState",
     "TaskError",
     "TaskNotFoundError",

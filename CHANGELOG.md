@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TaskOptions(retry=None)`, per-task options, accepted as `options=` by `App` (the
+  default of every task), `@app.task` and `@app.scheduled_task`.
+- Built-in retries, configured with `TaskOptions(retry=...)`, which takes a
+  `RetryPolicy`, `False` or `None`; a task's policy replaces the app's default, and
+  `False` disables retries. A wrong type raises `TypeError` at definition. A failing task with
+  retries left is reported as `TaskStatus.RETRYING`, republished as
+  `envelope.retry()` after its backoff, and the original delivery is acked; if the
+  retry cannot be published, the delivery is rejected with requeue.
+- `RetryPolicy(max_retries=1, backoff=None, retry_on=(Exception,))`, the
+  `Exponential(base, factor, max, jitter=False)` backoff and the `Backoff`
+  protocol for custom strategies.
+- `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
+  the memory transport delivers a message after its `delay`.
+
 - Transport contract test suite (`tests/transport/contract/`) that custom
   transports can copy to check their delivery, settle and `process` behavior.
 - `AsynkError`, the base class of every exception asynk defines.
@@ -29,9 +43,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation page on middleware (advanced topics): ordering, vetoes, cleanup,
   failing layers and pitfalls, with a tested timing and counting example and its
   Prometheus version.
+- Documentation page on retries (guides), with a tested example.
 - The documentation site follows the system color scheme and has a light/dark toggle.
 
 ### Changed
+
+- **Breaking:** `TaskStatus.FAILED` is final: the task is not retried and is recorded
+  as `FAILURE`. It used to be recorded as `RETRYING` and `result()` never completed.
+- **Breaking:** a middleware layer that raises before the task ran is retried through
+  the task's retry policy; without a policy the failure is final. It used to be
+  republished with no limit when `max_retries` was not set.
+- **Breaking:** the worker no longer rejects a delivery itself when retries are used
+  up after a failing layer; the consumer settles it, as for any failed task.
+- **Breaking:** when a layer raised before the task ran and the retry cannot be
+  published, the delivery is rejected with requeue at the same attempt; it used to
+  be left to the consumer's default settlement.
+- **Breaking:** `Producer.publish(envelope, body, options=None)` takes publish
+  options; custom producers must accept the parameter and may ignore it.
 
 - `Delivery` documents that a second `ack` or `reject` raises `RuntimeError`.
 - **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
@@ -62,8 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register; registering the same hook twice is still a no-op.
 - **Breaking:** the `Store` protocol gains `delete(key) -> bool`; third-party stores must
   implement it.
-- Docstrings reviewed for consistency: `max_retries` is described as the attempt count
-  after which a failure is reported as `RETRIES_EXCEEDED`, and every module has a docstring, and the status and state enum members are documented.
+- Docstrings reviewed for consistency: every module has a docstring, and the status and state enum members are documented.
 - **Breaking:** the store is no longer registered in `app.hooks`; the worker and the
   scheduler start it before the `before_startup` hooks and stop it after the
   `after_shutdown` hooks, so `after_shutdown` hooks can use it. `before_startup` and
@@ -77,6 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Breaking:** `max_retries=` on `@app.task` and `@app.scheduled_task`, and
+  `Task.max_retries`; write `options=TaskOptions(retry=RetryPolicy(max_retries=3))` instead of
+  `max_retries=3`.
+- **Breaking:** the extra keyword arguments of `@app.task` and `@app.scheduled_task`
+  (`**options`) and `Task.options`; an unknown keyword argument raises `TypeError`.
 - **Breaking:** `App.before_task`, `App.after_task`, `BeforeTaskHook`, `AfterTaskHook`
   and `SkipTask`; middleware replaces them.
 - **Breaking:** `Producer.validate` and `Delivery.envelope`.

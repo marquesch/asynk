@@ -1,6 +1,16 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
-from asynk import Next, Runner, TaskCall, TaskResult, TaskStatus, Worker
+from asynk import (
+    Exponential,
+    Next,
+    RetryPolicy,
+    Runner,
+    TaskCall,
+    TaskOptions,
+    TaskResult,
+    TaskStatus,
+    Worker,
+)
 from asynk.app import App
 from asynk.results import TaskState
 from asynk.transport.memory import memory_transport
@@ -19,6 +29,22 @@ async def scheduled(a: int, b: int = 0) -> int:
     return a + b
 
 
+@app.task(options=TaskOptions(retry=RetryPolicy(backoff=Exponential(base=1, factor=2, max=60))))
+async def with_policy() -> None: ...
+
+
+@app.task(options=TaskOptions(retry=False))
+async def without_retries() -> None: ...
+
+
+@app.task(max_retries=3)  # type: ignore[call-arg]
+async def old_style() -> None: ...
+
+
+@app.task(options=TaskOptions(retry=True))  # type: ignore[arg-type]
+async def retry_true() -> None: ...
+
+
 async def _checks() -> None:
     await add.delay(1, b=2)
     _task_id: str = (await add.delay(1, b=2)).task_id
@@ -33,11 +59,9 @@ async def _checks() -> None:
 
 
 @app.middleware
-async def retry(call: TaskCall, next: Next) -> TaskResult:
+async def ack_exhausted(call: TaskCall, next: Next) -> TaskResult:
     result = await next(call)
-    if result.status is TaskStatus.FAILED:
-        retried = call.envelope.retry()
-        await producer.publish(retried, app.codec.encode(retried.to_dict()))
+    if result.status is TaskStatus.RETRIES_EXCEEDED:
         await call.delivery.ack()
     return result
 

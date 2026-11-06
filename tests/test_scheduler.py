@@ -19,6 +19,7 @@ from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
 from asynk.runner import Runner
 from asynk.scheduler import Scheduler, SystemClock
+from asynk.transport import PublishOptions
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
 
@@ -208,17 +209,11 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
 
 
-async def test_catch_up_option_does_not_fire_missed_slots() -> None:
-    app, consumer = _app()
-
-    # `catch_up` is no longer a scheduled-task feature: it is just an opaque task option.
-    @app.scheduled_task(cron="0 * * * *", tz="UTC", catch_up=True, name="job")
-    def job() -> None: ...
-
-    clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:01:00"))
-    clock.warps[0] = timedelta(hours=3, minutes=30)  # first wake lands at 14:29:35
-    await _run(app, clock)
-    assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
+def test_scheduled_task_has_no_catch_up() -> None:
+    app, _ = _app()
+    with pytest.raises(TypeError):
+        app.scheduled_task(cron="0 * * * *", tz="UTC", catch_up=True)  # type: ignore[call-arg]
+    assert app.scheduled_tasks == ()
 
 
 async def test_clock_step_back_does_not_refire() -> None:
@@ -245,7 +240,9 @@ async def test_publish_failure_is_logged_and_loop_continues(
     calls = 0
 
     class Flaky:
-        async def publish(self, envelope: Envelope, body: bytes) -> Any:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> Any:
             nonlocal calls
             calls += 1
             if calls == 1:
@@ -276,7 +273,9 @@ class HangingProducer:
         self.hanging = asyncio.Event()
         self.cancelled = 0
 
-    async def publish(self, envelope: Envelope, body: bytes) -> Any:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> Any:
         self.calls += 1
         if self.calls > self.ok:
             self.hanging.set()
@@ -313,7 +312,9 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
     calls: list[str] = []
 
     class SelfCancelling:
-        async def publish(self, envelope: Envelope, body: bytes) -> Any:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> Any:
             calls.append(str(envelope.metadata["scheduled_at"]))
             if len(calls) == 1:
                 raise asyncio.CancelledError
