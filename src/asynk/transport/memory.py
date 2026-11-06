@@ -39,7 +39,7 @@ class MemoryProducer:
         Args:
             envelope: The envelope the message carries.
             body: The encoded message to enqueue.
-            options: Publish options; only `delay` is used.
+            options: The publish options.
 
         Returns:
             The envelope id.
