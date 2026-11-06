@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation page on middleware (advanced topics): ordering, vetoes, cleanup,
   failing layers and pitfalls, with a tested timing and counting example and its
   Prometheus version.
+- The documentation site follows the system color scheme and has a light/dark toggle.
 
 ### Changed
 
