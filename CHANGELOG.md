@@ -61,6 +61,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implement it.
 - Docstrings reviewed for consistency: `max_retries` is described as the attempt count
   after which a failure is reported as `RETRIES_EXCEEDED`, and every module has a docstring, and the status and state enum members are documented.
+- **Breaking:** the store is no longer registered in `app.hooks`; the worker and the
+  scheduler start it before the `before_startup` hooks and stop it after the
+  `after_shutdown` hooks, so `after_shutdown` hooks can use it. `before_startup` and
+  `after_shutdown` start empty, and `after_shutdown` hooks run only after a completed
+  startup.
+- **Breaking:** `Runner` subclasses must implement `_serve()`; `Runner` runs the
+  lifecycle.
+- Every `after_shutdown` hook runs even when one raises; one failure is re-raised,
+  several are raised as an `ExceptionGroup`.
 
 ### Removed
 
@@ -76,3 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The scheduler releases its dedupe claim when the publish fails or is cancelled.
 - `MemoryStore` purges expired keys and frees wait events instead of keeping them
   for the life of the store.
+- The store is stopped when a worker's or scheduler's startup fails (a `before_startup`
+  hook raises or the consumer fails to start) or `run()` is cancelled; an error from its
+  `stop()` is logged and does not hide the startup error.
