@@ -57,12 +57,13 @@ def test_worker_bad_app_path_returns_2_without_traceback(
     assert "Traceback" not in err
 
 
+@pytest.mark.slow
 def test_worker_subprocess_lifecycle(tmp_path: Path) -> None:
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
-    base = ["uv", "run", "asynk"]
+    base = [str(Path(sys.executable).with_name("asynk"))]  # the installed console script
     probe = ["--probe-dir", str(tmp_path)]
     proc = subprocess.Popen(
-        [*base, "worker", "tests.fixture_app:app", *probe, "--heartbeat-interval", "0.05"],
+        [*base, "worker", "tests.fixture_app:app", *probe, "--heartbeat-interval", "0.01"],
         cwd=REPO_ROOT,
         env=env,
     )
@@ -72,7 +73,7 @@ def test_worker_subprocess_lifecycle(tmp_path: Path) -> None:
         while not readiness.exists():
             assert proc.poll() is None, "worker exited early"
             assert time.monotonic() < deadline, "readiness file never appeared"
-            time.sleep(0.05)  # the probe file is written by another process: poll
+            time.sleep(0.01)  # the probe file is written by another process: poll
         health = subprocess.run(
             [*base, "health", "readiness", "--max-age", "5", *probe],
             cwd=REPO_ROOT,
@@ -200,6 +201,7 @@ def test_scheduler_bad_heartbeat_returns_2(capsys: pytest.CaptureFixture[str]) -
     assert "heartbeat_interval" in capsys.readouterr().err
 
 
+@pytest.mark.slow
 def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
     proc = subprocess.Popen(
@@ -212,7 +214,7 @@ def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
             "--probe-dir",
             str(tmp_path),
             "--heartbeat-interval",
-            "0.05",
+            "0.01",
         ],
         cwd=REPO_ROOT,
         env=env,
@@ -223,7 +225,7 @@ def test_scheduler_subprocess_lifecycle(tmp_path: Path) -> None:
         while not liveness.exists():
             assert proc.poll() is None, "scheduler exited early"
             assert time.monotonic() < deadline, "liveness file never appeared"
-            time.sleep(0.05)  # the probe file is written by another process: poll
+            time.sleep(0.01)  # the probe file is written by another process: poll
         assert not (tmp_path / "readiness").exists()
         proc.send_signal(signal.SIGTERM)
         assert proc.wait(timeout=10) == 0

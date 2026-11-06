@@ -5,6 +5,7 @@ import logging
 from typing import Any, cast
 
 import pytest
+from delivery_helpers import assert_nothing_delivered
 from envelope_helpers import decode_delivery, publish_envelope
 from timer_helpers import spy_on_delivery_timers
 
@@ -76,11 +77,6 @@ async def _handle(worker: Worker, delivery: Delivery) -> TaskResult:
     result = await worker.handle(delivery)
     assert result is not None
     return result
-
-
-async def _assert_nothing_published(consumer: MemoryConsumer) -> None:
-    with pytest.raises(TimeoutError):
-        await _next(consumer, 0.05)
 
 
 def _raise_before_next(app: App, error: Exception) -> None:
@@ -171,7 +167,7 @@ async def test_used_up_retries_are_final() -> None:
         await handle.result(timeout=1)
     assert (info.value.type_name, info.value.message) == ("ValueError", "bad input")
     assert producer.published == []
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_no_policy_fails_for_good() -> None:
@@ -191,7 +187,7 @@ async def test_no_policy_fails_for_good() -> None:
     with pytest.raises(TaskError):
         await handle.result(timeout=1)
     assert producer.published == []
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_retry_on_mismatch_fails_for_good() -> None:
@@ -205,7 +201,7 @@ async def test_retry_on_mismatch_fails_for_good() -> None:
     result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.FAILED
     assert await handle.state() is TaskState.FAILURE
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_retry_on_mismatch_on_the_last_attempt_is_failed() -> None:
@@ -245,7 +241,7 @@ async def test_retry_false_overrides_the_app_default() -> None:
     result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.FAILED
     assert await handle.state() is TaskState.FAILURE
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_app_default_policy_applies() -> None:
@@ -421,7 +417,7 @@ async def test_layer_that_settles_a_retrying_result_suppresses_the_retry() -> No
     assert delivery.calls == [("ack", None)]
     assert producer.published == []
     assert await handle.state() is TaskState.RETRYING
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_layer_raising_after_a_retrying_task_still_retries() -> None:
@@ -458,7 +454,7 @@ async def test_layer_raising_before_the_task_without_a_policy_fails_for_good() -
     assert result.status is TaskStatus.FAILED
     assert await handle.state() is TaskState.FAILURE
     assert producer.published == []
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_layer_raising_before_the_task_retries_through_the_policy() -> None:
@@ -475,7 +471,7 @@ async def test_layer_raising_before_the_task_retries_through_the_policy() -> Non
     second = await _handle(worker, await _next(consumer))
     assert second.status is TaskStatus.RETRIES_EXCEEDED
     assert await handle.state() is TaskState.FAILURE
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_layer_raising_before_the_task_outside_retry_on_fails_for_good() -> None:
@@ -488,7 +484,7 @@ async def test_layer_raising_before_the_task_outside_retry_on_fails_for_good() -
     await ok.delay()
     result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.FAILED
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_layer_raising_before_an_unknown_task_uses_the_app_policy() -> None:
@@ -508,7 +504,7 @@ async def test_unknown_task_is_not_retried() -> None:
     result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.UNKNOWN_TASK
     assert await app.get_task(env.id).state() is TaskState.FAILURE
-    await _assert_nothing_published(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_retries_with_backoff_through_the_memory_transport(

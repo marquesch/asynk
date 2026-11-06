@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -11,6 +10,7 @@ from typing import Any
 import fakeredis
 import pytest
 import redis.asyncio
+from import_guard_helpers import core_without_the_client
 
 import asynk
 import asynk.store.redis
@@ -42,16 +42,11 @@ def _store(server: fakeredis.FakeServer, **kwargs: Any) -> RedisStore:
     return RedisStore(client=fakeredis.FakeAsyncRedis(server=server), **kwargs)
 
 
+@pytest.mark.slow
 def test_core_imports_without_the_client_and_the_guard_names_the_extra() -> None:
-    code = (
-        "import sys; sys.modules['redis'] = None\n"
-        "import asynk, asynk.store, asynk.store.memory, asynk.worker, asynk.scheduler\n"
-        "assert not [m for m in sys.modules if m.startswith('redis') and sys.modules[m]]\n"
-        "try:\n    import asynk.store.redis\n"
-        "except ImportError as exc:\n    print(exc)\n    print(type(exc.__cause__).__name__)\n"
-    )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.splitlines() == [MESSAGE, "ModuleNotFoundError"]
+    result = core_without_the_client()
+    assert result["loaded"] == []
+    assert result["asynk.store.redis"] == [MESSAGE, "ModuleNotFoundError"]
 
 
 def test_import_guard_raises_when_the_client_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,15 +79,9 @@ def test_import_guard_reraises_a_failing_dependency_of_the_client(
     assert str(info.value) != MESSAGE
 
 
+@pytest.mark.slow
 def test_core_modules_do_not_import_the_client() -> None:
-    code = (
-        "import sys\n"
-        "import asynk, asynk.cli, asynk.store, asynk.worker, asynk.scheduler\n"
-        "import asynk.transport.memory\n"
-        "print(sorted(m for m in sys.modules if m == 'redis' or m.startswith('redis.')))\n"
-    )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "[]"
+    assert core_without_the_client()["loaded"] == []
 
 
 def test_package_exports_the_store() -> None:
@@ -282,17 +271,17 @@ async def test_unreachable_server_raises_redis_error_on_writes(call: str) -> Non
 async def test_expired_key_is_not_returned_and_can_be_set_again(
     server: fakeredis.FakeServer,
 ) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"old")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.get("k") is None
     assert await store.set("k", b"new") is True
 
 
 async def test_delete_expired_key_returns_false(server: fakeredis.FakeServer) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"v")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.delete("k") is False
 
 
@@ -331,9 +320,9 @@ async def test_wait_with_zero_timeout_reads_once(server: fakeredis.FakeServer) -
 
 
 async def test_wait_ignores_expired_value(server: fakeredis.FakeServer) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"v")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.wait("k", timeout=0.05) is None
 
 

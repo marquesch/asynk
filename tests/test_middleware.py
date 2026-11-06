@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from delivery_helpers import assert_nothing_delivered
 from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk import RetryPolicy, TaskError, TaskOptions
@@ -124,8 +125,7 @@ async def test_veto_records_skipped() -> None:
     assert await handle.state() is TaskState.SKIPPED
     assert await handle.result(timeout=1) is None
     assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 def _cleanup_layer(app: App, cleaned: list[str]) -> None:
@@ -160,7 +160,7 @@ async def test_layer_finally_runs_when_handle_is_cancelled() -> None:
 
 
 async def test_layer_finally_runs_on_shutdown_timeout() -> None:
-    app, producer, consumer, worker = _setup(shutdown_timeout=0.1)
+    app, producer, consumer, worker = _setup(shutdown_timeout=0.02)
     cleaned: list[str] = []
     started = asyncio.Event()
     _cleanup_layer(app, cleaned)
@@ -260,8 +260,7 @@ async def test_layer_may_replace_the_outcome() -> None:
     assert await handle.state() is TaskState.SUCCESS
     assert await handle.result(timeout=1) == "fallback"
     assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_layer_registered_after_worker_creation_applies() -> None:
@@ -349,8 +348,7 @@ async def test_raise_before_next_stops_after_max_retries() -> None:
     with pytest.raises(TaskError) as info:
         await handle.result(timeout=1)
     assert (info.value.type_name, info.value.message) == ("RuntimeError", "layer broke")
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() -> None:
@@ -433,8 +431,7 @@ async def test_layer_that_settles_then_raises_is_only_logged(
         result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.FAILED
     assert any(r.exc_info for r in caplog.records)
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_raise_after_next_logs_and_keeps_the_success(
@@ -461,8 +458,7 @@ async def test_raise_after_next_logs_and_keeps_the_success(
     assert await handle.state() is TaskState.SUCCESS
     assert await handle.result(timeout=1) == 1
     assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_raise_after_next_keeps_the_failure() -> None:
@@ -483,8 +479,7 @@ async def test_raise_after_next_keeps_the_failure() -> None:
     assert result.status is TaskStatus.FAILED
     assert isinstance(result.error, ValueError)
     assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_undecodable_body_runs_no_layer() -> None:

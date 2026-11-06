@@ -6,6 +6,7 @@ import threading
 from typing import Any
 
 import pytest
+from delivery_helpers import assert_nothing_delivered
 from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk import NotConfiguredError, RetryPolicy, TaskOptions
@@ -85,8 +86,7 @@ async def test_failure_sets_failed_and_rejects_without_requeue() -> None:
     assert result.status is TaskStatus.FAILED
     assert isinstance(result.error, ValueError)
     assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_retries_exceeded_status() -> None:
@@ -271,8 +271,7 @@ async def test_undecodable_body_is_rejected_without_requeue(
     records = [r for r in caplog.records if r.name == "asynk"]
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    await assert_nothing_delivered(consumer)
 
 
 async def test_worker_survives_an_undecodable_body() -> None:
