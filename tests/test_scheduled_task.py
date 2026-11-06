@@ -8,13 +8,16 @@ from asynk import CronError, ScheduledTask, Task
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.scheduled_task import Schedule
+from asynk.transport import PublishOptions
 
 
 class FakeProducer:
     def __init__(self) -> None:
         self.published: list[Envelope] = []
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
         self.published.append(envelope)
         return "handle"
 

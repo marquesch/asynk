@@ -19,6 +19,7 @@ from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
 from asynk.runner import Runner
 from asynk.scheduler import Scheduler, SystemClock
+from asynk.transport import PublishOptions
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
 
@@ -245,7 +246,9 @@ async def test_publish_failure_is_logged_and_loop_continues(
     calls = 0
 
     class Flaky:
-        async def publish(self, envelope: Envelope, body: bytes) -> Any:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> Any:
             nonlocal calls
             calls += 1
             if calls == 1:
@@ -276,7 +279,9 @@ class HangingProducer:
         self.hanging = asyncio.Event()
         self.cancelled = 0
 
-    async def publish(self, envelope: Envelope, body: bytes) -> Any:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> Any:
         self.calls += 1
         if self.calls > self.ok:
             self.hanging.set()
@@ -313,7 +318,9 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
     calls: list[str] = []
 
     class SelfCancelling:
-        async def publish(self, envelope: Envelope, body: bytes) -> Any:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> Any:
             calls.append(str(envelope.metadata["scheduled_at"]))
             if len(calls) == 1:
                 raise asyncio.CancelledError

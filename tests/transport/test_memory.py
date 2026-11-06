@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 import pytest
 
 from asynk.envelope import Envelope
-from asynk.transport import Delivery
+from asynk.transport import Delivery, PublishOptions
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, memory_transport
 
 
@@ -133,3 +134,36 @@ async def test_process_leaves_already_settled_delivery_alone() -> None:
     async with consumer.process(delivery):
         await delivery.ack()
     assert delivery.settled
+
+
+_Timers = list[tuple[float, Callable[..., object], tuple[object, ...]]]
+
+
+@pytest.fixture
+async def timers(monkeypatch: pytest.MonkeyPatch) -> _Timers:
+    scheduled: _Timers = []
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "call_later", lambda d, cb, *a: scheduled.append((d, cb, a)))
+    return scheduled
+
+
+async def test_publish_with_delay_schedules_the_message(timers: _Timers) -> None:
+    producer, consumer = memory_transport()
+    env = _env()
+    assert await producer.publish(env, b"later", PublishOptions(delay=2.5)) == env.id
+    await producer.publish(_env(), b"now")
+    assert [d for d, _, _ in timers] == [2.5]
+    assert (await _first(consumer)).body == b"now"
+    _, callback, args = timers[0]
+    callback(*args)
+    assert (await _first(consumer)).body == b"later"
+
+
+@pytest.mark.parametrize("options", [None, PublishOptions(), PublishOptions(delay=0)])
+async def test_publish_without_a_delay_enqueues_at_once(
+    timers: _Timers, options: PublishOptions | None
+) -> None:
+    producer, consumer = memory_transport()
+    await producer.publish(_env(), b"x", options)
+    assert timers == []
+    assert (await _first(consumer)).body == b"x"

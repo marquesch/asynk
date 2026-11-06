@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
+  the memory transport delivers a message after its `delay`.
 - `AsynkError`, the base class of every exception asynk defines.
 - `CronError` is exported from `asynk`.
 - `asynk.__version__`, read from the installed distribution's metadata.
@@ -31,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `Producer.publish(envelope, body, options=None)` takes publish
+  options; custom producers must accept the parameter and may ignore it.
 - **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
   `asynk`; `asynk.app`, `asynk.codec` and `asynk.hooks` no longer provide them.
 - **Breaking:** they derive from `AsynkError` only: `except ValueError` no longer

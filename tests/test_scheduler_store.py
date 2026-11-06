@@ -12,6 +12,7 @@ from asynk.app import App
 from asynk.runner import Runner
 from asynk.scheduler import Scheduler
 from asynk.store.memory import MemoryStore
+from asynk.transport import PublishOptions
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
 SLOT = "2026-11-04T11:30:00+00:00"
@@ -283,7 +284,9 @@ class _FailingProducer:
         self.inner = inner
         self.failures = failures
 
-    async def publish(self, envelope: Any, body: bytes) -> Any:
+    async def publish(
+        self, envelope: Any, body: bytes, options: PublishOptions | None = None
+    ) -> Any:
         if self.failures > 0:
             self.failures -= 1
             raise ConnectionError("broker down")
@@ -302,7 +305,9 @@ async def test_failed_publish_releases_the_claim() -> None:
 
 async def test_self_cancelled_publish_releases_the_claim() -> None:
     class SelfCancelling:
-        async def publish(self, envelope: Any, body: bytes) -> Any:
+        async def publish(
+            self, envelope: Any, body: bytes, options: PublishOptions | None = None
+        ) -> Any:
             raise asyncio.CancelledError
 
     store = _RecordingStore()

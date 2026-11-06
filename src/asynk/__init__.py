@@ -26,7 +26,7 @@ from asynk.store import Store
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
 from asynk.task import Task
-from asynk.transport import Consumer, Delivery, Producer
+from asynk.transport import Consumer, Delivery, Producer, PublishOptions
 from asynk.worker import Worker
 
 try:
@@ -53,6 +53,7 @@ __all__ = [
     "NotConfiguredError",
     "Next",
     "Producer",
+    "PublishOptions",
     "Runner",
     "Task",
     "TaskCall",

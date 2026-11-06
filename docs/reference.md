@@ -30,6 +30,8 @@
 
 ::: asynk.Producer
 
+::: asynk.PublishOptions
+
 ::: asynk.Consumer
 
 ::: asynk.Delivery

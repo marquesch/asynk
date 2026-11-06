@@ -15,15 +15,26 @@ with network calls in place of the queue:
 The signatures and their docstrings are in the API reference:
 [`Producer`](../reference.md#asynk.Producer),
 [`Consumer`](../reference.md#asynk.Consumer) and
-[`Delivery`](../reference.md#asynk.Delivery).
+[`Delivery`](../reference.md#asynk.Delivery), with
+[`PublishOptions`](../reference.md#asynk.PublishOptions).
 
 ## Producer
 
-`publish(envelope, body)` sends `body`, the bytes the app built with
+`publish(envelope, body, options=None)` sends `body`, the bytes the app built with
 `app.codec.encode(envelope.to_dict())`. The envelope is there for routing and
 broker metadata, such as using `envelope.id` as the broker's message id. The
 transport never encodes anything itself. Whatever `publish` returns becomes
 `handle.receipt`.
+
+`options` is a `PublishOptions` or `None`. Its `delay` asks the broker to hold
+the message for that many seconds before delivering it; the worker passes it
+when it publishes a retry with backoff, and only then, so `publish(envelope,
+body)` keeps working. Options are advisory: honor what your broker supports and
+ignore the rest. A transport that ignores `delay` delivers retries immediately,
+so they get no backoff; if that is not acceptable, raise from `publish` when
+`options.delay` is set. Broker limits, such as a maximum delay, are the
+transport's to handle. The memory transport holds a delayed message in a timer,
+so one not yet due is lost when the process exits.
 
 ## Delivery
 

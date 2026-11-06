@@ -10,6 +10,7 @@ from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.results import TaskHandle, TaskState, decode_state, state_key
 from asynk.store.memory import MemoryStore
+from asynk.transport import PublishOptions
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
 
@@ -19,7 +20,9 @@ class FakeProducer:
         self.bodies: list[bytes] = []
         self.error = error
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
         if self.error is not None:
             raise self.error
         self.published.append(envelope)
@@ -180,7 +183,9 @@ async def test_delay_writes_pending_before_publish() -> None:
     seen: list[TaskState] = []
 
     class CheckingProducer(FakeProducer):
-        async def publish(self, envelope: Envelope, body: bytes) -> str:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> str:
             data = await store.get(state_key(envelope.id))
             assert data is not None
             seen.append(decode_state(app.codec, data))

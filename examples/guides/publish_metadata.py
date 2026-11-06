@@ -2,13 +2,15 @@
 
 import asyncio
 
-from asynk import App, Envelope
+from asynk import App, Envelope, PublishOptions
 
 
 class PrintingProducer:
     """A producer that prints each envelope's metadata instead of sending it."""
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
         print(envelope.task, envelope.metadata)
         return envelope.id
 

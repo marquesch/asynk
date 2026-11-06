@@ -13,7 +13,7 @@ from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskState
 from asynk.store.memory import MemoryStore
-from asynk.transport import Delivery
+from asynk.transport import Delivery, PublishOptions
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
 from asynk.worker import Worker
 
@@ -369,7 +369,9 @@ async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() 
 
 async def test_raise_before_next_with_failing_republish_leaves_default_settlement() -> None:
     class BrokenProducer:
-        async def publish(self, envelope: Envelope, body: bytes) -> None:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> None:
             raise ConnectionError("broker down")
 
     producer, consumer = memory_transport()

@@ -7,7 +7,17 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import asynk
-from asynk import App, Delivery, Envelope, Next, Runner, TaskCall, TaskResult, Worker
+from asynk import (
+    App,
+    Delivery,
+    Envelope,
+    Next,
+    PublishOptions,
+    Runner,
+    TaskCall,
+    TaskResult,
+    Worker,
+)
 from asynk.scheduler import Scheduler
 from asynk.transport.memory import memory_transport
 
@@ -20,6 +30,7 @@ NAMES = [
     "Codec",
     "JsonCodec",
     "Producer",
+    "PublishOptions",
     "Consumer",
     "Delivery",
     "TaskStatus",
@@ -76,7 +87,9 @@ class ListProducer:
     def __init__(self, wire: list[str]) -> None:
         self._wire = wire
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
         self._wire.append(body.decode())
         return envelope.id
 
