@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RedisProducer` and `RedisConsumer` in `asynk.transport.redis`: a transport on
+  Redis Streams (consumer groups, `XAUTOCLAIM` takeover of expired leases, a
+  dead-letter stream, delayed publish), installed with the `asynk[redis]` extra;
+  documentation page "Redis transport".
+- Transport contract suite: `ContractSettings.supports_delay` and a check that a
+  delayed publish is not delivered early; a `redis` registry entry that runs on a
+  real server when `ASYNK_TEST_REDIS_URL` is set.
 - `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
   share, for task results and scheduler claims, installed with the `asynk[redis]`
   extra; documentation page "Redis store".

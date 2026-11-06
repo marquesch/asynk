@@ -15,6 +15,7 @@ nav = [
     { "Scheduled tasks" = "guides/scheduled-tasks.md" },
     { "Results and the store" = "guides/results.md" },
     { "Redis store" = "guides/redis.md" },
+    { "Redis transport" = "guides/redis-transport.md" },
     { "Retries" = "guides/retries.md" },
     { "Publishing with metadata" = "guides/metadata.md" },
     { "Probes" = "guides/probes.md" },

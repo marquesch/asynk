@@ -55,8 +55,9 @@ a worker with `asynk worker tasks:app`.
   codec and two small protocols, so any broker can sit behind them.
 - **Pluggable transport and store**: bring your own broker and result store; an
   in-memory transport and store ship for development and tests, and a
-  [Redis store](https://marquesch.github.io/asynk/guides/redis/) comes with
-  `asynk[redis]`.
+  [Redis store](https://marquesch.github.io/asynk/guides/redis/) and a
+  [Redis transport](https://marquesch.github.io/asynk/guides/redis-transport/)
+  come with `asynk[redis]`.
 - **Type-checked `delay`**: calls are checked against the task's signature.
 - **Cron scheduled tasks** with per-slot dedupe when schedulers share a store.
 - **Task results** through a store, with states and awaitable handles.
