@@ -60,7 +60,10 @@ class Producer(Protocol):
 
 
 class Delivery(Protocol):
-    """A received message, settled exactly once by `ack` or `reject`."""
+    """A received message, settled exactly once by `ack` or `reject`.
+
+    A second `ack` or `reject` raises `RuntimeError`.
+    """
 
     @property
     def body(self) -> bytes:
