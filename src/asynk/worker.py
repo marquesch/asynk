@@ -24,6 +24,7 @@ from asynk.hooks import (
     TaskCall,
     TaskResult,
     TaskStatus,
+    run_all_hooks,
     run_hooks,
 )
 from asynk.probes import ProbeFiles
@@ -145,7 +146,7 @@ class Worker(Runner):
         try:
             await self._serve()
         finally:
-            await run_hooks(self.app.hooks.after_shutdown, self)
+            await run_all_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)

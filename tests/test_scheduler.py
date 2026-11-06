@@ -742,6 +742,28 @@ async def test_failing_after_shutdown_raises() -> None:
         await _run_blocking(app)
 
 
+async def test_every_after_shutdown_hook_runs_when_several_fail() -> None:
+    app, _ = _hooked_app()
+    ran: list[str] = []
+
+    @app.after_shutdown
+    def one(runner: Runner) -> None:
+        raise RuntimeError("one")
+
+    @app.after_shutdown
+    def middle(runner: Runner) -> None:
+        ran.append("ran")
+
+    @app.after_shutdown
+    def two(runner: Runner) -> None:
+        raise RuntimeError("two")
+
+    with pytest.raises(ExceptionGroup) as info:
+        await _run_blocking(app)
+    assert [str(e) for e in info.value.exceptions] == ["one", "two"]
+    assert ran == ["ran"]
+
+
 async def test_scheduler_rejects_unencodable_schedule_args_at_startup() -> None:
     app, _ = _app()
 

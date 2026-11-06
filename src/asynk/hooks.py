@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import inspect
+import logging
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
@@ -13,6 +14,8 @@ from asynk.transport import Delivery
 
 if TYPE_CHECKING:
     from asynk.runner import Runner
+
+logger = logging.getLogger("asynk")
 
 
 class TaskStatus(enum.Enum):
@@ -143,3 +146,31 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
         result = hook(*args)
         if inspect.isawaitable(result):
             await result
+
+
+async def run_all_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
+    """Calls every hook in order, even after one raises.
+
+    Each failure is logged. Only `Exception` is collected; cancellation propagates at once.
+
+    Args:
+        hooks: The hooks to call.
+        *args: Arguments passed to every hook.
+
+    Raises:
+        Exception: The failure itself, when exactly one hook raised.
+        ExceptionGroup: Every failure in hook order, when several hooks raised.
+    """
+    errors: list[Exception] = []
+    for hook in hooks:
+        try:
+            result = hook(*args)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.exception("hook %s failed", getattr(hook, "__qualname__", repr(hook)))
+            errors.append(exc)
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise ExceptionGroup(f"{len(errors)} hooks failed", errors)

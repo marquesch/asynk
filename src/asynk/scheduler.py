@@ -12,7 +12,7 @@ from typing import Any, ClassVar, Protocol
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.errors import NotConfiguredError
-from asynk.hooks import run_hooks
+from asynk.hooks import run_all_hooks, run_hooks
 from asynk.probes import ProbeFiles
 from asynk.runner import Role, Runner
 from asynk.scheduled_task import ScheduledTask
@@ -139,7 +139,7 @@ class Scheduler(Runner):
         try:
             await self._serve()
         finally:
-            await run_hooks(self.app.hooks.after_shutdown, self)
+            await run_all_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         self._beat()
