@@ -52,7 +52,7 @@ worker settles some deliveries itself (see below), so `process` checks
 What reaches `process`:
 
 - When a task fails, is unknown or exceeds its retries, the worker raises
-  `TaskFailedError` inside the block; `.result.status` says which. Any other
+  `DeliveryFailedError` inside the block; `.result.status` says which. Any other
   exception is an unexpected error.
 - The worker decodes each body inside `process`. A body it cannot decode is
   rejected without requeue there, and the block exits cleanly.

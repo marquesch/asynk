@@ -10,7 +10,7 @@ stable across `envelope.retry()`, which makes it usable as an idempotency key.
 The core does not retry a failing task. A failure yields a `TaskResult` with
 status `FAILED`, or `RETRIES_EXCEEDED` once `envelope.attempt` reaches the
 task's `max_retries`, and the failure reaches the consumer's `process()` as a
-`TaskFailedError`. The transport settles the delivery: the memory transport
+`DeliveryFailedError`. The transport settles the delivery: the memory transport
 rejects it without requeue, and a broker transport typically dead-letters it.
 See [Writing a custom transport](../advanced/custom-transport.md#the-consumer-contract).
 
