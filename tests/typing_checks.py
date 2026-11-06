@@ -1,6 +1,6 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
-from asynk import Next, Runner, TaskCall, TaskResult, TaskStatus, Worker
+from asynk import Exponential, Next, RetryPolicy, Runner, TaskCall, TaskResult, TaskStatus, Worker
 from asynk.app import App
 from asynk.results import TaskState
 from asynk.transport.memory import memory_transport
@@ -17,6 +17,22 @@ async def add(a: int, b: int = 0) -> int:
 @app.scheduled_task(cron="* * * * *")
 async def scheduled(a: int, b: int = 0) -> int:
     return a + b
+
+
+@app.task(retry=RetryPolicy(backoff=Exponential(base=1, factor=2, max=60)))
+async def with_policy() -> None: ...
+
+
+@app.task(retry={"max_retries": 3})
+async def with_mapping() -> None: ...
+
+
+@app.task(retry=False)
+async def without_retries() -> None: ...
+
+
+@app.task(max_retries=3)  # type: ignore[call-arg]
+async def old_style() -> None: ...
 
 
 async def _checks() -> None:

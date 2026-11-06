@@ -92,7 +92,7 @@ async def test_failure_sets_failed_and_rejects_without_requeue() -> None:
 async def test_retries_exceeded_status() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="limited", max_retries=2)
+    @app.task(name="limited", retry={"max_retries": 2})
     async def limited() -> None:
         raise RuntimeError
 
@@ -179,7 +179,7 @@ async def test_failed_task_is_logged_with_exc_info(caplog: pytest.LogCaptureFixt
 async def test_retries_exceeded_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", max_retries=0)
+    @app.task(name="boom", retry={"max_retries": 0})
     async def boom() -> None:
         raise RuntimeError("kaboom")
 

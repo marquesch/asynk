@@ -209,11 +209,10 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
 
 
-async def test_catch_up_option_does_not_fire_missed_slots() -> None:
+async def test_missed_slots_are_not_fired() -> None:
     app, consumer = _app()
 
-    # `catch_up` is no longer a scheduled-task feature: it is just an opaque task option.
-    @app.scheduled_task(cron="0 * * * *", tz="UTC", catch_up=True, name="job")
+    @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
     def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:01:00"))

@@ -291,7 +291,8 @@ class Worker(Runner):
         status = TaskStatus.FAILED
         if not delivery.settled:
             task = self.app.tasks.get(envelope.task)
-            max_retries = task.max_retries if task is not None else None
+            policy = task.retry if task is not None else self.app.retry
+            max_retries = policy.max_retries if policy is not None else None
             if max_retries is not None and envelope.attempt >= max_retries:
                 status = TaskStatus.RETRIES_EXCEEDED
                 await delivery.reject()
@@ -352,7 +353,8 @@ class Worker(Runner):
                 if inspect.isawaitable(value):
                     value = await value
         except Exception as exc:
-            exceeded = task.max_retries is not None and envelope.attempt >= task.max_retries
+            max_retries = task.retry.max_retries if task.retry is not None else None
+            exceeded = max_retries is not None and envelope.attempt >= max_retries
             status = TaskStatus.RETRIES_EXCEEDED if exceeded else TaskStatus.FAILED
             return TaskResult(envelope, status, error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)

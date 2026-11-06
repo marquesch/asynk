@@ -8,7 +8,7 @@ producer, consumer = memory_transport()
 app = App("memory-example", producer=producer, consumer=consumer, store=MemoryStore())
 
 
-@app.task(max_retries=3)
+@app.task(retry={"max_retries": 3})
 async def add(a: int, b: int) -> int:
     print(f"{a} + {b} = {a + b}")
     return a + b

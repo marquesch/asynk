@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RetryPolicy(max_retries=1, backoff=None, retry_on=(Exception,))`, the
   `Exponential(base, factor, max, jitter=False)` backoff and the `Backoff`
   protocol for custom strategies.
+- `retry=` on `App`, `@app.task` and `@app.scheduled_task`, taking a `RetryPolicy` or a
+  dict of its fields; a task's policy replaces the app's default, and `retry=False`
+  disables retries. An unknown field or a wrong type raises `TypeError` at definition.
 - `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
   the memory transport delivers a message after its `delay`.
 - `AsynkError`, the base class of every exception asynk defines.
@@ -66,8 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register; registering the same hook twice is still a no-op.
 - **Breaking:** the `Store` protocol gains `delete(key) -> bool`; third-party stores must
   implement it.
-- Docstrings reviewed for consistency: `max_retries` is described as the attempt count
-  after which a failure is reported as `RETRIES_EXCEEDED`, and every module has a docstring, and the status and state enum members are documented.
+- Docstrings reviewed for consistency: every module has a docstring, and the status and state enum members are documented.
 - **Breaking:** the store is no longer registered in `app.hooks`; the worker and the
   scheduler start it before the `before_startup` hooks and stop it after the
   `after_shutdown` hooks, so `after_shutdown` hooks can use it. `before_startup` and
@@ -81,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Breaking:** `max_retries=` on `@app.task` and `@app.scheduled_task`, and
+  `Task.max_retries`; write `retry={"max_retries": 3}` instead of `max_retries=3`.
+- **Breaking:** the extra keyword arguments of `@app.task` and `@app.scheduled_task`
+  (`**options`) and `Task.options`; an unknown keyword argument raises `TypeError`.
 - **Breaking:** `App.before_task`, `App.after_task`, `BeforeTaskHook`, `AfterTaskHook`
   and `SkipTask`; middleware replaces them.
 - **Breaking:** `Producer.validate` and `Delivery.envelope`.

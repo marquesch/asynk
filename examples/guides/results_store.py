@@ -14,7 +14,7 @@ async def add(a: int, b: int) -> int:
     return a + b
 
 
-@app.task(max_retries=0)
+@app.task(retry={"max_retries": 0})
 async def divide(a: int, b: int) -> float:
     return a / b
 

@@ -19,7 +19,7 @@ def shout(text: str) -> str:
     return text.upper()
 
 
-@app.task(max_retries=3)
+@app.task(retry={"max_retries": 3})
 async def greet(name: str, greeting: str = "Hello") -> str:
     return f"{greeting}, {name}!"
 

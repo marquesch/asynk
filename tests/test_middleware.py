@@ -331,7 +331,7 @@ async def test_raise_before_next_redelivers_with_attempt_incremented(
 async def test_raise_before_next_stops_after_max_retries() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="t", max_retries=1)
+    @app.task(name="t", retry={"max_retries": 1})
     async def t() -> None: ...
 
     _raise_before_next(app)

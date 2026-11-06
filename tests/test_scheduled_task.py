@@ -7,6 +7,7 @@ import pytest
 from asynk import CronError, ScheduledTask, Task
 from asynk.app import App
 from asynk.envelope import Envelope
+from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule
 from asynk.transport import PublishOptions
 
@@ -170,14 +171,20 @@ def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:
     assert list(app.scheduled_tasks) == [first, second]
 
 
-def test_max_retries_and_options_kept() -> None:
+def test_scheduled_task_retry_policy() -> None:
     app = App("t")
 
-    @app.scheduled_task(cron="* * * * *", max_retries=3, queue="q")
+    @app.scheduled_task(cron="* * * * *", retry={"max_retries": 3})
     def f() -> None: ...
 
-    assert f.max_retries == 3
-    assert f.options == {"queue": "q"}
+    @app.scheduled_task(cron="* * * * *")
+    def g() -> None: ...
+
+    assert f.retry == RetryPolicy(max_retries=3)
+    assert g.retry is app.retry
+    with pytest.raises(TypeError):
+        app.scheduled_task(cron="* * * * *", retry={"nope": 1})
+    assert len(app.scheduled_tasks) == 2
 
 
 @pytest.fixture
