@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, cast
+from typing import Any, Generic, TypeVar, cast
 
 from asynk.codec import Codec
 from asynk.errors import TaskError, TaskNotFoundError
 from asynk.store import Store
+
+R = TypeVar("R")
 
 
 class TaskState(enum.Enum):
@@ -118,8 +120,11 @@ def decode_result(codec: Codec, data: bytes) -> tuple[TaskState, object, tuple[s
     )
 
 
-class TaskHandle:
+class TaskHandle(Generic[R]):
     """Reference to a published task, used to read its state and result.
+
+    `R` is the type the task's function returns. It is a declaration for type
+    checkers, not checked at runtime.
 
     Attributes:
         task_id: The task's id (`Envelope.id`).
@@ -149,7 +154,7 @@ class TaskHandle:
         data = await self._store.get(state_key(self.task_id))
         return TaskState.UNKNOWN if data is None else decode_state(self._codec, data)
 
-    async def result(self, timeout: float | None = None) -> Any:
+    async def result(self, timeout: float | None = None) -> R | None:
         """Waits for the task to finish and returns its value.
 
         Args:
@@ -175,4 +180,4 @@ class TaskHandle:
             raise TaskError(type_name, message)
         if state is TaskState.SKIPPED:
             return None
-        return value
+        return cast("R", value)

@@ -215,7 +215,7 @@ class App:
 
     async def publish(
         self, envelope: Envelope, options: PublishOptions | None = None
-    ) -> TaskHandle:
+    ) -> TaskHandle[Any]:
         """Publishes an envelope for a worker to run.
 
         The telemetry component first adds trace context to the envelope's metadata
@@ -261,7 +261,7 @@ class App:
         """
         return self._tasks[name]
 
-    def get_task(self, task_id: str) -> TaskHandle:
+    def get_task(self, task_id: str) -> TaskHandle[Any]:
         """Returns a handle for reading the state and result of a published task.
 
         Args:

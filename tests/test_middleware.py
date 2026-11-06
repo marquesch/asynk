@@ -7,7 +7,7 @@ import pytest
 from delivery_helpers import assert_nothing_delivered
 from envelope_helpers import decode_delivery, publish_envelope
 
-from asynk import RetryPolicy, TaskError, TaskOptions
+from asynk import RetryPolicy, TaskError, TaskHandle, TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
@@ -117,7 +117,7 @@ async def test_veto_records_skipped() -> None:
     async def t() -> None:
         ran.append(1)
 
-    handle = await t.delay()
+    handle: TaskHandle[Any] = await t.delay()
     delivery = await _next(consumer)
     result = await _handle(worker, delivery)
     assert result.status is TaskStatus.SKIPPED
@@ -254,7 +254,7 @@ async def test_layer_may_replace_the_outcome() -> None:
     async def boom() -> None:
         raise ValueError("x")
 
-    handle = await boom.delay()
+    handle: TaskHandle[Any] = await boom.delay()
     delivery = await _next(consumer)
     await _handle(worker, delivery)
     assert await handle.state() is TaskState.SUCCESS

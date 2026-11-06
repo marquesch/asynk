@@ -1,8 +1,9 @@
 """Tasks are async functions and can have default arguments."""
 
 import asyncio
+from typing import Any
 
-from asynk import App, MemoryStore, RetryPolicy, TaskOptions, Worker
+from asynk import App, MemoryStore, RetryPolicy, TaskHandle, TaskOptions, Worker
 from asynk.transport.memory import memory_transport
 
 producer, consumer = memory_transport()
@@ -28,7 +29,7 @@ async def main() -> None:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
 
-    handles = [
+    handles: list[TaskHandle[Any]] = [
         await add.delay(1, 2),
         await shout.delay("hello"),
         await greet.delay("Ada"),

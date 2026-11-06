@@ -4,8 +4,9 @@ import asyncio
 import contextlib
 import time
 from collections import defaultdict
+from typing import Any
 
-from asynk import App, MemoryStore, Next, TaskCall, TaskError, TaskResult, Worker
+from asynk import App, MemoryStore, Next, TaskCall, TaskError, TaskHandle, TaskResult, Worker
 from asynk.transport.memory import memory_transport
 
 producer, consumer = memory_transport()
@@ -61,7 +62,11 @@ async def cleanup() -> None: ...
 async def main() -> TaskMetrics:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
-    handles = [await add.delay(1, 2), await add.delay(3, 4), await cleanup.delay()]
+    handles: list[TaskHandle[Any]] = [
+        await add.delay(1, 2),
+        await add.delay(3, 4),
+        await cleanup.delay(),
+    ]
     for handle in handles:
         await handle.result(timeout=5)
     failing = await divide.delay(1, 0)

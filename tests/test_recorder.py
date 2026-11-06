@@ -34,7 +34,7 @@ async def test_success_writes_state_and_value() -> None:
     recorder, store = _setup()
     env = _envelope()
     await recorder.record(TaskResult(env, TaskStatus.SUCCESS, value=3))
-    handle = TaskHandle(env.id, store, CODEC)
+    handle: TaskHandle[Any] = TaskHandle(env.id, store, CODEC)
     assert await handle.state() is TaskState.SUCCESS
     assert await handle.result() == 3
 
@@ -43,7 +43,7 @@ async def test_unencodable_value_is_recorded_as_a_failure() -> None:
     recorder, store = _setup()
     env = _envelope()
     await recorder.record(TaskResult(env, TaskStatus.SUCCESS, value=object()))
-    handle = TaskHandle(env.id, store, CODEC)
+    handle: TaskHandle[Any] = TaskHandle(env.id, store, CODEC)
     assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await handle.result()
@@ -54,7 +54,7 @@ async def test_unknown_task_records_failure_with_the_task_name() -> None:
     recorder, store = _setup()
     env = _envelope()
     await recorder.record(TaskResult(env, TaskStatus.UNKNOWN_TASK))
-    handle = TaskHandle(env.id, store, CODEC)
+    handle: TaskHandle[Any] = TaskHandle(env.id, store, CODEC)
     assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await handle.result()
@@ -81,7 +81,7 @@ async def test_failed_records_a_failure_with_the_error() -> None:
     recorder, store = _setup()
     env = _envelope()
     await recorder.record(TaskResult(env, TaskStatus.FAILED, error=ValueError("bad")))
-    handle = TaskHandle(env.id, store, CODEC)
+    handle: TaskHandle[Any] = TaskHandle(env.id, store, CODEC)
     assert await handle.state() is TaskState.FAILURE
     with pytest.raises(TaskError) as info:
         await handle.result()

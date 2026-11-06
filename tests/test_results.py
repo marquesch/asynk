@@ -1,5 +1,6 @@
 import asyncio
 import pickle
+from typing import Any
 
 import pytest
 
@@ -40,7 +41,7 @@ def store() -> MemoryStore:
     return MemoryStore()
 
 
-def _handle(store: MemoryStore, task_id: str = "x") -> TaskHandle:
+def _handle(store: MemoryStore, task_id: str = "x") -> TaskHandle[Any]:
     return TaskHandle(task_id, store, CODEC)
 
 
@@ -50,7 +51,7 @@ def test_keys() -> None:
 
 
 def test_handle_keeps_id_and_receipt(store: MemoryStore) -> None:
-    handle = TaskHandle("x", store, CODEC, "r")
+    handle: TaskHandle[Any] = TaskHandle("x", store, CODEC, "r")
     assert handle.task_id == "x"
     assert handle.receipt == "r"
     assert TaskHandle("x", store, CODEC).receipt is None
@@ -124,7 +125,7 @@ async def test_result_times_out_when_pending(store: MemoryStore) -> None:
 
 
 async def test_state_and_result_raise_not_configured_on_null_store() -> None:
-    handle = TaskHandle("x", NullStore(), CODEC)
+    handle: TaskHandle[Any] = TaskHandle("x", NullStore(), CODEC)
     with pytest.raises(NotConfiguredError):
         await handle.state()
     with pytest.raises(NotConfiguredError):
@@ -150,6 +151,6 @@ async def test_records_use_the_given_codec(store: MemoryStore) -> None:
     codec: Codec = PickleCodec()
     await store.set(state_key("x"), encode_state(codec, TaskState.SUCCESS))
     await store.set(result_key("x"), encode_result(codec, TaskState.SUCCESS, value=(1, "a")))
-    handle = TaskHandle("x", store, codec)
+    handle: TaskHandle[Any] = TaskHandle("x", store, codec)
     assert await handle.state() is TaskState.SUCCESS
     assert await handle.result(timeout=1) == (1, "a")

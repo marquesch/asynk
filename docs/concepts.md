@@ -60,6 +60,13 @@ itself. Both are runners: they run the app's
 [probe files](guides/probes.md) and shut down gracefully on SIGTERM or SIGINT
 when started from the `asynk` command line.
 
+## Typed handles
+
+`Task[P, R]` carries the parameters and the return type of the function, so
+`delay` returns a `TaskHandle[R]` and `await handle.result()` is typed
+`R | None`. The type is a declaration, not a runtime check; see
+[Typed results](guides/results.md#typed-results).
+
 ## Errors
 
 Every exception asynk defines derives from `AsynkError` and can be imported
