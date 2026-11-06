@@ -22,7 +22,7 @@ from asynk.store.redis import RedisStore
 from asynk.transport.memory import memory_transport
 from asynk.worker import Worker
 
-MESSAGE = "RedisStore needs the redis extra: pip install 'asynk[redis]'"
+MESSAGE = "asynk[redis] needs the redis package: pip install 'asynk[redis]'"
 
 
 class ClosingFake(fakeredis.FakeAsyncRedis):

@@ -1,12 +1,9 @@
 """Redis integration for asynk, installed with the `asynk[redis]` extra."""
 
-try:
-    import redis  # noqa: F401
-except ImportError as exc:
-    if exc.name != "redis":
-        raise
-    raise ImportError("RedisStore needs the redis extra: pip install 'asynk[redis]'") from exc
+from asynk._extras import require_extra
 
-from asynk.store.redis.store import RedisStore
+require_extra("redis", "redis")
+
+from asynk.store.redis.store import RedisStore  # noqa: E402
 
 __all__ = ["RedisStore"]

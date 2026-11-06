@@ -3,8 +3,36 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 
 from redis.asyncio import Redis
+
+
+async def poll(
+    fetch: Callable[[], Awaitable[bytes | None]], *, timeout: float | None, max_interval: float
+) -> bytes | None:
+    """Calls `fetch` until it returns a value, pausing longer after each miss.
+
+    Args:
+        fetch: Coroutine function that returns a value, or None if there is none yet.
+        timeout: Seconds to keep trying, or None to try until there is a value.
+        max_interval: Longest pause in seconds between two calls.
+
+    Returns:
+        The value, or None if `timeout` elapsed first.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = None if timeout is None else loop.time() + timeout
+    pause = min(0.05, max_interval)
+    while True:
+        value = await fetch()
+        if value is not None:
+            return value
+        remaining = None if deadline is None else deadline - loop.time()
+        if remaining is not None and remaining <= 0:
+            return None
+        await asyncio.sleep(pause if remaining is None else min(pause, remaining))
+        pause = min(pause * 2, max_interval)
 
 
 class RedisStore:
@@ -37,15 +65,17 @@ class RedisStore:
         """
         if (url is None) == (client is None):
             raise ValueError("RedisStore needs exactly one of url and client")
+        if client is None:
+            assert url is not None
+            client = Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=5.0)
+            self._owns_client = True
+        else:
+            self._owns_client = False
+        self._client = client
         if ttl <= 0:
             raise ValueError(f"ttl must be > 0, got {ttl}")
         if max_poll_interval <= 0:
             raise ValueError(f"max_poll_interval must be > 0, got {max_poll_interval}")
-        if client is None:
-            assert url is not None
-            client = Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=5.0)
-        self._client = client
-        self._owns_client = url is not None
         self._ttl_ms = max(1, round(ttl * 1000))
         self._prefix = prefix
         self._max_poll_interval = max_poll_interval
@@ -85,15 +115,6 @@ class RedisStore:
             key: Key to wait for.
             timeout: Seconds to wait, or None to wait until the key has a value.
         """
-        loop = asyncio.get_running_loop()
-        deadline = None if timeout is None else loop.time() + timeout
-        pause = min(0.05, self._max_poll_interval)
-        while True:
-            value = await self.get(key)
-            if value is not None:
-                return value
-            remaining = None if deadline is None else deadline - loop.time()
-            if remaining is not None and remaining <= 0:
-                return None
-            await asyncio.sleep(pause if remaining is None else min(pause, remaining))
-            pause = min(pause * 2, self._max_poll_interval)
+        return await poll(
+            lambda: self.get(key), timeout=timeout, max_interval=self._max_poll_interval
+        )
