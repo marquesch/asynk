@@ -80,15 +80,12 @@ breaking changes and how to migrate, goes in a hand-written page under
 `docs/release-notes/`. See [Release notes](release-notes/index.md) for how to add one.
 Write it in the pull request that makes the change, or before merging the Release PR.
 
-## First release only
+## First release
 
-`release-please-config.json` contains `"release-as": "0.1.0"`, which forces the first
-Release PR to propose `0.1.0`. Remove that line right after the first release is
-published. While it stays, release-please keeps proposing `0.1.0` and ignores the
-bump rules above.
-
-There is no earlier release tag, so the first changelog section lists every
-conventional commit on `master` so far.
+`0.1.0` was the first release. It was forced with `"release-as": "0.1.0"` in
+`release-please-config.json`, which has since been removed, so the bump rules above now
+apply to every Release PR. There was no earlier release tag, so the first changelog
+section lists every conventional commit on `master` up to that point.
 
 ## The `uv.lock` version
 
@@ -101,8 +98,8 @@ go through GitHub, so check that the first Release PR that changes the version a
 changes `uv.lock`. If it does not, switch that entry to the `generic` updater with an
 `x-release-please-version` marker on the version line.
 
-The first Release PR proposes `0.1.0`, which `pyproject.toml` and `uv.lock` already
-contain, so it only changes `CHANGELOG.md` and `.release-please-manifest.json`. The
+The first Release PR proposed `0.1.0`, which `pyproject.toml` and `uv.lock` already
+contained, so it only changed `CHANGELOG.md` and `.release-please-manifest.json`. The
 `uv.lock` update is first visible in the Release PR after that.
 
 ## Repository settings
