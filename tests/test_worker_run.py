@@ -178,7 +178,7 @@ async def test_shutdown_timeout_requeues_unfinished() -> None:
     @app.task(name="sleepy")
     async def sleepy() -> None:
         started.set()
-        await asyncio.sleep(5)
+        await asyncio.Event().wait()  # never finishes: only the shutdown timeout ends it
 
     env = Envelope.create("sleepy", (), {})
     await publish_envelope(producer, env)
@@ -539,17 +539,18 @@ async def test_lifecycle_hooks_see_the_worker_role() -> None:
 async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None:
     app, producer, _, worker = _setup()
     order: list[str] = []
-    started = asyncio.Event()
+    started, release = asyncio.Event(), asyncio.Event()
 
     @app.task(name="slow")
     async def slow() -> None:
         started.set()
-        await asyncio.sleep(0.03)
+        await release.wait()  # in flight until the hook has run
         order.append("task done")
 
     @app.before_shutdown
     async def hook(w: Runner) -> None:
         order.append("before_shutdown")
+        release.set()
 
     await publish_envelope(producer, Envelope.create("slow", (), {}))
     run = asyncio.create_task(worker.run())
@@ -594,16 +595,17 @@ async def test_failing_after_startup_raises_after_cleaning_up() -> None:
 async def test_failing_before_shutdown_still_drains_and_cleans_up_then_raises() -> None:
     app, producer, consumer, worker = _setup()
     done: list[str] = []
-    started = asyncio.Event()
+    started, release = asyncio.Event(), asyncio.Event()
 
     @app.task(name="slow")
     async def slow() -> None:
         started.set()
-        await asyncio.sleep(0.03)
+        await release.wait()  # in flight until the hook has run
         done.append("task")
 
     @app.before_shutdown
     async def broken(w: Runner) -> None:
+        release.set()
         raise RuntimeError("flush failed")
 
     await publish_envelope(producer, Envelope.create("slow", (), {}))

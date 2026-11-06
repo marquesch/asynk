@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from typing import Any
 
 import fakeredis
 import pytest
-from import_guard_helpers import core_without_the_client
 from redis.exceptions import ConnectionError
 from redis_helpers import BlockingFakeRedis
 
@@ -55,9 +55,14 @@ async def _next(consumer: RedisConsumer, timeout: float = 2) -> Any:
 
 @pytest.mark.slow
 def test_core_imports_without_the_client_and_the_guard_names_the_extra() -> None:
-    result = core_without_the_client()
-    assert result["loaded"] == []
-    assert result["asynk.transport.redis"][0] == MESSAGE
+    code = (
+        "import sys; sys.modules['redis'] = None\n"
+        "import asynk, asynk.transport, asynk.transport.memory, asynk.worker\n"
+        "try:\n    import asynk.transport.redis\n"
+        "except ImportError as exc:\n    print(exc)\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.splitlines() == [MESSAGE]
 
 
 def test_import_guard_raises_when_the_client_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,7 +242,7 @@ async def test_connected_follows_the_connection(client: fakeredis.FakeAsyncRedis
         if failing:
             failed.set()
             raise ConnectionError("down")
-        await asyncio.sleep(0.01)  # an empty blocking read waits, as on a server
+        await asyncio.sleep(0)  # an empty read hands control back, as a blocking one does
         recovered.set()
         return []
 
@@ -271,6 +276,8 @@ async def test_worker_runs_a_task_over_the_transport(client: fakeredis.FakeAsync
     for _ in range(100):
         if seen:
             break
+        # Real time, on purpose: shutting down at once cancels the consumer inside its upkeep,
+        # which can hang redis-py on Python 3.11; this lets it get back to its blocking read.
         await asyncio.sleep(0.05)
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)
