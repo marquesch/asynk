@@ -56,7 +56,6 @@ class RedisStore:
     async def stop(self) -> None:
         """Closes the client if the store created it."""
         if self._owns_client:
-            self._owns_client = False
             await self._client.aclose()
 
     def _key(self, key: str) -> str:

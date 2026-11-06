@@ -133,7 +133,9 @@ async def test_stop_leaves_an_injected_client_open(server: fakeredis.FakeServer)
     assert await client.ping() is True
 
 
-async def test_stop_closes_an_owned_client_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_closes_an_owned_client_each_time_it_is_used(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake = ClosingFake()
     calls: list[dict[str, Any]] = []
 
@@ -149,8 +151,10 @@ async def test_stop_closes_an_owned_client_once(monkeypatch: pytest.MonkeyPatch)
     await store.start()
     assert fake.closed == 0
     await store.stop()
-    await store.stop()
     assert fake.closed == 1
+    await store.start()
+    await store.stop()
+    assert fake.closed == 2
 
 
 async def test_get_missing_returns_none(server: fakeredis.FakeServer) -> None:
