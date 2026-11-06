@@ -5,8 +5,8 @@ import uuid
 
 import pytest
 
-from asynk.codec import DecodeError
-from asynk.envelope import Envelope, InvalidEnvelopeError
+from asynk import AsynkError, DecodeError, InvalidEnvelopeError
+from asynk.envelope import Envelope
 
 
 def test_create_generates_uuid4_and_attempt_zero() -> None:
@@ -127,9 +127,9 @@ def test_from_dict_builds_tuple_args() -> None:
     assert e.args == (1, 2)
 
 
-def test_invalid_envelope_error_is_a_value_error_but_not_a_decode_error() -> None:
-    assert issubclass(InvalidEnvelopeError, ValueError)
-    assert not issubclass(InvalidEnvelopeError, DecodeError)
+def test_invalid_envelope_error_is_an_asynk_error_but_not_a_decode_error() -> None:
+    assert issubclass(InvalidEnvelopeError, AsynkError)
+    assert not issubclass(InvalidEnvelopeError, (ValueError, DecodeError))
 
 
 def test_envelope_module_does_not_import_the_codec() -> None:

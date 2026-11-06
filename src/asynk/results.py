@@ -6,6 +6,7 @@ import enum
 from typing import Any, cast
 
 from asynk.codec import Codec
+from asynk.errors import TaskError, TaskNotFoundError
 from asynk.store import Store
 
 
@@ -29,24 +30,6 @@ class TaskState(enum.Enum):
     FAILURE = "failure"
     SKIPPED = "skipped"
     UNKNOWN = "unknown"
-
-
-class TaskError(Exception):
-    """Raised by `TaskHandle.result` when the task failed.
-
-    Attributes:
-        type_name: Name of the exception type the task raised.
-        message: The exception's message.
-    """
-
-    def __init__(self, type_name: str, message: str) -> None:
-        super().__init__(f"{type_name}: {message}")
-        self.type_name = type_name
-        self.message = message
-
-
-class TaskNotFoundError(LookupError):
-    """Raised by `TaskHandle.result` for a task id the store does not know."""
 
 
 def state_key(task_id: str) -> str:

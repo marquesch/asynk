@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from asynk.codec import Codec, DecodeError, EncodeError
+from asynk import AsynkError, DecodeError, EncodeError
+from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
 
 
@@ -107,9 +108,11 @@ def test_decode_returns_non_mapping_values() -> None:
     assert JsonCodec().decode(b"[]") == []
 
 
-def test_errors_are_value_errors() -> None:
-    assert issubclass(DecodeError, ValueError)
-    assert issubclass(EncodeError, ValueError)
+def test_errors_are_asynk_errors() -> None:
+    assert issubclass(DecodeError, AsynkError)
+    assert issubclass(EncodeError, AsynkError)
+    assert not issubclass(DecodeError, ValueError)
+    assert not issubclass(EncodeError, ValueError)
 
 
 def test_json_codec_satisfies_protocol() -> None:

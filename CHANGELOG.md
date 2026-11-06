@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `AsynkError`, the base class of every exception asynk defines.
+- `CronError` is exported from `asynk`.
 - `asynk.__version__`, read from the installed distribution's metadata.
 - Package classifiers, keywords and project URLs.
 - Documentation site built with Zensical (strict build in CI, `make docs` and
@@ -29,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
+  `asynk`; `asynk.app`, `asynk.codec` and `asynk.hooks` no longer provide them.
+- **Breaking:** they derive from `AsynkError` only: `except ValueError` no longer
+  catches `CronError`, `DecodeError`, `EncodeError` or `InvalidEnvelopeError`,
+  `except LookupError` no longer catches `TaskNotFoundError`, and
+  `except RuntimeError` no longer catches `NotConfiguredError`. `DecodeError` for
+  a NaN or Infinity constant now carries its message without the
+  `invalid JSON: ` prefix.
+- **Breaking:** `TaskFailedError` is renamed `DeliveryFailedError`.
 - **Breaking:** a middleware layer that raises after the task ran is logged and the
   task's outcome stands; a failing `after_task` hook used to redeliver the message.
 - The README is reduced to a pitch and a quick start; the details moved to the

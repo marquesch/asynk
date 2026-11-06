@@ -3,8 +3,7 @@ from __future__ import annotations
 import asyncio
 import pickle
 
-from asynk import App, MemoryStore, Worker
-from asynk.codec import DecodeError, EncodeError
+from asynk import App, DecodeError, EncodeError, MemoryStore, Worker
 from asynk.transport.memory import memory_transport
 
 

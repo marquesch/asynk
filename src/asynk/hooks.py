@@ -143,15 +143,3 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
         result = hook(*args)
         if inspect.isawaitable(result):
             await result
-
-
-class TaskFailedError(Exception):
-    """Raised in `Consumer.process` for a failed, unknown or retries-exceeded task.
-
-    Attributes:
-        result: The failed task's result.
-    """
-
-    def __init__(self, result: TaskResult) -> None:
-        super().__init__(f"task {result.envelope.task!r} ended with {result.status.name}")
-        self.result = result

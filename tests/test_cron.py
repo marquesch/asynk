@@ -3,7 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from asynk.cron import CronError, CronExpression
+from asynk import CronError
+from asynk.cron import CronExpression
 
 NY = ZoneInfo("America/New_York")
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
@@ -191,8 +192,8 @@ def test_parse_invalid(expression: str) -> None:
         CronExpression.parse(expression)
 
 
-def test_cron_error_is_value_error_and_names_the_expression() -> None:
-    with pytest.raises(ValueError, match="60 \\* \\* \\* \\*"):
+def test_cron_error_names_the_expression() -> None:
+    with pytest.raises(CronError, match="60 \\* \\* \\* \\*"):
         CronExpression.parse("60 * * * *")
 
 

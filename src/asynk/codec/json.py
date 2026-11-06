@@ -6,7 +6,7 @@ import json
 import math
 from typing import Any
 
-from asynk.codec import DecodeError, EncodeError
+from asynk.errors import DecodeError, EncodeError
 
 
 def _ensure_json(value: object, path: str) -> None:

@@ -13,8 +13,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from envelope_helpers import decode_delivery
 
-from asynk.app import App, NotConfiguredError
-from asynk.codec import EncodeError
+from asynk import EncodeError, NotConfiguredError
+from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.probes import ProbeFiles
 from asynk.runner import Runner

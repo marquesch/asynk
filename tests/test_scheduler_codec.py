@@ -4,8 +4,8 @@ import pickle
 
 import pytest
 
+from asynk import EncodeError
 from asynk.app import App
-from asynk.codec import EncodeError
 from asynk.scheduler import Scheduler
 from asynk.transport.memory import memory_transport
 

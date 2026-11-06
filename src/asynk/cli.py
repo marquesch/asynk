@@ -11,14 +11,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from asynk.app import App, NotConfiguredError
+from asynk.app import App
+from asynk.errors import AsynkError
 from asynk.logging import configure_logging
 from asynk.probes import check_probe, default_probe_dir
 from asynk.scheduler import Scheduler
 from asynk.worker import Worker
 
 
-class CliError(Exception):
+class CliError(AsynkError):
     """Raised for user-facing command-line errors."""
 
 
@@ -95,7 +96,7 @@ def _run_worker(args: argparse.Namespace) -> int:
     }
     try:
         worker = Worker(app, probe_dir=args.probe_dir, **options)
-    except (NotConfiguredError, ValueError) as exc:
+    except (AsynkError, ValueError) as exc:
         raise CliError(str(exc)) from exc
     logging.getLogger("asynk").info(
         "starting worker for app %r: concurrency=%d shutdown_timeout=%s probe_dir=%s",
@@ -116,7 +117,7 @@ def _run_scheduler(args: argparse.Namespace) -> int:
         options["heartbeat_interval"] = args.heartbeat_interval
     try:
         scheduler = Scheduler(app, probe_dir=args.probe_dir, **options)
-    except (NotConfiguredError, ValueError) as exc:
+    except (AsynkError, ValueError) as exc:
         raise CliError(str(exc)) from exc
     logging.getLogger("asynk").info(
         "starting scheduler for app %r: scheduled_tasks=[%s] probe_dir=%s",

@@ -9,8 +9,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
-from asynk.app import App, NotConfiguredError
+from asynk.app import App
 from asynk.envelope import Envelope
+from asynk.errors import NotConfiguredError
 from asynk.hooks import run_hooks
 from asynk.probes import ProbeFiles
 from asynk.runner import Role, Runner

@@ -3,13 +3,11 @@ import pickle
 
 import pytest
 
-from asynk.codec import Codec, EncodeError
+from asynk import EncodeError, NotConfiguredError, TaskError, TaskNotFoundError
+from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
-from asynk.errors import NotConfiguredError
 from asynk.results import (
-    TaskError,
     TaskHandle,
-    TaskNotFoundError,
     TaskState,
     decode_result,
     decode_state,

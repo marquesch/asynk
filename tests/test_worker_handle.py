@@ -8,7 +8,8 @@ from typing import Any
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 
-from asynk.app import App, NotConfiguredError
+from asynk import NotConfiguredError
+from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus

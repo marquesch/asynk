@@ -1,16 +1,8 @@
-"""The `Codec` protocol and its errors."""
+"""The `Codec` protocol."""
 
 from __future__ import annotations
 
 from typing import Protocol
-
-
-class DecodeError(ValueError):
-    """Raised when bytes cannot be decoded into a valid value."""
-
-
-class EncodeError(ValueError):
-    """Raised when a value holds something the codec cannot encode."""
 
 
 class Codec(Protocol):

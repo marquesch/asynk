@@ -9,7 +9,6 @@ from typing import Any, ParamSpec, TypeVar
 
 from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
-from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
     Hooks,
     LifecycleHook,

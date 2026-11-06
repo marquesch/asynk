@@ -58,3 +58,13 @@ itself. Both are runners: they run the app's
 [lifecycle hooks](advanced/lifecycle-hooks.md), write
 [probe files](guides/probes.md) and shut down gracefully on SIGTERM or SIGINT
 when started from the `asynk` command line.
+
+## Errors
+
+Every exception asynk defines derives from `AsynkError` and can be imported
+from `asynk`: `NotConfiguredError`, `EncodeError`, `DecodeError`,
+`InvalidEnvelopeError`, `CronError`, `TaskError`, `TaskNotFoundError` and
+`DeliveryFailedError`. `except AsynkError` catches all of them. Invalid
+arguments, such as `Worker(concurrency=0)` or an unknown time zone, raise the
+built-in `ValueError`, and `TaskHandle.result(timeout=...)` raises the built-in
+`TimeoutError`.

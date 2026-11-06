@@ -4,9 +4,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-from asynk import ScheduledTask, Task
+from asynk import CronError, ScheduledTask, Task
 from asynk.app import App
-from asynk.cron import CronError
 from asynk.envelope import Envelope
 from asynk.scheduled_task import Schedule
 
