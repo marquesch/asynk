@@ -45,7 +45,18 @@ async def old_style() -> None: ...
 async def retry_true() -> None: ...
 
 
+# Tasks must be `async def`: mypy rejects a plain `def`.
+@app.task()  # type: ignore[arg-type]
+def sync_task() -> None: ...
+
+
+@app.scheduled_task(cron="* * * * *")  # type: ignore[arg-type]
+def sync_scheduled() -> None: ...
+
+
 async def _checks() -> None:
+    _sum: int = await add(1, b=2)
+    _not_bare: int = add(1, b=2)  # type: ignore[assignment]
     await add.delay(1, b=2)
     _task_id: str = (await add.delay(1, b=2)).task_id
     _state: TaskState = await (await add.delay(1, b=2)).state()

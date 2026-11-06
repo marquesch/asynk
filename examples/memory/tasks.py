@@ -14,9 +14,8 @@ async def add(a: int, b: int) -> int:
     return a + b
 
 
-# Plain `def` tasks are allowed too; the worker runs them in a thread.
 @app.task()
-def shout(text: str) -> None:
+async def shout(text: str) -> None:
     print(text.upper())
 
 
@@ -29,5 +28,5 @@ async def tick(label: str) -> None:
 
 # `tz` sets the zone the expression is evaluated in (default: the app's `tz`).
 @app.scheduled_task(cron="30 8 * * mon-fri", kwargs={"region": "eu"}, tz="UTC")
-def morning_report(*, region: str) -> None:
+async def morning_report(*, region: str) -> None:
     print(f"morning report for {region}")

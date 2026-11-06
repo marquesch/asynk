@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, ParamSpec, TypeVar
@@ -98,7 +98,7 @@ class App:
         *,
         name: str | None = None,
         options: TaskOptions | None = None,
-    ) -> Callable[[Callable[P, R]], Task[P, R]]:
+    ) -> Callable[[Callable[P, Awaitable[R]]], Task[P, R]]:
         """Decorator that registers a function as a task.
 
         Args:
@@ -114,7 +114,7 @@ class App:
         """
         policy = self._task_policy(options)
 
-        def decorator(func: Callable[P, R]) -> Task[P, R]:
+        def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
             task = Task(self, func, task_name, policy)
             self._tasks[task_name] = task
@@ -131,7 +131,7 @@ class App:
         kwargs: Mapping[str, object] | None = None,
         name: str | None = None,
         options: TaskOptions | None = None,
-    ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
+    ) -> Callable[[Callable[P, Awaitable[R]]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
         Args:
@@ -156,7 +156,7 @@ class App:
         if tz is not None and name is not None:
             resolve_timezone(tz, f"scheduled task {name!r}")
 
-        def decorator(func: Callable[P, R]) -> ScheduledTask[P, R]:
+        def decorator(func: Callable[P, Awaitable[R]]) -> ScheduledTask[P, R]:
             task_name = self._claim_name(name, func)
             zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
             task = ScheduledTask(self, func, task_name, policy, replace(schedule, tz=zone))

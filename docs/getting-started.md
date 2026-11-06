@@ -27,13 +27,25 @@ message and returns a handle. A `Worker` consumes the message and runs the task.
 
 ## Defining tasks
 
-A task is an async function or a plain `def`. Plain functions run in a thread.
+A task is an `async def` function; registering a plain `def` raises `TypeError`.
 Default argument values work as you would expect, and `retry` retries a failing
 task, here up to three times (see [Retries](guides/retries.md)).
 
 ``` { .python }
 --8<-- "examples/getting_started/defining_tasks.py"
 ```
+
+### Blocking code
+
+A blocking call inside an async task blocks the worker's event loop, and every
+other task with it, unless you offload it:
+
+``` { .python }
+--8<-- "examples/getting_started/blocking_task.py"
+```
+
+A thread cannot be cancelled. On shutdown or timeout the task is cancelled, but
+the thread keeps running until the call returns.
 
 ## Calling tasks
 

@@ -162,7 +162,7 @@ async def test_custom_producer_and_consumer_are_decoupled() -> None:
     seen: list[str] = []
 
     @app.task()
-    def greet(name: str) -> None:
+    async def greet(name: str) -> None:
         seen.append(name)
         # Sync tasks run in a worker thread; asyncio.Event is not thread-safe.
         loop.call_soon_threadsafe(done.set)
@@ -219,7 +219,7 @@ async def test_scheduler_publishes_and_worker_runs() -> None:
         return result
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", args=[7], name="job")
-    def job(n: int) -> None:
+    async def job(n: int) -> None:
         runs.append(n)
 
     worker = Worker(app)
@@ -248,7 +248,7 @@ async def test_lifecycle_hooks_fire_in_the_worker_and_the_scheduler() -> None:
     events: list[tuple[str, str]] = []
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     @app.before_startup
     def before_startup(runner: Runner) -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 from typing import Any
 
 import pytest
@@ -54,23 +53,6 @@ async def test_success_acks_and_returns_value() -> None:
     assert result.value == 3
     assert result.error is None
     assert delivery.settled
-
-
-async def test_async_and_sync_tasks_both_run() -> None:
-    app, producer, consumer, worker = _setup()
-
-    @app.task(name="a")
-    async def a() -> str:
-        return "async"
-
-    @app.task(name="s")
-    def s() -> bool:
-        return threading.current_thread() is not threading.main_thread()
-
-    r1 = await _run(producer, consumer, worker, Envelope.create("a", (), {}))
-    r2 = await _run(producer, consumer, worker, Envelope.create("s", (), {}))
-    assert r1.value == "async"
-    assert r2.value is True
 
 
 async def test_failure_sets_failed_and_rejects_without_requeue() -> None:
@@ -138,27 +120,6 @@ async def test_cancelled_handle_requeues_delivery_and_reraises() -> None:
 def test_worker_requires_consumer() -> None:
     with pytest.raises(NotConfiguredError):
         Worker(App("t"))
-
-
-async def test_sync_wrapper_returning_awaitable_is_awaited() -> None:
-    import functools
-
-    app, producer, consumer, worker = _setup()
-    ran: list[int] = []
-
-    async def inner(a: int) -> int:
-        ran.append(a)
-        return a * 2
-
-    @functools.wraps(inner)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        return inner(*args, **kwargs)
-
-    app.task(name="wrapped")(wrapper)
-    result = await _run(producer, consumer, worker, Envelope.create("wrapped", (4,), {}))
-    assert result.status is TaskStatus.SUCCESS
-    assert result.value == 8
-    assert ran == [4]
 
 
 async def test_failed_task_is_logged_with_exc_info(caplog: pytest.LogCaptureFixture) -> None:

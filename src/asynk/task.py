@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Generic, ParamSpec, TypeVar
 
 from asynk.envelope import Envelope
@@ -23,11 +23,11 @@ R = TypeVar("R")
 
 
 class Task(Generic[P, R]):
-    """A registered function that can be called directly or enqueued with `delay`.
+    """A registered async function that can be called directly or enqueued with `delay`.
 
     Attributes:
         app: The app the task is registered with.
-        func: The wrapped function, sync or async.
+        func: The wrapped `async def` function.
         name: Unique name used to route messages to this task.
         retry: The task's retry policy; None for no retries.
     """
@@ -35,22 +35,22 @@ class Task(Generic[P, R]):
     def __init__(
         self,
         app: App,
-        func: Callable[P, R],
+        func: Callable[P, Awaitable[R]],
         name: str,
         retry: RetryPolicy | None,
     ) -> None:
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError(
+                f"task {getattr(func, '__qualname__', func)!r} must be an async def function "
+                "(wrap blocking work with asyncio.to_thread inside the task)"
+            )
         self.app = app
         self.func = func
         self.name = name
         self.retry = retry
 
-    @property
-    def is_async(self) -> bool:
-        """Whether the wrapped function is a coroutine function."""
-        return inspect.iscoroutinefunction(self.func)
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
-        """Runs the wrapped function in-process."""
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
+        """Calls the wrapped function in-process; await the result."""
         return self.func(*args, **kwargs)
 
     def with_metadata(self, /, **metadata: object) -> BoundTask[P, R]:

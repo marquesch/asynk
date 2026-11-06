@@ -53,7 +53,7 @@ def _app(store: Any) -> tuple[App, MemoryConsumer]:
     app = App("t", producer=producer, store=store)
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     return app, consumer
 
