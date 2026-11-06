@@ -9,9 +9,12 @@ of merged pull requests.
 Every pull request is squash merged, so its title becomes the commit message on
 `master`. The title must be a [conventional commit](https://www.conventionalcommits.org/)
 subject, such as `feat: add a Redis store`, `fix(worker): ack after the handler returns`
-or `feat!: rename the envelope field`. The `PR title` check fails otherwise, and it
-accepts the types `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`, `ci`,
-`build` and `revert`. A `!` after the type, or a `BREAKING CHANGE:` footer in the commit
+or `feat!: rename the envelope field`. The `PR title` check fails otherwise. It runs
+[amannn/action-semantic-pull-request](https://github.com/amannn/action-semantic-pull-request)
+on `pull_request` (not `pull_request_target`) with read-only `pull-requests`
+permission and no checkout, so it never runs code from the pull request. It accepts the
+types `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`, `ci`, `build` and
+`revert`; the scope is optional. A `!` after the type, or a `BREAKING CHANGE:` footer in the commit
 body, marks a breaking change.
 
 ## The Release PR
@@ -46,10 +49,29 @@ Merging the Release PR is the release. The `Release` workflow then:
 3. publishes them to TestPyPI, using the `testpypi` environment,
 4. publishes them to PyPI, using the `pypi` environment.
 
-Publishing uses PyPI trusted publishing, so there are no API tokens. The trusted
+Publishing uses PyPI trusted publishing, so there are no API tokens, through the
+official [`pypa/gh-action-pypi-publish`](https://github.com/pypa/gh-action-pypi-publish)
+action. Each publish runs in its own job, with only `contents: read` and
+`id-token: write`, and does nothing but download the built `dist` artifact and upload
+it. No project code or build tool runs in a job that holds the OIDC token, and the
+action's default attestations are kept. The trusted
 publishers on both indexes are registered against the workflow file name, so the
 workflow must stay named `.github/workflows/release.yml`, and it cannot be split into
 reusable workflows. The environments must stay named `testpypi` and `pypi`.
+
+## Supply chain pins
+
+- Every action in every workflow is pinned to a full commit SHA, with the release in a
+  trailing `# vX.Y.Z` comment. Tags can be moved; SHAs cannot.
+- `astral-sh/setup-uv` installs an exact uv (`version: "0.9.9"`), and the build backend
+  is pinned exactly in `pyproject.toml` (`uv_build==0.9.9`).
+- Installs use `uv sync --locked` (and `uv run --locked --group docs`), so CI fails if
+  `uv.lock` is out of date instead of silently re-resolving.
+- [Dependabot](https://docs.github.com/en/code-security/dependabot) (`.github/dependabot.yml`)
+  opens one grouped weekly pull request for GitHub Actions and one for Python
+  dependencies (`uv`), titled `chore(deps): ...` so the PR title check passes. Review
+  the new SHA and release notes before merging. The `uv_build` pin and the uv version
+  in the workflows are not covered by Dependabot; bump them by hand together.
 
 ## Release notes
 
@@ -82,3 +104,24 @@ changes `uv.lock`. If it does not, switch that entry to the `generic` updater wi
 The first Release PR proposes `0.1.0`, which `pyproject.toml` and `uv.lock` already
 contain, so it only changes `CHANGELOG.md` and `.release-please-manifest.json`. The
 `uv.lock` update is first visible in the Release PR after that.
+
+## Repository settings
+
+These are applied by the repository owner in GitHub and PyPI, not by any file here.
+
+- `pypi` environment: required reviewer, and a deployment branch restriction to
+  `master` (or the release tags). Same restriction for `testpypi`.
+- `master` ruleset: require a pull request and a review, require status checks
+  (excluding checks the Release PR cannot run, see above), block force pushes and
+  deletion.
+- Require approval for fork pull request workflows from outside collaborators.
+- Default workflow token permission: read-only.
+- Allowed actions: allow GitHub-owned actions plus `astral-sh/*`, `googleapis/*`,
+  `pypa/*` and `amannn/*` only.
+- Allow GitHub Actions to create and approve pull requests (release-please needs it).
+- Secret scanning and push protection on.
+- Dependabot alerts and security updates on.
+- Private vulnerability reporting on (see `SECURITY.md`).
+- 2FA or passkeys on the GitHub and PyPI accounts, and no PyPI API tokens.
+- Automatically delete head branches after merge.
+- Squash merging only, with the pull request title as the commit message.
