@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from redis.asyncio.client import Pipeline
 from redis.exceptions import ConnectionError, ResponseError, TimeoutError
 
+from asynk._redis import RedisConnection
 from asynk.envelope import Envelope
 from asynk.transport import Delivery, PublishOptions
 
@@ -25,22 +26,14 @@ class _Queue:
     """The Redis keys, and the client, of one queue."""
 
     def __init__(self, url: str | None, client: Redis | None, queue: str) -> None:
-        if (url is None) == (client is None):
-            raise ValueError("a Redis transport needs exactly one of url and client")
-        if client is None:
-            assert url is not None
-            client = Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=5.0)
-            self.owns_client = True
-        else:
-            self.owns_client = False
-        self.client = client
+        self._connection = RedisConnection(url, client, owner="a Redis transport")
+        self.client = self._connection.client
         self.stream = f"asynk:{{{queue}}}:stream"
         self.delayed = f"asynk:{{{queue}}}:delayed"
         self.dead = f"asynk:{{{queue}}}:dead"
 
     async def close(self) -> None:
-        if self.owns_client:
-            await self.client.aclose()
+        await self._connection.close()
 
 
 class RedisProducer:
@@ -260,8 +253,6 @@ class RedisConsumer:
                     block=self._block_ms,
                 )
                 self._connected = True
-                if not entries:
-                    await asyncio.sleep(0.01)
                 for _, messages in entries:
                     ready.extend(self._delivery(entry_id, fields) for entry_id, fields in messages)
             except (ConnectionError, TimeoutError):

@@ -13,9 +13,9 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import fakeredis
 import pytest
 from redis.asyncio import Redis
+from redis_helpers import BlockingFakeRedis
 
 from asynk.envelope import Envelope
 from asynk.transport import Consumer, Delivery, Producer
@@ -111,7 +111,7 @@ KINDS = ("stream", "delayed", "dead")
 
 
 def _fake_redis() -> TransportHandle:
-    return _RedisHandle(fakeredis.FakeAsyncRedis())
+    return _RedisHandle(BlockingFakeRedis())
 
 
 REGISTRY: dict[str, Callable[[], TransportHandle]] = {

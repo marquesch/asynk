@@ -11,6 +11,7 @@ from typing import Any
 import fakeredis
 import pytest
 from redis.exceptions import ConnectionError
+from redis_helpers import BlockingFakeRedis
 
 import asynk.transport.redis
 from asynk import App, Worker
@@ -30,7 +31,7 @@ def _env() -> Envelope:
 
 @pytest.fixture
 async def client() -> AsyncIterator[fakeredis.FakeAsyncRedis]:
-    redis = fakeredis.FakeAsyncRedis()
+    redis = BlockingFakeRedis()
     yield redis
     await redis.aclose()
 
