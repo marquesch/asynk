@@ -66,8 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `after_shutdown` hooks, so `after_shutdown` hooks can use it. `before_startup` and
   `after_shutdown` start empty, and `after_shutdown` hooks run only after a completed
   startup.
-- **Breaking:** `Runner` subclasses must implement `_serve()`; `Runner` runs the
-  lifecycle.
+- **Breaking:** `Runner` implements `run()`, which runs the lifecycle; subclasses
+  must implement `_serve()`.
 - **Breaking:** when several `after_shutdown` hooks raise, `run()` raises an
   `ExceptionGroup`; it used to surface only the first error, so `except RuntimeError`
   no longer catches that case.
