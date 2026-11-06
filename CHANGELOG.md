@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
+  share, for task results and scheduler claims, installed with the `asynk[redis]`
+  extra; documentation page "Redis store".
+- `asynk.store.polling.poll`, a helper for custom stores that can only read a key to
+  implement `wait` by polling with a growing pause.
 - `TaskOptions(retry=None)`, per-task options, accepted as `options=` by `App` (the
   default of every task), `@app.task` and `@app.scheduled_task`.
 - Built-in retries, configured with `TaskOptions(retry=...)`, which takes a
@@ -22,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   protocol for custom strategies.
 - `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
   the memory transport delivers a message after its `delay`.
-
 - Transport contract test suite (`tests/transport/contract/`) that custom
   transports can copy to check their delivery, settle and `process` behavior.
 - `AsynkError`, the base class of every exception asynk defines.

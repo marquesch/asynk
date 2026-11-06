@@ -66,9 +66,9 @@ await app.store.stop()
 
 `MemoryStore(ttl=86400.0)` keeps records in one process for `ttl` seconds, so
 the producer, the worker and readers must share that process. It is the
-development and testing store. For anything wider, implement the `Store`
-protocol over Redis or a database; see
-[Writing a custom store](../advanced/custom-store.md).
+development and testing store. For anything wider, use the
+[Redis store](redis.md), or implement the `Store` protocol for another backend;
+see [Writing a custom store](../advanced/custom-store.md).
 
 Without a store the app uses a `NullStore`: it records nothing, and `state()`
 and `result()` raise `NotConfiguredError`.
