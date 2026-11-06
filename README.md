@@ -93,7 +93,7 @@ does (the classic Vixie rule); a field starting with `*` counts as unrestricted.
 Nothing fires at startup: the first slot is the first one after the scheduler starts.
 
 The scheduler publishes with the app's producer and runs the app's startup and
-shutdown hooks (see [Hooks](#hooks)); `runner.role` is `"scheduler"` there. Keep
+shutdown hooks (see [Lifecycle hooks](#lifecycle-hooks)); `runner.role` is `"scheduler"` there. Keep
 those hooks quick: the scheduler does not refresh its liveness probe while one
 runs, so a hook slower than your probe's staleness limit gets the process killed,
 and a slow hook delays shutdown by its full duration. On shutdown (SIGTERM or
@@ -110,23 +110,24 @@ restarts and failovers. With a store the scheduler dedupes slots itself (see
 [Results and the store](#results-and-the-store)). Each publish carries
 `metadata["idempotency_key"]`, which is `"<task name>:<slot as UTC ISO instant>"`,
 and `metadata["scheduled_at"]`, the slot as a UTC ISO instant. Without a store, a
-`before_task` hook can dedupe, given a store shared by all workers (a set in
+middleware layer can dedupe, given a store shared by all workers (a set in
 memory only works for one):
 
 ```python
-from asynk import App, Delivery, Envelope, SkipTask
+from asynk import App, Next, TaskCall, TaskResult
 
 app = App("myapp")  # or the app from the snippets above
 seen: set[str] = set()  # use a shared store (a database, Redis) in production
 
 
-@app.before_task
-def dedupe(envelope: Envelope, delivery: Delivery) -> None:
-    key = envelope.metadata.get("idempotency_key")
+@app.middleware
+async def dedupe(call: TaskCall, next: Next) -> TaskResult:
+    key = call.envelope.metadata.get("idempotency_key")
     if key is not None:
         if key in seen:
-            raise SkipTask
+            return call.skip()
         seen.add(str(key))
+    return await next(call)
 ```
 
 There is no guard: every slot is published, and a scheduled task decides for
@@ -180,7 +181,7 @@ handle from an id, for example in another request or process sharing the store.
 | `RETRYING` | an attempt failed and a retry was published |
 | `SUCCESS` | finished; `result()` returns the value |
 | `FAILURE` | failed for good; `result()` raises `TaskError` |
-| `SKIPPED` | a `before_task` hook raised `SkipTask`; `result()` returns `None` |
+| `SKIPPED` | a middleware layer vetoed it with `call.skip()`; `result()` returns `None` |
 | `UNKNOWN` | the store has no record for this id |
 
 A failed task makes `result()` raise `TaskError`, which carries the failure's type
@@ -305,7 +306,7 @@ accept `--probe-dir`; exit code 0 means healthy. `asynk health` must use the
 same `--probe-dir` as the worker it checks, and two workers in one container
 need distinct directories.
 
-## Hooks
+## Lifecycle hooks
 
 Hooks extend a worker or scheduler without subclassing it. Each decorator on `App` appends to
 an ordered list, and hooks run in registration order. Hooks may be `def` or
@@ -317,18 +318,16 @@ lambdas or functions made by a factory, are all registered.
 |---|---|---|
 | `before_startup` | before the consumer starts (worker) or the loop starts (scheduler) | `Runner` |
 | `after_startup` | once the consumer has started (worker) or the loop is about to start (scheduler) | `Runner` |
-| `before_task` | before each known task | `Envelope`, `Delivery` |
-| `after_task` | after each task, before settlement | `TaskResult`, `Delivery` |
 | `before_shutdown` | when the worker stops fetching, before draining; when the scheduler stops | `Runner` |
 | `after_shutdown` | last: after draining with the consumer stopped (worker); after the loop ended (scheduler) | `Runner` |
 
-The four lifecycle hooks run in every asynk process, `Worker` and `Scheduler`, and
+The lifecycle hooks run in every asynk process, `Worker` and `Scheduler`, and
 receive a `Runner`. `runner.role` is `"worker"` or `"scheduler"`, so a hook can
 branch where the processes differ. A hook annotated `Worker` is rejected by mypy,
 since it would not accept a scheduler; annotate it `Runner`.
 
 ```python
-from asynk import Delivery, Envelope, Runner, SkipTask
+from asynk import Runner
 
 
 @app.before_startup
@@ -336,52 +335,88 @@ async def startup(runner: Runner) -> None:
     sentry_sdk.init()  # telemetry in every process: workers and the scheduler
     if runner.role == "worker":
         await database.connect()  # only workers need the database
-
-
-@app.before_task
-def only_recent(envelope: Envelope, delivery: Delivery) -> None:
-    if envelope.metadata.get("expired"):
-        raise SkipTask  # the task does not run; the delivery is acked
 ```
-
-A skipped task has status `SKIPPED`, and `after_task` hooks still run for it. They
-also run for unknown tasks, which skip `before_task`.
 
 Hooks fail loudly. A startup or shutdown hook that raises stops the remaining
 hooks of that event and makes `Worker.run()` or `Scheduler.run()` raise; the
-process still drains tasks (worker) and cleans up first. If a `before_task` or `after_task` hook raises
-anything but `SkipTask`, the error is logged and the message is redelivered:
-the worker publishes `envelope.retry()` through `app.producer` and acks the
-original, so the failure counts towards `max_retries`. Once
+process still drains tasks (worker) and cleans up first.
+
+## Middleware
+
+Middleware wraps the execution of each task in the worker. A layer is an
+`async def` taking a `TaskCall` (its `envelope` and `delivery`) and `next`, the
+rest of the chain, and returning a `TaskResult`:
+
+```python
+import logging
+
+from asynk import Next, TaskCall, TaskResult
+
+logger = logging.getLogger(__name__)
+
+
+@app.middleware
+async def timing(call: TaskCall, next: Next) -> TaskResult:
+    logger.info("starting %s", call.envelope.task)
+    try:
+        return await next(call)
+    finally:
+        logger.info("finished %s", call.envelope.task)
+```
+
+**The last registered layer is the outermost**: it runs first on the way in and
+last on the way out. With layers `a` then `b` registered, `b` runs first, then
+`a`, then the task. Registering the same layer twice is a no-op, like hooks.
+Layers registered after the worker started apply from the next message.
+
+`await next(call)` returns the `TaskResult` of the task (or of the layers inside),
+and a layer may return it unchanged or return another. The worker records and
+settles whatever the chain returns. A `try`/`finally` or `async with` in a layer
+also runs when the worker cancels a running task on shutdown.
+
+A layer vetoes a task by returning `call.skip()` without awaiting `next`: the
+task does not run, the result has status `SKIPPED`, and the delivery is acked. A
+layer that does not call `next` therefore skips the task. The chain also runs
+for unknown tasks, where the layers receive an `UNKNOWN_TASK` result. A layer may
+settle `call.delivery` itself, and then the worker leaves the delivery alone.
+
+If a layer raises before the task ran, the error is logged and the message is
+redelivered: the worker publishes `envelope.retry()` through `app.producer` and
+acks the original, so the failure counts towards `max_retries`. Once
 `envelope.attempt >= max_retries` the message is rejected instead. With
-`max_retries=None` a hook that always fails redelivers forever, with no
+`max_retries=None` a layer that always fails redelivers forever, with no
 backoff. Without a producer the worker falls back to `requeue=True`, which
-redelivers the message but does not increment `attempt`.
+redelivers the message but does not increment `attempt`. If a layer raises after
+the task ran, the error is logged and the task's outcome stands: the message is
+not redelivered.
 
 ## Retries
 
 The core does not retry. A failing task yields a `TaskResult` with status
 `FAILED` (or `RETRIES_EXCEEDED` once `envelope.attempt >= max_retries`), the
-`after_task` hooks run, and, if the hook left the delivery unsettled, the
+middleware chain returns it, and, if no layer settled the delivery, the
 failure reaches `consumer.process()` as a `TaskFailedError` and the consumer's
 default settles it (the memory transport rejects without requeue). Retry
-mechanics for failing tasks belong to the producer, consumer and your hooks. (Hook
-failures are the exception; see [Hooks](#hooks).) For example:
+mechanics for failing tasks belong to the producer, consumer and your middleware.
+(Failures of a layer itself are the exception; see [Middleware](#middleware).) For
+example:
 
 ```python
-from asynk import Delivery, TaskResult, TaskStatus
+from asynk import Next, TaskCall, TaskResult, TaskStatus
 
 
-@app.after_task
-async def retry(result: TaskResult, delivery: Delivery) -> None:
+@app.middleware
+async def retry(call: TaskCall, next: Next) -> TaskResult:
+    result = await next(call)
     if result.status is TaskStatus.FAILED:
         # Publish first, then ack, so a crash in between duplicates instead of loses.
         next_envelope = result.envelope.retry()  # attempt + 1
         await producer.publish(next_envelope, app.codec.encode(next_envelope.to_dict()))
-        await delivery.ack()
+        await call.delivery.ack()
+    return result
 ```
 
-The hook above only retries `FAILED`; `RETRIES_EXCEEDED` falls through to the consumer's default
+The layer above only retries `FAILED`; `RETRIES_EXCEEDED` falls through to the consumer's default
 (reject, i.e. dead-letter). If you also retried `RETRIES_EXCEEDED` here, a
 task with `max_retries=None` would retry forever.
 
@@ -394,8 +429,7 @@ On shutdown the worker stops fetching and waits up to `shutdown_timeout` for
 running tasks. Async tasks still running afterwards are cancelled and their
 deliveries requeued. Sync tasks cannot be interrupted: after the timeout their
 delivery is requeued but the thread keeps running, so the task may run twice,
-and process exit blocks until the thread finishes. A failing `after_task` hook
-on a `SUCCESS` result redelivers the message, which runs the task again.
+and process exit blocks until the thread finishes.
 
 On Kubernetes set `terminationGracePeriodSeconds` above `shutdown_timeout`
 plus the longest sync task. The default `shutdown_timeout` of 30 seconds equals
