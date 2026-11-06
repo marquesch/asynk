@@ -140,6 +140,13 @@ def test_scheduler_requires_scheduled_tasks(capsys: pytest.CaptureFixture[str]) 
     assert "Traceback" not in err
 
 
+def test_scheduler_unencodable_args_returns_2(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["scheduler", "tests.fixture_scheduler_app:unencodable"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("asynk:")
+    assert "Traceback" not in err
+
+
 def test_scheduler_requires_producer(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["scheduler", "tests.fixture_scheduler_app:no_producer"]) == 2
     err = capsys.readouterr().err

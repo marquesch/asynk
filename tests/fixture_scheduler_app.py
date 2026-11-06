@@ -16,3 +16,14 @@ def yearly() -> None:
 @no_producer.scheduled_task(cron="0 0 1 1 *")
 def orphan() -> None:
     return None
+
+
+_unencodable_producer, _unencodable_consumer = memory_transport()
+unencodable = App(
+    "fixture-unencodable", producer=_unencodable_producer, consumer=_unencodable_consumer
+)
+
+
+@unencodable.scheduled_task(cron="0 0 1 1 *", args=[object()])
+def bad_args(value: object) -> None:
+    return None
