@@ -27,6 +27,10 @@ nav = [
     { "Writing a custom store" = "advanced/custom-store.md" },
   ] },
   { "API reference" = "reference.md" },
+  { "Release notes" = [
+    { "Overview" = "release-notes/index.md" },
+    { "0.1" = "release-notes/0.1.md" },
+  ] },
   { "Changelog" = "changelog.md" },
 ]
 
