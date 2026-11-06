@@ -1,4 +1,4 @@
-"""Tasks can be async functions or plain functions, with default arguments."""
+"""Tasks are async functions and can have default arguments."""
 
 import asyncio
 
@@ -15,7 +15,7 @@ async def add(a: int, b: int) -> int:
 
 
 @app.task()
-def shout(text: str) -> str:
+async def shout(text: str) -> str:
     return text.upper()
 
 
