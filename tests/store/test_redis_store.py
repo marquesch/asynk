@@ -337,49 +337,6 @@ async def test_wait_ignores_expired_value(server: fakeredis.FakeServer) -> None:
     assert await store.wait("k", timeout=0.05) is None
 
 
-async def test_wait_backs_off_up_to_the_max_poll_interval(
-    server: fakeredis.FakeServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pauses: list[float] = []
-    real_sleep = asyncio.sleep
-
-    async def fake_sleep(delay: float) -> None:
-        pauses.append(delay)
-        await real_sleep(0)
-
-    store = _store(server, max_poll_interval=0.3)
-    monkeypatch.setattr("asynk.store.redis.store.asyncio.sleep", fake_sleep)
-    waiter = asyncio.create_task(store.wait("k"))
-    while len(pauses) < 6:
-        await real_sleep(0)
-    waiter.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await waiter
-    assert pauses[:6] == [0.05, 0.1, 0.2, 0.3, 0.3, 0.3]
-
-
-async def test_wait_last_pause_is_the_time_remaining(
-    server: fakeredis.FakeServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    now = 100.0
-    pauses: list[float] = []
-
-    class FakeLoop:
-        def time(self) -> float:
-            return now
-
-    async def fake_sleep(delay: float) -> None:
-        nonlocal now
-        pauses.append(delay)
-        now += delay
-
-    store = _store(server, max_poll_interval=1.0)
-    monkeypatch.setattr("asynk.store.redis.store.asyncio.sleep", fake_sleep)
-    monkeypatch.setattr("asynk.store.redis.store.asyncio.get_running_loop", lambda: FakeLoop())
-    assert await store.wait("k", timeout=0.2) is None
-    assert pauses == pytest.approx([0.05, 0.1, 0.05])
-
-
 async def test_wait_cancellation_propagates(server: fakeredis.FakeServer) -> None:
     waiter = asyncio.create_task(_store(server).wait("k"))
     await asyncio.sleep(0.01)

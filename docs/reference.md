@@ -52,6 +52,8 @@
 
 ::: asynk.store.redis.RedisStore
 
+::: asynk.store.polling.poll
+
 ## Results
 
 ::: asynk.TaskHandle

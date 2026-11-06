@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
   share, for task results and scheduler claims, installed with the `asynk[redis]`
   extra; documentation page "Redis store".
+- `asynk.store.polling.poll`, a helper for custom stores that can only read a key to
+  implement `wait` by polling with a growing pause.
 - Transport contract test suite (`tests/transport/contract/`) that custom
   transports can copy to check their delivery, settle and `process` behavior.
 - `AsynkError`, the base class of every exception asynk defines.
