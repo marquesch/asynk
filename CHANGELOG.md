@@ -18,11 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `async def layer(call: TaskCall, next: Next) -> TaskResult` around each task; the
   last registered layer is the outermost. `TaskCall.skip()` builds the `SKIPPED`
   result that vetoes a task.
+- Documentation pages: concepts, guides (scheduled tasks, results and the store,
+  publishing with metadata, probes, delivery guarantees and shutdown), advanced
+  topics (lifecycle hooks, writing a custom transport, writing a custom store)
+  and the changelog, with tested examples.
 
 ### Changed
 
 - **Breaking:** a middleware layer that raises after the task ran is logged and the
   task's outcome stands; a failing `after_task` hook used to redeliver the message.
+- The README is reduced to a pitch and a quick start; the details moved to the
+  documentation site.
 - **Breaking:** Python 3.11 is now the minimum supported version.
 - **Breaking:** `delay` returns a `TaskHandle`; the producer's receipt is at
   `handle.receipt`.

@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -39,4 +40,18 @@ async def test_docs_examples_run(example: str) -> None:
 def test_docs_page_includes_its_examples(page: str) -> None:
     text = (ROOT / "docs" / page).read_text()
     missing = [e for e in PAGES[page] if f'--8<-- "examples/{e}"' not in text]
+    assert missing == []
+
+
+def test_readme_example_is_the_first_app() -> None:
+    readme = (ROOT / "README.md").read_text()
+    match = re.search(r"```python\n(.*?)```", readme, re.DOTALL)
+    assert match is not None
+    assert match.group(1) == (ROOT / "examples" / "getting_started" / "first_app.py").read_text()
+
+
+def test_readme_relative_links_exist() -> None:
+    readme = (ROOT / "README.md").read_text()
+    targets = re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", readme)
+    missing = [t for t in targets if "://" not in t and not (ROOT / t).exists()]
     assert missing == []
