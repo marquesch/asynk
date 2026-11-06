@@ -1,3 +1,5 @@
+"""`JsonCodec`, the default codec."""
+
 from __future__ import annotations
 
 import json

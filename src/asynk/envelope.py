@@ -1,3 +1,5 @@
+"""The `Envelope` exchanged between producers and consumers."""
+
 from __future__ import annotations
 
 import uuid

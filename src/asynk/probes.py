@@ -1,3 +1,5 @@
+"""Liveness and readiness probe files."""
+
 from __future__ import annotations
 
 import contextlib

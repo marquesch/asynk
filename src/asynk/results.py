@@ -1,3 +1,5 @@
+"""Task states, result records and `TaskHandle`."""
+
 from __future__ import annotations
 
 import enum

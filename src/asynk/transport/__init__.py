@@ -1,3 +1,5 @@
+"""The `Producer`, `Consumer` and `Delivery` transport protocols."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator

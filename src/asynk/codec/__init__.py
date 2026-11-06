@@ -1,3 +1,5 @@
+"""The `Codec` protocol and its errors."""
+
 from __future__ import annotations
 
 from typing import Protocol

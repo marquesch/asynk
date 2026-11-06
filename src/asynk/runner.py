@@ -1,3 +1,5 @@
+"""`Runner`, the base of `Worker` and `Scheduler`."""
+
 from __future__ import annotations
 
 import abc

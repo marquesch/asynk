@@ -1,3 +1,5 @@
+"""The `App`: tasks, transport, store, codec and hooks."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence

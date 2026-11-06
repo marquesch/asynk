@@ -1,3 +1,5 @@
+"""Signal handling for graceful shutdown."""
+
 from __future__ import annotations
 
 import asyncio

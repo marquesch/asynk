@@ -1,3 +1,5 @@
+"""The `Scheduler`, which publishes scheduled tasks on their cron slots."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,5 @@
+"""Scheduled tasks and their cron schedules."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence

@@ -1,3 +1,5 @@
+"""`Task` and `BoundTask`, which run and publish task calls."""
+
 from __future__ import annotations
 
 import inspect

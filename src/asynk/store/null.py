@@ -1,3 +1,5 @@
+"""`NullStore`, the store of an app with none configured."""
+
 from __future__ import annotations
 
 from asynk.errors import NotConfiguredError

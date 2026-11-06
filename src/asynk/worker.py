@@ -1,3 +1,5 @@
+"""The `Worker`, which consumes deliveries and runs tasks."""
+
 from __future__ import annotations
 
 import asyncio

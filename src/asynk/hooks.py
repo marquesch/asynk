@@ -1,3 +1,5 @@
+"""Lifecycle and task hooks, and task results."""
+
 from __future__ import annotations
 
 import enum
