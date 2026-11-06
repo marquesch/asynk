@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/marquesch/asynk/compare/v0.2.0...v0.3.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* move the shared worker and scheduler plumbing into one Runner base ([#83](https://github.com/marquesch/asynk/issues/83))
+
+### Features
+
+* per-task timeout ([#85](https://github.com/marquesch/asynk/issues/85)) ([7176e38](https://github.com/marquesch/asynk/commit/7176e380ddce6c62f954ab8fc4e11fbfe624da86))
+
+
+### Refactoring
+
+* move the shared worker and scheduler plumbing into one Runner base ([#83](https://github.com/marquesch/asynk/issues/83)) ([5a3babf](https://github.com/marquesch/asynk/commit/5a3babf52cbd771714e0d5d55aa6bed397f5f54c))
+
 ## [0.2.0](https://github.com/marquesch/asynk/compare/v0.1.0...v0.2.0) (2026-11-06)
 
 
