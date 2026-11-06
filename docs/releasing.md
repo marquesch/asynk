@@ -85,10 +85,26 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
 
 The generated changelog lists every change. Anything that needs explaining, such as
 breaking changes and how to migrate, goes in [Release notes](release-notes.md), a
-single hand-written file with one section per release, newest first. Feature pull
-requests do not edit it; the maintainer writes the section when preparing a release.
+single hand-written file with one section per release, newest first.
 
-To add one, before merging the Release PR:
+A contributor cannot know which release a pull request will land in, so contributors
+do not write release notes. What they provide instead:
+
+- a conventional pull request title that reads well to a user, because the changelog
+  is built from it;
+- for a breaking change, a `BREAKING CHANGE:` footer in the commit message that says
+  what changed and what to write instead;
+- the migration guidance in the documentation page of the feature itself, where users
+  will look for it.
+
+The maintainer writes the release notes section when preparing a release, from the
+generated changelog, the pull request descriptions and those documentation pages.
+Do it in a separate `docs:` pull request merged just before the Release PR, not as a
+commit on the Release PR's branch, because release-please regenerates that branch
+when new commits land on `master`. The version number is already known by then, as
+the Release PR proposes it.
+
+To add the section:
 
 1. Add a `## <version>` section at the top of `docs/release-notes.md`, above the
    previous release.
