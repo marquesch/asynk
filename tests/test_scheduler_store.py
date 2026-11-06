@@ -5,9 +5,11 @@ import logging
 from typing import Any
 
 import pytest
-from test_scheduler import FakeClock, HangingProducer, _at, _published, _run, _slots
+from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failure_logged
+from test_scheduler import BlockingClock, FakeClock, HangingProducer, _at, _published, _run, _slots
 
 from asynk.app import App
+from asynk.runner import Runner
 from asynk.scheduler import Scheduler
 from asynk.store.memory import MemoryStore
 from asynk.transport.memory import MemoryConsumer, memory_transport
@@ -124,7 +126,7 @@ async def test_scheduler_with_null_store_always_publishes() -> None:
     assert _slots(await _published(consumer)) == [("job", SLOT), ("job", SLOT)]
 
 
-async def test_scheduler_starts_and_stops_store_through_app_hooks() -> None:
+async def test_scheduler_owns_the_store_lifecycle() -> None:
     store = _RecordingStore()
     app, consumer = _app(store)
 
@@ -141,9 +143,102 @@ async def test_scheduler_starts_and_stops_store_through_app_hooks() -> None:
         "start",
         "user.before_startup",
         f"set {CLAIM} overwrite=False",
-        "stop",
         "user.after_shutdown",
+        "stop",
     ]
+
+
+async def test_failing_before_startup_hook_stops_the_store() -> None:
+    store = _RecordingStore()
+    app, consumer = _app(store)
+
+    @app.before_startup
+    def no_telemetry(runner: Any) -> None:
+        raise RuntimeError("no telemetry")
+
+    @app.after_shutdown
+    def user_shutdown(runner: Any) -> None:
+        store.events.append("user.after_shutdown")
+
+    with pytest.raises(RuntimeError):
+        await _run(app, _clock())
+    assert store.events == ["start", "stop"]
+    assert await _published(consumer) == []
+
+
+async def test_cancelling_run_during_startup_stops_the_store() -> None:
+    store = _RecordingStore()
+    app, _ = _app(store)
+    entered = asyncio.Event()
+
+    @app.before_startup
+    async def hang(runner: Any) -> None:
+        entered.set()
+        await asyncio.Event().wait()
+
+    @app.after_shutdown
+    def user_shutdown(runner: Any) -> None:
+        store.events.append("user.after_shutdown")
+
+    run = asyncio.create_task(Scheduler(app, clock=_clock()).run())
+    await asyncio.wait_for(entered.wait(), 1)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert store.events == ["start", "stop"]
+
+
+async def test_cancelling_a_started_scheduler_runs_after_shutdown_then_stops_the_store() -> None:
+    store = _RecordingStore()
+    app, _ = _app(store)
+    clock = BlockingClock(_at("2026-11-04T11:29:30"))
+
+    @app.after_shutdown
+    def user_shutdown(runner: Any) -> None:
+        store.events.append("user.after_shutdown")
+
+    run = asyncio.create_task(Scheduler(app, clock=clock).run())
+    await asyncio.wait_for(clock.sleeping.wait(), 1)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert store.events == ["start", "user.after_shutdown", "stop"]
+
+
+async def test_hooks_use_the_started_store() -> None:
+    store = StrictStore()
+    app, _ = _app(store)
+    seen: list[bytes | None] = []
+
+    @app.before_startup
+    async def write(runner: Runner) -> None:
+        await runner.app.store.set("hook", b"up")
+
+    @app.after_shutdown
+    async def read(runner: Runner) -> None:
+        seen.append(await runner.app.store.get("hook"))
+
+    await _run(app, _clock())
+    assert seen == [b"up"]
+    assert store.started is False
+
+
+async def test_store_start_failure_does_not_stop_the_store() -> None:
+    class Broken(_RecordingStore):
+        async def start(self) -> None:
+            self.events.append("start")
+            raise RuntimeError("start failed")
+
+    store = Broken()
+    app, _ = _app(store)
+
+    @app.after_shutdown
+    def user_shutdown(runner: Any) -> None:
+        store.events.append("user.after_shutdown")
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        await _run(app, _clock())
+    assert store.events == ["start"]
 
 
 async def test_store_start_failure_propagates() -> None:
@@ -294,3 +389,20 @@ async def test_published_slot_keeps_its_claim() -> None:
     assert _slots(await _published(consumer)) == [("job", SLOT)]
     assert not [e for e in store.events if e.startswith("delete")]
     assert await store.get(CLAIM) == b"1"
+
+
+async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _ = _app(FailingStopStore())
+
+    @app.after_shutdown
+    def boom(runner: Any) -> None:
+        raise RuntimeError("hook failed")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="asynk"),
+        pytest.raises(RuntimeError, match="hook failed"),
+    ):
+        await _run(app, _clock())
+    assert_store_stop_failure_logged(caplog)

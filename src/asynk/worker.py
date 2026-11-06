@@ -53,6 +53,10 @@ def _link(layer: Middleware, inner: Next) -> Next:
 class Worker(Runner):
     """Runs an app's tasks, consuming deliveries with bounded concurrency.
 
+    `run` serves until shutdown is requested or deliveries end. In-flight tasks
+    are given `shutdown_timeout` seconds to finish; stragglers are cancelled and
+    their deliveries requeued.
+
     Attributes:
         app: The app to serve.
         consumer: The app's consumer.
@@ -131,21 +135,8 @@ class Worker(Runner):
         with shutdown_signals(self.request_shutdown):
             await self.run()
 
-    async def run(self) -> None:
-        """Consumes and runs tasks until shutdown is requested or deliveries end.
-
-        In-flight tasks are given `shutdown_timeout` seconds to finish; stragglers
-        are cancelled and their deliveries requeued.
-
-        Startup and shutdown hooks run around the consumer; see `App.before_startup`
-        and its siblings.
-        """
-        await run_hooks(self.app.hooks.before_startup, self)
+    async def _start(self) -> None:
         await self.consumer.start()
-        try:
-            await self._serve()
-        finally:
-            await run_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)

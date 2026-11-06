@@ -4,7 +4,6 @@ import pytest
 
 from asynk.app import App
 from asynk.codec.json import JsonCodec
-from asynk.hooks import run_hooks
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
@@ -116,40 +115,10 @@ def test_codec_is_kept() -> None:
     assert App("t", codec=codec).codec is codec
 
 
-class _SpyStore(MemoryStore):
-    def __init__(self, calls: list[str]) -> None:
-        super().__init__()
-        self._calls = calls
-
-    async def start(self) -> None:
-        self._calls.append("store.start")
-
-    async def stop(self) -> None:
-        self._calls.append("store.stop")
-
-
-async def test_store_hooks_start_and_stop_the_store() -> None:
-    calls: list[str] = []
-    app = App("t", store=_SpyStore(calls))
-
-    @app.before_startup
-    def user_startup(runner: object) -> None:
-        calls.append("user.before_startup")
-
-    @app.after_shutdown
-    def user_shutdown(runner: object) -> None:
-        calls.append("user.after_shutdown")
-
-    runner = object()
-    await run_hooks(app.hooks.before_startup, runner)
-    await run_hooks(app.hooks.after_shutdown, runner)
-
-    assert calls == [
-        "store.start",
-        "user.before_startup",
-        "store.stop",
-        "user.after_shutdown",
-    ]
+def test_store_is_not_a_lifecycle_hook() -> None:
+    app = App("t", store=MemoryStore())
+    assert list(app.hooks.before_startup) == []
+    assert list(app.hooks.after_shutdown) == []
 
 
 async def test_get_task_returns_handle_bound_to_store_and_codec() -> None:

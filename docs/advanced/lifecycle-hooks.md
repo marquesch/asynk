@@ -10,10 +10,10 @@ code around each task instead, see [Middleware](middleware.md).
 
 | Decorator | Runs |
 |---|---|
-| `before_startup` | before the consumer starts (worker) or the loop starts (scheduler) |
+| `before_startup` | after the store starts, before the consumer starts (worker) or the loop starts (scheduler) |
 | `after_startup` | once the consumer has started (worker) or the loop is about to start (scheduler) |
 | `before_shutdown` | when the worker stops fetching, before draining; when the scheduler stops |
-| `after_shutdown` | last: after draining with the consumer stopped (worker); after the loop ended (scheduler) |
+| `after_shutdown` | after draining with the consumer stopped (worker); after the loop ended (scheduler); before the store stops, and only after a completed startup |
 
 ## One hook for every process
 
@@ -23,9 +23,19 @@ receive the `Runner` they run in. `runner.role` is `"worker"` or
 parameter `Runner`: a hook annotated `Worker` is rejected by mypy, since it
 would not accept a scheduler.
 
-The app registers its own hooks first: it starts its store in `before_startup`
-and stops it in `after_shutdown`, so your startup hooks can already use the
-store.
+## Startup and shutdown order
+
+1. The store starts.
+2. The `before_startup` hooks run.
+3. The consumer starts (worker).
+4. The `after_startup` hooks run.
+5. The process serves.
+6. The `before_shutdown` hooks run.
+7. The worker drains and stops its consumer.
+8. The `after_shutdown` hooks run.
+9. The store stops.
+
+Every hook can use the store.
 
 ## Registration
 
@@ -38,9 +48,27 @@ its hooks again, since its functions are new objects.
 
 ## Errors
 
-Hooks fail loudly. A lifecycle hook that raises stops the remaining hooks of
-that event and makes `Worker.run()` or `Scheduler.run()` raise. The process
-still cleans up first, and a worker still drains its running tasks.
+Hooks fail loudly. A lifecycle hook that raises makes `Worker.run()` or
+`Scheduler.run()` raise, and the remaining hooks of that event do not run, with
+one exception: every `after_shutdown` hook runs even when one raises. Each
+failure is logged. One failure is re-raised as is; several are raised together
+as an `ExceptionGroup`, which you catch with `except*`. Once started, the
+process still cleans up first, and a worker still drains its running tasks.
+
+If a `before_startup` hook raises, the consumer fails to start, or `run()` is
+cancelled before startup completes, no further hook runs: not `after_startup`,
+`before_shutdown` or `after_shutdown`. Only the store is stopped, and the error
+propagates. If the store's `stop()` raises while this unwinds, that error is
+logged and never hides the original one.
+
+So a resource opened by an earlier `before_startup` hook is not closed by your
+`after_shutdown` hook when a later step fails. Nothing closes it for you. If
+you call `run()` yourself, wrap it in `try`/`finally`. Under the `asynk` CLI the
+process exits on the error. A failure inside your own hook is yours to clean up
+before you re-raise.
+
+A failing `after_startup` hook still runs the shutdown path, including
+`after_shutdown` (but not `before_shutdown`).
 
 In a scheduler, keep hooks quick: the liveness probe is not refreshed while a
 hook runs, and a slow shutdown hook delays exit by its full duration. See

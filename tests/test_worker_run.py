@@ -635,3 +635,34 @@ async def test_failing_after_shutdown_raises() -> None:
     worker.request_shutdown()
     with pytest.raises(RuntimeError, match="close failed"):
         await asyncio.wait_for(run, 1)
+
+
+async def test_every_after_shutdown_hook_runs_when_several_fail() -> None:
+    app, _, _, worker = _setup()
+    ran: list[str] = []
+
+    @app.after_shutdown
+    def one(runner: Runner) -> None:
+        raise RuntimeError("one")
+
+    @app.after_shutdown
+    def middle(runner: Runner) -> None:
+        ran.append("ran")
+
+    @app.after_shutdown
+    def two(runner: Runner) -> None:
+        raise RuntimeError("two")
+
+    started = asyncio.Event()
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    worker.request_shutdown()
+    with pytest.raises(ExceptionGroup) as info:
+        await asyncio.wait_for(run, 1)
+    assert [str(e) for e in info.value.exceptions] == ["one", "two"]
+    assert ran == ["ran"]

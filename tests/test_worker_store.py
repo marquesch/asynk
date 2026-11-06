@@ -8,12 +8,14 @@ from typing import Any
 
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
+from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failure_logged
 
 from asynk import TaskError
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskState
+from asynk.runner import Runner
 from asynk.store.memory import MemoryStore
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
@@ -247,10 +249,17 @@ class _SpyStore(MemoryStore):
 
 
 class _SpyConsumer:
-    def __init__(self, inner: MemoryConsumer, calls: list[str], fail: bool = False) -> None:
+    def __init__(
+        self,
+        inner: MemoryConsumer,
+        calls: list[str],
+        fail: bool = False,
+        fail_start: bool = False,
+    ) -> None:
         self._inner = inner
         self._calls = calls
         self._fail = fail
+        self._fail_start = fail_start
 
     @property
     def connected(self) -> bool:
@@ -258,6 +267,8 @@ class _SpyConsumer:
 
     async def start(self) -> None:
         self._calls.append("consumer.start")
+        if self._fail_start:
+            raise ConnectionError("broker down")
         await self._inner.start()
 
     async def stop(self) -> None:
@@ -273,13 +284,13 @@ class _SpyConsumer:
         return self._inner.process(delivery)
 
 
-def _spy_setup(fail: bool = False) -> tuple[list[str], Worker]:
+def _spy_setup(fail: bool = False, fail_start: bool = False) -> tuple[list[str], Worker]:
     calls: list[str] = []
     producer, consumer = memory_transport()
     app = App(
         "t",
         producer=producer,
-        consumer=_SpyConsumer(consumer, calls, fail),
+        consumer=_SpyConsumer(consumer, calls, fail, fail_start),
         store=_SpyStore(calls),
     )
 
@@ -294,12 +305,13 @@ def _spy_setup(fail: bool = False) -> tuple[list[str], Worker]:
     return calls, Worker(app)
 
 
-async def test_worker_starts_and_stops_store_through_app_hooks() -> None:
+async def test_worker_owns_the_store_lifecycle() -> None:
     calls, worker = _spy_setup()
     started = asyncio.Event()
 
     @worker.app.after_startup
     def mark_started(runner: object) -> None:
+        calls.append("user.after_startup")
         started.set()
 
     run = asyncio.create_task(worker.run())
@@ -310,9 +322,10 @@ async def test_worker_starts_and_stops_store_through_app_hooks() -> None:
         "store.start",
         "user.before_startup",
         "consumer.start",
+        "user.after_startup",
         "consumer.stop",
-        "store.stop",
         "user.after_shutdown",
+        "store.stop",
     ]
 
 
@@ -321,7 +334,111 @@ async def test_worker_stops_store_when_serving_raises() -> None:
     with pytest.raises(RuntimeError, match="serve failed"):
         await asyncio.wait_for(worker.run(), 1)
     assert calls[0] == "store.start"
-    assert "store.stop" in calls
+    assert calls[-2:] == ["user.after_shutdown", "store.stop"]
+
+
+async def test_failing_before_startup_hook_stops_the_store() -> None:
+    calls, worker = _spy_setup()
+
+    @worker.app.before_startup
+    def no_db(runner: object) -> None:
+        raise RuntimeError("no db")
+
+    with pytest.raises(RuntimeError, match="no db"):
+        await asyncio.wait_for(worker.run(), 1)
+    assert calls == ["store.start", "user.before_startup", "store.stop"]
+
+
+async def test_failing_consumer_start_stops_the_store() -> None:
+    calls, worker = _spy_setup(fail_start=True)
+    with pytest.raises(ConnectionError, match="broker down"):
+        await asyncio.wait_for(worker.run(), 1)
+    assert calls == ["store.start", "user.before_startup", "consumer.start", "store.stop"]
+
+
+async def test_failing_store_start_does_not_stop_the_store() -> None:
+    calls: list[str] = []
+
+    class FailingStart(_SpyStore):
+        async def start(self) -> None:
+            calls.append("store.start")
+            raise RuntimeError("start failed")
+
+    _, _, _, worker = _setup(FailingStart(calls))
+
+    @worker.app.after_shutdown
+    def user_shutdown(runner: object) -> None:
+        calls.append("user.after_shutdown")
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        await asyncio.wait_for(worker.run(), 1)
+    assert calls == ["store.start"]
+
+
+async def test_store_stop_failure_during_unwind_is_logged_not_raised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, _, worker = _setup(FailingStopStore())
+
+    @app.before_startup
+    def no_db(runner: object) -> None:
+        raise RuntimeError("no db")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="asynk"),
+        pytest.raises(RuntimeError, match="no db"),
+    ):
+        await asyncio.wait_for(worker.run(), 1)
+    assert_store_stop_failure_logged(caplog)
+
+
+async def test_cancelling_run_during_startup_stops_the_store() -> None:
+    calls: list[str] = []
+    _, _, _, worker = _setup(_SpyStore(calls))
+    entered = asyncio.Event()
+
+    @worker.app.before_startup
+    async def hang(runner: object) -> None:
+        calls.append("user.before_startup")
+        entered.set()
+        await asyncio.Event().wait()
+
+    @worker.app.after_shutdown
+    def user_shutdown(runner: object) -> None:
+        calls.append("user.after_shutdown")
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(entered.wait(), 1)
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    assert calls == ["store.start", "user.before_startup", "store.stop"]
+
+
+async def test_hooks_use_the_started_store() -> None:
+    store = StrictStore()
+    app, _, _, worker = _setup(store)
+    seen: list[bytes | None] = []
+    started = asyncio.Event()
+
+    @app.before_startup
+    async def write(runner: Runner) -> None:
+        await runner.app.store.set("hook", b"up")
+
+    @app.after_startup
+    def mark_started(runner: Runner) -> None:
+        started.set()
+
+    @app.after_shutdown
+    async def read(runner: Runner) -> None:
+        seen.append(await runner.app.store.get("hook"))
+
+    run = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), 1)
+    worker.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    assert seen == [b"up"]
+    assert store.started is False
 
 
 async def test_layer_failure_records_retrying_or_failure() -> None:
@@ -416,3 +533,44 @@ async def test_worker_with_null_store_runs_tasks(caplog: pytest.LogCaptureFixtur
         worker.request_shutdown()
         await asyncio.wait_for(run, 1)
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_cancelling_run_during_startup_logs_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, _, worker = _setup(FailingStopStore())
+    entered = asyncio.Event()
+
+    @app.before_startup
+    async def hang(runner: object) -> None:
+        entered.set()
+        await asyncio.Event().wait()
+
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        run = asyncio.create_task(worker.run())
+        await asyncio.wait_for(entered.wait(), 1)
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+    assert_store_stop_failure_logged(caplog)
+
+
+async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, consumer, worker = _setup(FailingStopStore())
+
+    @app.after_startup
+    def stop_now(runner: Runner) -> None:
+        runner.request_shutdown()
+
+    @app.after_shutdown
+    def boom(runner: object) -> None:
+        raise RuntimeError("hook failed")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="asynk"),
+        pytest.raises(RuntimeError, match="hook failed"),
+    ):
+        await asyncio.wait_for(worker.run(), 1)
+    assert_store_stop_failure_logged(caplog)

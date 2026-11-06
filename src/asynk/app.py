@@ -15,7 +15,6 @@ from asynk.hooks import (
     Middleware,
 )
 from asynk.results import TaskHandle
-from asynk.runner import Runner
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.store.null import NullStore
@@ -74,14 +73,6 @@ class App:
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
-        self.hooks.before_startup.add(self._start_store)
-        self.hooks.after_shutdown.add(self._stop_store)
-
-    async def _start_store(self, runner: Runner) -> None:
-        await self.store.start()
-
-    async def _stop_store(self, runner: Runner) -> None:
-        await self.store.stop()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -202,11 +193,12 @@ class App:
         return TaskHandle(task_id, self.store, self.codec)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run before a worker's consumer or a scheduler's loop starts.
+        """Registers a hook run after the store starts and before serving begins.
 
-        Lifecycle hooks may be sync or async and receive the `Runner` they run in,
-        a `Worker` or a `Scheduler`; `runner.role` tells them apart. Registering
-        the same hook twice has no effect.
+        It runs before a worker's consumer or a scheduler's loop starts. Lifecycle
+        hooks may be sync or async and receive the `Runner` they run in, a `Worker`
+        or a `Scheduler`; `runner.role` tells them apart. Registering the same hook
+        twice has no effect.
 
         Example:
             Initialize telemetry in every process, but open a database pool only
@@ -254,7 +246,7 @@ class App:
         return self.hooks.before_shutdown.add(hook)
 
     def after_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run last, after a worker or scheduler has stopped.
+        """Registers a hook run after a worker or scheduler has stopped, before the store stops.
 
         Same rules as `before_startup`.
 

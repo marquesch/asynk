@@ -48,8 +48,9 @@ carries on, so a record can be missing after a store outage.
 
 ## Store lifecycle
 
-The app starts its store in its `before_startup` hooks and stops it in its
-`after_shutdown` hooks, so a worker and a scheduler need nothing extra. A
+A worker and a scheduler start the app's store before their `before_startup`
+hooks and stop it after their `after_shutdown` hooks, also when startup fails,
+so they need nothing extra. A
 producer-only script, which runs neither, starts and stops the store itself
 (a fragment: it needs a worker running elsewhere):
 

@@ -9,10 +9,14 @@
 ::: asynk.ScheduledTask
 
 ::: asynk.Scheduler
+    options:
+      inherited_members: true
 
 ## Running
 
 ::: asynk.Worker
+    options:
+      inherited_members: true
 
 ::: asynk.Runner
 
