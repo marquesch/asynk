@@ -86,7 +86,8 @@ async def _published(consumer: MemoryConsumer) -> list[Envelope]:
 async def _run(app: App, clock: FakeClock, **kwargs: Any) -> Scheduler:
     scheduler = Scheduler(app, clock=clock, **kwargs)
     clock.on_limit = scheduler.request_shutdown
-    await asyncio.wait_for(scheduler.run(), 1)
+    # Only a hang guard: the fake clock ends the run, so a loaded machine just slows it down.
+    await asyncio.wait_for(scheduler.run(), 30)
     return scheduler
 
 
@@ -495,21 +496,25 @@ async def test_sleep_is_capped_by_heartbeat_interval() -> None:
     assert max(clock.sleeps) == 7
 
 
-def _count_beats(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+def _count_beats(monkeypatch: pytest.MonkeyPatch, *, first_only: bool = False) -> list[float]:
+    """Counts `ProbeFiles.beat` calls; with `first_only`, only the first touches the disk."""
     beats: list[float] = []
     real = ProbeFiles.beat
 
     def counting(self: ProbeFiles, *, ready: bool) -> None:
         assert ready is False
         beats.append(len(beats))
-        real(self, ready=ready)
+        if not first_only or len(beats) == 1:
+            real(self, ready=ready)
 
     monkeypatch.setattr(ProbeFiles, "beat", counting)
     return beats
 
 
 async def test_beats_repeatedly_while_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    beats = _count_beats(monkeypatch)
+    # ~720 real probe writes (a temp file and rename each) are slow on loaded CI disks and
+    # are not what this test checks, so only the first beat is written.
+    beats = _count_beats(monkeypatch, first_only=True)
     app, _ = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
