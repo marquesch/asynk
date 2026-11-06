@@ -59,6 +59,7 @@ a worker with `asynk worker tasks:app`.
 - **Cron scheduled tasks** with per-slot dedupe when schedulers share a store.
 - **Task results** through a store, with states and awaitable handles.
 - **Lifecycle hooks** shared by workers and the scheduler.
+- **Middleware** around every task: timing, metrics, vetoes, cleanup.
 - **Health probes and graceful shutdown**, ready for Kubernetes.
 
 ## Learn more

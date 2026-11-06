@@ -33,7 +33,7 @@ and `.message`.
 | `RETRYING` | an attempt failed below the task's `max_retries` |
 | `SUCCESS` | finished; `result()` returns the value |
 | `FAILURE` | failed for good; `result()` raises `TaskError` |
-| `SKIPPED` | the task was skipped and did not run; `result()` returns `None` |
+| `SKIPPED` | a middleware vetoed the task, so it did not run; `result()` returns `None` |
 | `UNKNOWN` | the store has no record for this id |
 
 A failed attempt is final, `FAILURE`, once `envelope.attempt` reaches the
