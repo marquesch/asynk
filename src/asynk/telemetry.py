@@ -19,11 +19,12 @@ class Telemetry(Protocol):
 
     An implementation must not raise: telemetry never breaks publishing or tasks.
 
-    Attributes:
-        layer: Middleware a worker runs outside every layer of the app, or None.
     """
 
-    layer: Middleware | None
+    @property
+    def layer(self) -> Middleware | None:
+        """Middleware a worker runs outside every layer of the app, or None."""
+        ...
 
     def inject(self, metadata: dict[str, object]) -> None:
         """Adds trace context to the metadata of an envelope about to be published.

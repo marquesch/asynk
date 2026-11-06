@@ -76,6 +76,8 @@
 
 ::: asynk.NullTelemetry
 
+::: asynk.otel.OtelTelemetry
+
 ## Results
 
 ::: asynk.TaskHandle
