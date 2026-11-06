@@ -56,3 +56,23 @@ class RedisStore:
         if self._owns_client:
             self._owns_client = False
             await self._client.aclose()
+
+    def _key(self, key: str) -> str:
+        return self._prefix + key
+
+    async def get(self, key: str) -> bytes | None:
+        """Reads a value, or returns None if the key is missing or expired."""
+        value = await self._client.get(self._key(key))
+        if isinstance(value, str):
+            raise TypeError("RedisStore needs a client with decode_responses=False")
+        return value
+
+    async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
+        """Writes a value; returns False if the key exists and `overwrite` is false."""
+        return bool(
+            await self._client.set(self._key(key), value, px=self._ttl_ms, nx=not overwrite)
+        )
+
+    async def delete(self, key: str) -> bool:
+        """Removes a key; returns False if it is missing or expired."""
+        return await self._client.delete(self._key(key)) == 1
