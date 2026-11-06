@@ -74,7 +74,8 @@ a worker with `asynk worker tasks:app`.
 - [Guides](https://marquesch.github.io/asynk/guides/scheduled-tasks/) and
   [advanced topics](https://marquesch.github.io/asynk/advanced/lifecycle-hooks/)
 - [API reference](https://marquesch.github.io/asynk/reference/)
-- [Changelog](CHANGELOG.md), including breaking changes
+- [Release notes](https://marquesch.github.io/asynk/release-notes/) and the
+  [changelog](CHANGELOG.md)
 
 ## License
 
