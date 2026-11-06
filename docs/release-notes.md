@@ -1,11 +1,20 @@
-# 0.1
+# Release notes
+
+The release notes explain what matters in each release: what breaks, how to migrate
+and what is new. They are written by hand, newest release first, when a release is
+prepared, not in the pull requests of individual features.
+
+The [changelog](changelog.md) is generated from the commit history and is the complete
+list of changes in each release.
+
+## 0.1.0
 
 The first release. These notes group the changes made before it by kind, with the
 breaking ones first.
 
-## Breaking changes
+### Breaking changes
 
-### Changed
+#### Changed
 
 - `TaskStatus.FAILED` is final: the task is not retried and is recorded
   as `FAILURE`. It used to be recorded as `RETRYING` and `result()` never completed.
@@ -55,7 +64,7 @@ breaking ones first.
   `ExceptionGroup`; it used to surface only the first error, so `except RuntimeError`
   no longer catches that case.
 
-### Removed
+#### Removed
 
 - `max_retries=` on `@app.task` and `@app.scheduled_task`, and
   `Task.max_retries`; write `options=TaskOptions(retry=RetryPolicy(max_retries=3))` instead of
@@ -69,7 +78,7 @@ breaking ones first.
 - The unix socket transport (`asynk.transport.unix`, `unix_transport`) and
   `SqliteStore`, with their examples.
 
-## Added
+### Added
 
 - MIT license: a `LICENSE` file and the `license` metadata of the package.
 - `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
@@ -120,7 +129,7 @@ breaking ones first.
   delayed publish is not delivered early; a `redis` registry entry that runs on a
   real server when `ASYNK_TEST_REDIS_URL` is set.
 
-## Changed
+### Changed
 
 - Development: `make test` reports coverage through `pytest-cov` (branch coverage of
   `src/asynk`, no minimum), and CI reports the coverage of each test run.
@@ -130,7 +139,7 @@ breaking ones first.
   documentation site.
 - Docstrings reviewed for consistency: every module has a docstring, and the status and state enum members are documented.
 
-## Fixed
+### Fixed
 
 - The scheduler releases its dedupe claim when the publish fails or is cancelled.
 - `MemoryStore` purges expired keys and frees wait events instead of keeping them

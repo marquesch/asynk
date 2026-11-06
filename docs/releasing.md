@@ -84,9 +84,34 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
 ## Release notes
 
 The generated changelog lists every change. Anything that needs explaining, such as
-breaking changes and how to migrate, goes in a hand-written page under
-`docs/release-notes/`. See [Release notes](release-notes/index.md) for how to add one.
-Write it in the pull request that makes the change, or before merging the Release PR.
+breaking changes and how to migrate, goes in [Release notes](release-notes.md), a
+single hand-written file with one section per release, newest first.
+
+A contributor cannot know which release a pull request will land in, so contributors
+do not write release notes. What they provide instead:
+
+- a conventional pull request title that reads well to a user, because the changelog
+  is built from it;
+- for a breaking change, a `BREAKING CHANGE:` footer in the commit message that says
+  what changed and what to write instead;
+- the migration guidance in the documentation page of the feature itself, where users
+  will look for it.
+
+The maintainer writes the release notes section when preparing a release, from the
+generated changelog, the pull request descriptions and those documentation pages.
+Do it in a separate `docs:` pull request merged just before the Release PR, not as a
+commit on the Release PR's branch, because release-please regenerates that branch
+when new commits land on `master`. The version number is already known by then, as
+the Release PR proposes it.
+
+To add the section:
+
+1. Add a `## <version>` section at the top of `docs/release-notes.md`, above the
+   previous release.
+2. Under it, put breaking changes first (`### Breaking changes`, each entry saying what
+   changed and what to write instead), then `### Added`, `### Changed`, `### Removed`
+   and `### Fixed`, leaving out the empty ones.
+3. Run `make docs`, which builds the site in strict mode and fails on broken links.
 
 ## First release
 
