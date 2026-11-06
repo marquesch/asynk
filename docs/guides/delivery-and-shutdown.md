@@ -21,13 +21,13 @@ and rejected without requeue.
 ## Graceful shutdown
 
 On SIGTERM or SIGINT the worker stops fetching, then waits up to
-`shutdown_timeout` (default 30 s, `--shutdown-timeout`) for running tasks. Tasks
+`shutdown_timeout` (default 10 s, `--shutdown-timeout`) for running tasks. Tasks
 still running afterwards are cancelled, and their deliveries are rejected with
 requeue, so the broker redelivers them.
 
-On Kubernetes set `terminationGracePeriodSeconds` above `shutdown_timeout`. The
-default `shutdown_timeout` of 30 seconds equals the Kubernetes default grace
-period of 30 seconds, so raise one of them.
+On Kubernetes keep `terminationGracePeriodSeconds` above `shutdown_timeout`. The
+default `shutdown_timeout` of 10 seconds is below the Kubernetes default grace
+period of 30 seconds; if you raise it, raise the grace period too.
 
 A retry published with a delay waits in the broker. The memory transport keeps
 it in the process, so a delayed retry that is not yet due is lost when the

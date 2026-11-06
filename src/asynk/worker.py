@@ -67,7 +67,7 @@ class Worker(Runner):
         app: App,
         *,
         concurrency: int = 10,
-        shutdown_timeout: float = 30.0,
+        shutdown_timeout: float = 10.0,
         probe_dir: Path | None = None,
         heartbeat_interval: float = 5.0,
     ) -> None:

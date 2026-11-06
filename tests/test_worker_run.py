@@ -402,6 +402,10 @@ def test_worker_rejects_invalid_arguments(kwargs: dict[str, Any]) -> None:
         _setup(**kwargs)
 
 
+def test_default_shutdown_timeout_is_ten_seconds() -> None:
+    assert _setup()[3].shutdown_timeout == 10.0
+
+
 def test_worker_accepts_zero_shutdown_timeout() -> None:
     _setup(shutdown_timeout=0)
 
