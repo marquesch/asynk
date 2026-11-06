@@ -70,6 +70,14 @@
 
 ::: asynk.store.polling.poll
 
+## Telemetry
+
+::: asynk.Telemetry
+
+::: asynk.NullTelemetry
+
+::: asynk.otel.OtelTelemetry
+
 ## Results
 
 ::: asynk.TaskHandle

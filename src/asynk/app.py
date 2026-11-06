@@ -23,6 +23,7 @@ from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.store.null import NullStore
 from asynk.task import Task
+from asynk.telemetry import Telemetry, select_telemetry
 from asynk.transport import Consumer, Producer, PublishOptions
 
 logger = logging.getLogger("asynk")
@@ -44,6 +45,8 @@ class App:
         options: Default options of the app's tasks.
         hooks: The hooks and middleware registered through the `before_*`, `after_*` and
             `middleware` decorators.
+        telemetry: Tracing and metrics component, chosen when the app is built: the
+            OpenTelemetry one when `opentelemetry-api` is installed, else a `NullTelemetry`.
     """
 
     def __init__(
@@ -86,6 +89,7 @@ class App:
         self._tasks: dict[str, Task[..., Any]] = {}
         self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
+        self.telemetry: Telemetry = select_telemetry()
 
     @property
     def tasks(self) -> Mapping[str, Task[..., Any]]:
@@ -214,9 +218,10 @@ class App:
     ) -> TaskHandle:
         """Publishes an envelope for a worker to run.
 
-        After the envelope is sent, the task's state is set to `PENDING` unless a
-        worker has already recorded one. A store failure is logged and does not
-        fail the publish.
+        The telemetry component first adds trace context to the envelope's metadata
+        (keys already there are kept). After the envelope is sent, the task's state is
+        set to `PENDING` unless a worker has already recorded one. A store failure is
+        logged and does not fail the publish.
 
         Args:
             envelope: The envelope to publish.
@@ -230,7 +235,9 @@ class App:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the codec cannot encode the envelope.
         """
+        self.telemetry.inject(envelope.metadata)
         receipt = await self.send(envelope, options)
+        self.telemetry.message_published(envelope)
         try:
             await self.store.set(
                 state_key(envelope.id), encode_state(self.codec, TaskState.PENDING)

@@ -53,6 +53,8 @@ NAMES = [
     "Store",
     "MemoryStore",
     "NullStore",
+    "NullTelemetry",
+    "Telemetry",
     "TaskHandle",
     "TaskOptions",
     "TaskState",
