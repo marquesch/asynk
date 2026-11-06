@@ -10,7 +10,16 @@ from typing import Any, ClassVar, TypeVar
 from asynk.app import App, NotConfiguredError
 from asynk.codec import DecodeError, EncodeError
 from asynk.envelope import Envelope, InvalidEnvelopeError
-from asynk.hooks import SkipTask, TaskFailedError, TaskResult, TaskStatus, run_hooks
+from asynk.hooks import (
+    Middleware,
+    Next,
+    SkipTask,
+    TaskCall,
+    TaskFailedError,
+    TaskResult,
+    TaskStatus,
+    run_hooks,
+)
 from asynk.probes import ProbeFiles
 from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
 from asynk.runner import Role, Runner
@@ -29,6 +38,10 @@ _TERMINAL_STATES = {
 }
 
 logger = logging.getLogger("asynk")
+
+
+def _link(layer: Middleware, inner: Next) -> Next:
+    return lambda call: layer(call, inner)
 
 
 class Worker(Runner):
@@ -240,8 +253,20 @@ class Worker(Runner):
                     await delivery.reject()
                     return None
                 try:
+                    call = TaskCall(envelope, delivery)
+
+                    outcome: TaskResult | None = None
+
+                    async def run_task(call: TaskCall) -> TaskResult:
+                        nonlocal outcome
+                        outcome = await self._execute(call)
+                        return outcome
+
+                    chain: Next = run_task
+                    for layer in self.app.hooks.middleware:
+                        chain = _link(layer, chain)
                     try:
-                        result = await self._execute(envelope, delivery)
+                        result = await chain(call)
                         self._log_result(result)
                         await run_hooks(self.app.hooks.after_task, result, delivery)
                     except Exception as exc:
@@ -367,11 +392,12 @@ class Worker(Runner):
             case TaskStatus.UNKNOWN_TASK:
                 logger.warning("unknown task %r (id=%s)", name, result.envelope.id)
             case TaskStatus.SKIPPED:
-                logger.info("task %r (id=%s) skipped by a hook", name, result.envelope.id)
+                logger.info("task %r (id=%s) skipped by middleware", name, result.envelope.id)
             case TaskStatus.SUCCESS:
                 logger.debug("task %r (id=%s) succeeded", name, result.envelope.id)
 
-    async def _execute(self, envelope: Envelope, delivery: Delivery) -> TaskResult:
+    async def _execute(self, call: TaskCall) -> TaskResult:
+        envelope, delivery = call.envelope, call.delivery
         try:
             task = self.app.registered_task(envelope.task)
         except KeyError:
