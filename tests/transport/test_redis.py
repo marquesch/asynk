@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import subprocess
 import sys
@@ -9,8 +10,10 @@ from typing import Any
 
 import fakeredis
 import pytest
+import redis.asyncio
 from redis.exceptions import ConnectionError
 from redis_helpers import BlockingFakeRedis
+from service_helpers import redis_url
 
 import asynk.transport.redis
 from asynk import App, Worker
@@ -283,3 +286,54 @@ async def test_worker_runs_a_task_over_the_transport(client: fakeredis.FakeAsync
     await asyncio.wait_for(run, 5)
     assert seen == [3]
     assert asynk.transport.redis.RedisProducer is RedisProducer
+
+
+@pytest.fixture(
+    params=[
+        pytest.param("fake", id="fake"),
+        pytest.param("real", id="real", marks=pytest.mark.requires_redis),
+    ]
+)
+async def client_swallowing_a_cancel(request: pytest.FixtureRequest) -> AsyncIterator[Any]:
+    """A client whose first `transaction` swallows the cancellation it receives.
+
+    Python 3.11's `asyncio.wait_for`, which redis-py 8 wraps every command write in, does
+    this when the write finishes in the same loop iteration the task is cancelled.
+    """
+    client: Any = (
+        BlockingFakeRedis()
+        if request.param == "fake"
+        else redis.asyncio.Redis.from_url(redis_url())
+    )
+    client.in_transaction = asyncio.Event()
+    transaction = client.transaction
+
+    async def swallowing(*args: Any, **kwargs: Any) -> Any:
+        client.transaction = transaction  # only the first call swallows
+        client.in_transaction.set()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.sleep(3600)
+        return []
+
+    client.transaction = swallowing
+    yield client
+    await client.aclose()
+
+
+async def test_cancelling_a_read_ends_it_even_if_the_client_swallowed_the_cancellation(
+    client_swallowing_a_cancel: Any,
+) -> None:
+    # A swallowed cancellation leaves the read running, and `Runner._race` waits for it on
+    # shutdown: the consumer must notice the cancel and stop by itself.
+    consumer = RedisConsumer(client=client_swallowing_a_cancel, queue="q-swallow", block=0.01)
+    await consumer.start()
+    read = asyncio.ensure_future(anext(consumer.deliveries()))
+    try:
+        await asyncio.wait_for(client_swallowing_a_cancel.in_transaction.wait(), 2)  # in the upkeep
+        read.cancel()
+        await asyncio.wait({read}, timeout=2)
+        assert read.cancelled()
+    finally:
+        read.cancel()
+        await asyncio.gather(read, return_exceptions=True)
+        await consumer.stop()
