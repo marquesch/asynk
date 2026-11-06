@@ -18,6 +18,7 @@ PAGES = {
     "getting-started.md": [
         "getting_started/first_app.py",
         "getting_started/defining_tasks.py",
+        "getting_started/blocking_task.py",
         "getting_started/call_tasks.py",
     ],
     "guides/scheduled-tasks.md": ["guides/scheduled_tasks.py"],
