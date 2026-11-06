@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from asynk.retry import RetryPolicy
@@ -30,19 +30,18 @@ class TaskOptions:
         ):
             raise TypeError(f"retry must be a RetryPolicy, False or None, got {self.retry!r}")
 
+    @property
+    def policy(self) -> RetryPolicy | None:
+        """The retry policy in force; None when retries are off or unset."""
+        return None if self.retry is False else self.retry
 
-def resolve_retry(*layers: TaskOptions | None) -> RetryPolicy | None:
-    """Resolves the retry policy in force from layers of options.
+    def with_defaults(self, defaults: TaskOptions) -> TaskOptions:
+        """Fills the options left unset from `defaults`.
 
-    Args:
-        *layers: Options from the most to the least specific; those that leave
-            `retry` unset are skipped.
+        Args:
+            defaults: The options to fall back on.
 
-    Returns:
-        The policy of the first layer that sets `retry`, or None when it is
-        `False` or no layer sets it.
-    """
-    for layer in layers:
-        if layer is not None and layer.retry is not None:
-            return None if layer.retry is False else layer.retry
-    return None
+        Returns:
+            New options; neither `self` nor `defaults` is changed.
+        """
+        return replace(self, retry=defaults.retry if self.retry is None else self.retry)

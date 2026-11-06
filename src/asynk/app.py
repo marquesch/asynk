@@ -14,7 +14,7 @@ from asynk.hooks import (
     LifecycleHook,
     Middleware,
 )
-from asynk.options import TaskOptions, resolve_retry
+from asynk.options import TaskOptions
 from asynk.results import TaskHandle
 from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
@@ -169,7 +169,7 @@ class App:
     def _task_policy(self, options: TaskOptions | None) -> RetryPolicy | None:
         if options is not None and not isinstance(options, TaskOptions):
             raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
-        return resolve_retry(options, self.options)
+        return (options or TaskOptions()).with_defaults(self.options).policy
 
     def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
         task_name = name or f"{self.name}.{func.__qualname__}"

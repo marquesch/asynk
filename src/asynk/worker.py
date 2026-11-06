@@ -25,7 +25,6 @@ from asynk.hooks import (
     TaskStatus,
     run_hooks,
 )
-from asynk.options import resolve_retry
 from asynk.probes import ProbeFiles
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
@@ -280,7 +279,7 @@ class Worker(Runner):
 
     def _policy(self, task_name: str) -> RetryPolicy | None:
         task = self.app.tasks.get(task_name)
-        return task.retry if task is not None else resolve_retry(self.app.options)
+        return task.retry if task is not None else self.app.options.policy
 
     def _on_middleware_failure(
         self, envelope: Envelope, delivery: Delivery, exc: Exception

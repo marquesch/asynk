@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 
 from asynk import RetryPolicy, TaskOptions
-from asynk.options import resolve_retry
 
 
 def test_defaults_to_no_retry_setting() -> None:
@@ -26,13 +25,23 @@ def test_is_frozen() -> None:
         TaskOptions().retry = False  # type: ignore[misc]
 
 
-def test_resolve_retry_takes_the_most_specific_layer_that_sets_it() -> None:
+def test_with_defaults_keeps_the_options_that_are_set_and_fills_the_rest() -> None:
     task, app = RetryPolicy(max_retries=5), RetryPolicy(max_retries=2)
-    assert resolve_retry(TaskOptions(retry=task), TaskOptions(retry=app)) is task
-    assert resolve_retry(TaskOptions(), TaskOptions(retry=app)) is app
-    assert resolve_retry(None, TaskOptions(retry=app)) is app
+    assert TaskOptions(retry=task).with_defaults(TaskOptions(retry=app)).retry is task
+    assert TaskOptions().with_defaults(TaskOptions(retry=app)).retry is app
+    assert TaskOptions(retry=False).with_defaults(TaskOptions(retry=app)).retry is False
 
 
-def test_resolve_retry_false_wins_and_means_none() -> None:
-    assert resolve_retry(TaskOptions(retry=False), TaskOptions(retry=RetryPolicy())) is None
-    assert resolve_retry(TaskOptions(), TaskOptions()) is None
+def test_with_defaults_returns_a_new_instance_and_leaves_both_untouched() -> None:
+    options, defaults = TaskOptions(), TaskOptions(retry=RetryPolicy())
+    merged = options.with_defaults(defaults)
+    assert merged is not options
+    assert options.retry is None
+    assert defaults.retry is not None
+
+
+def test_policy_is_the_retry_policy_or_none() -> None:
+    policy = RetryPolicy()
+    assert TaskOptions(retry=policy).policy is policy
+    assert TaskOptions(retry=False).policy is None
+    assert TaskOptions().policy is None
