@@ -7,6 +7,8 @@ authors = [
     { name = "Carlos Marques", email = "chmarques93@gmail.com" }
 ]
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["asyncio", "task-queue", "tasks", "workers", "scheduler"]
 classifiers = [
     "Development Status :: 3 - Alpha",

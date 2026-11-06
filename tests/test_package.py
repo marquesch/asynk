@@ -1,4 +1,4 @@
-from importlib.metadata import version
+from importlib.metadata import metadata, version
 from importlib.resources import files
 
 import asynk
@@ -15,3 +15,8 @@ def test_dunder_version_matches_installed_distribution() -> None:
 
 def test_py_typed_marker_exists() -> None:
     assert files("asynk").joinpath("py.typed").is_file()
+
+
+def test_license_metadata() -> None:
+    meta = metadata("asynk")
+    assert meta["License-Expression"] == "MIT"
