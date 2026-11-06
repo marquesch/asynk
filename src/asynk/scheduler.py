@@ -12,7 +12,7 @@ from typing import Any, ClassVar, Protocol
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.errors import NotConfiguredError
-from asynk.hooks import run_all_hooks, run_hooks
+from asynk.hooks import run_hooks
 from asynk.probes import ProbeFiles
 from asynk.runner import Role, Runner
 from asynk.scheduled_task import ScheduledTask
@@ -132,14 +132,10 @@ class Scheduler(Runner):
         """Publishes due slots until shutdown is requested.
 
         Each scheduled task starts at its first slot after the current time.
-        Startup and shutdown hooks run around the loop; see `App.before_startup`
-        and its siblings.
+        The app's store is started before the startup hooks and stopped after the
+        shutdown hooks; see `App.before_startup` and its siblings.
         """
-        await run_hooks(self.app.hooks.before_startup, self)
-        try:
-            await self._serve()
-        finally:
-            await run_all_hooks(self.app.hooks.after_shutdown, self)
+        await self._run_lifecycle()
 
     async def _serve(self) -> None:
         self._beat()

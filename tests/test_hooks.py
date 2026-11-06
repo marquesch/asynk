@@ -28,9 +28,8 @@ def test_decorator_registers_and_returns_the_function(event: str) -> None:
 
     async def hook(*args: Any) -> None: ...
 
-    own = list(getattr(app.hooks, event))
     assert getattr(app, event)(hook) is hook
-    assert list(getattr(app.hooks, event)) == [*own, hook]
+    assert list(getattr(app.hooks, event)) == [hook]
 
 
 @pytest.mark.parametrize("event", EVENTS)
@@ -43,10 +42,9 @@ def test_hooks_run_in_registration_order(event: str) -> None:
 
     def third(*args: Any) -> None: ...
 
-    own = list(getattr(app.hooks, event))
     for hook in (first, second, third):
         getattr(app, event)(hook)
-    assert list(getattr(app.hooks, event)) == [*own, first, second, third]
+    assert list(getattr(app.hooks, event)) == [first, second, third]
 
 
 @pytest.mark.parametrize("event", EVENTS)
@@ -55,10 +53,9 @@ def test_registering_the_same_function_twice_keeps_one(event: str) -> None:
 
     def hook(*args: Any) -> None: ...
 
-    own = list(getattr(app.hooks, event))
     getattr(app, event)(hook)
     getattr(app, event)(hook)
-    assert list(getattr(app.hooks, event)) == [*own, hook]
+    assert list(getattr(app.hooks, event)) == [hook]
 
 
 def test_hooks_made_by_a_factory_all_register() -> None:

@@ -121,10 +121,12 @@ class Hooks:
     """The hooks registered on an app, one registry per event.
 
     Attributes:
-        before_startup: Hooks run before a worker or scheduler starts.
+        before_startup: Hooks run before a worker or scheduler starts, once the store
+            has started.
         after_startup: Hooks run once a worker or scheduler has started.
         before_shutdown: Hooks run when a worker or scheduler begins to shut down.
-        after_shutdown: Hooks run after a worker or scheduler has stopped.
+        after_shutdown: Hooks run after a worker or scheduler has stopped, before the
+            store stops.
         middleware: Layers run around each task.
     """
 

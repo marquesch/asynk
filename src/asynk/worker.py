@@ -24,7 +24,6 @@ from asynk.hooks import (
     TaskCall,
     TaskResult,
     TaskStatus,
-    run_all_hooks,
     run_hooks,
 )
 from asynk.probes import ProbeFiles
@@ -138,15 +137,13 @@ class Worker(Runner):
         In-flight tasks are given `shutdown_timeout` seconds to finish; stragglers
         are cancelled and their deliveries requeued.
 
-        Startup and shutdown hooks run around the consumer; see `App.before_startup`
-        and its siblings.
+        The app's store is started before the startup hooks and stopped after the
+        shutdown hooks; see `App.before_startup` and its siblings.
         """
-        await run_hooks(self.app.hooks.before_startup, self)
+        await self._run_lifecycle()
+
+    async def _start(self) -> None:
         await self.consumer.start()
-        try:
-            await self._serve()
-        finally:
-            await run_all_hooks(self.app.hooks.after_shutdown, self)
 
     async def _serve(self) -> None:
         semaphore = asyncio.Semaphore(self.concurrency)
