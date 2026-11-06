@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Any
 
 import pytest
 from envelope_helpers import decode_delivery
@@ -10,6 +11,7 @@ from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.results import TaskHandle, TaskState, decode_state, state_key
 from asynk.store.memory import MemoryStore
+from asynk.task import Task
 from asynk.transport import PublishOptions
 from asynk.transport.memory import MemoryConsumer, memory_transport
 
@@ -308,3 +310,51 @@ async def test_delay_with_unencodable_argument_writes_no_state() -> None:
         await take.delay(object())
     assert producer.published == []
     assert [key for key in written if key.startswith("state:")] == []
+
+
+def _fake_publish() -> tuple[list[tuple[Envelope, PublishOptions | None]], Any]:
+    calls: list[tuple[Envelope, PublishOptions | None]] = []
+
+    async def publish(envelope: Envelope, options: PublishOptions | None = None) -> TaskHandle:
+        calls.append((envelope, options))
+        return TaskHandle(envelope.id, MemoryStore(), JsonCodec(), "r")
+
+    return calls, publish
+
+
+async def test_task_delay_hands_the_envelope_to_the_injected_publish() -> None:
+    calls, publish = _fake_publish()
+
+    async def add(a: int, b: int = 0) -> int:
+        return a + b
+
+    task = Task(add, "add", None, publish)
+    handle = await task.delay(1, b=2)
+
+    [(envelope, options)] = calls
+    assert (envelope.task, envelope.args, envelope.kwargs, envelope.metadata) == (
+        "add",
+        (1,),
+        {"b": 2},
+        {},
+    )
+    assert options is None
+    assert handle.task_id == envelope.id
+    assert handle.receipt == "r"
+
+
+async def test_bound_task_delay_carries_metadata_to_the_injected_publish() -> None:
+    calls, publish = _fake_publish()
+
+    async def noop() -> None: ...
+
+    task = Task(noop, "noop", None, publish)
+    await task.with_metadata(a=1).with_metadata(b=2).delay()
+
+    assert calls[0][0].metadata == {"a": 1, "b": 2}
+
+
+def test_task_has_no_app_attribute() -> None:
+    async def noop() -> None: ...
+
+    assert not hasattr(Task(noop, "noop", None, _fake_publish()[1]), "app")

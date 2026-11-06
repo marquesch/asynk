@@ -4,13 +4,15 @@ from typing import Any
 
 import pytest
 
-from asynk import TaskOptions
+from asynk import NotConfiguredError, TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
+from asynk.envelope import Envelope
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
 from asynk.retry import RetryPolicy
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
+from asynk.transport import PublishOptions
 
 
 def test_task_registers_with_default_name() -> None:
@@ -287,3 +289,79 @@ async def test_accepted_async_forms_are_awaitable_in_process() -> None:
         task = app.task(name=name)(func)
         args = (2,) if name == "partial" else (1, 2)
         assert await task(*args) == 3
+
+
+class _Producer:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Envelope, bytes, PublishOptions | None]] = []
+        self.on_publish: Callable[[Envelope], Awaitable[None]] | None = None
+
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
+        if self.on_publish is not None:
+            await self.on_publish(envelope)
+        self.calls.append((envelope, body, options))
+        return "receipt"
+
+
+async def test_publish_records_pending_before_sending_and_returns_handle() -> None:
+    store = MemoryStore()
+    producer = _Producer()
+    app = App("t", producer=producer, store=store)
+    seen: list[bytes | None] = []
+
+    async def check(envelope: Envelope) -> None:
+        seen.append(await store.get(state_key(envelope.id)))
+
+    producer.on_publish = check
+    envelope = Envelope.create("t.x", (1,), {}, {})
+
+    handle = await app.publish(envelope)
+
+    assert seen == [encode_state(app.codec, TaskState.PENDING)]
+    assert handle.task_id == envelope.id
+    assert handle.receipt == "receipt"
+    assert await handle.state() is TaskState.PENDING
+
+
+async def test_publish_still_sends_when_the_store_fails() -> None:
+    class BrokenStore(MemoryStore):
+        async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
+            raise OSError("down")
+
+    producer = _Producer()
+    app = App("t", producer=producer, store=BrokenStore())
+
+    handle = await app.publish(Envelope.create("t.x", (), {}, {}))
+
+    assert len(producer.calls) == 1
+    assert handle.receipt == "receipt"
+
+
+async def test_send_passes_body_and_options_and_writes_no_state() -> None:
+    store = MemoryStore()
+    producer = _Producer()
+    app = App("t", producer=producer, store=store)
+    envelope = Envelope.create("t.x", (), {}, {})
+    options = PublishOptions(delay=2.0)
+
+    receipt = await app.send(envelope, options)
+
+    assert receipt == "receipt"
+    assert producer.calls == [(envelope, app.codec.encode(envelope.to_dict()), options)]
+    assert await store.get(state_key(envelope.id)) is None
+
+
+async def test_send_without_producer_raises_not_configured() -> None:
+    with pytest.raises(NotConfiguredError):
+        await App("t").send(Envelope.create("t.x", (), {}, {}))
+
+
+def test_task_does_not_hold_the_app() -> None:
+    app = App("t")
+
+    @app.task()
+    async def fn() -> None: ...
+
+    assert not hasattr(fn, "app")

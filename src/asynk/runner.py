@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias
 
 from asynk.hooks import run_all_hooks, run_hooks
 
+# Imported only to type `app`; a runtime import would be circular.
 if TYPE_CHECKING:
     from asynk.app import App
 
