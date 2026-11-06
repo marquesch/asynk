@@ -1,4 +1,4 @@
-.PHONY: help install lint format format-check typecheck test cov check build clean docs docs-serve
+.PHONY: help install lint format format-check typecheck test check build clean docs docs-serve
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -18,11 +18,8 @@ format-check:  ## Check formatting without changing files
 typecheck:  ## Run mypy
 	uv run mypy
 
-test:  ## Run the test suite
+test:  ## Run the test suite and report coverage
 	uv run pytest
-
-cov:  ## Run the test suite and report coverage
-	uv run pytest --cov
 
 check: lint format-check typecheck test  ## Run every check (what CI runs)
 
