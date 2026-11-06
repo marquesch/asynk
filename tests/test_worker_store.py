@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
+from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failure_logged
 
 from asynk import TaskError
 from asynk.app import App
@@ -377,11 +378,7 @@ async def test_failing_store_start_does_not_stop_the_store() -> None:
 async def test_store_stop_failure_during_unwind_is_logged_not_raised(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    class FailingStop(MemoryStore):
-        async def stop(self) -> None:
-            raise ConnectionError("stop failed")
-
-    app, _, _, worker = _setup(FailingStop())
+    app, _, _, worker = _setup(FailingStopStore())
 
     @app.before_startup
     def no_db(runner: object) -> None:
@@ -392,9 +389,7 @@ async def test_store_stop_failure_during_unwind_is_logged_not_raised(
         pytest.raises(RuntimeError, match="no db"),
     ):
         await asyncio.wait_for(worker.run(), 1)
-    [record] = [r for r in caplog.records if r.getMessage() == "failed to stop the store"]
-    assert record.exc_info is not None
-    assert isinstance(record.exc_info[1], ConnectionError)
+    assert_store_stop_failure_logged(caplog)
 
 
 async def test_cancelling_run_during_startup_stops_the_store() -> None:
@@ -420,32 +415,8 @@ async def test_cancelling_run_during_startup_stops_the_store() -> None:
     assert calls == ["store.start", "user.before_startup", "store.stop"]
 
 
-class _StrictStore(MemoryStore):
-    """MemoryStore that rejects reads and writes outside `start`/`stop`."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.started = False
-
-    async def start(self) -> None:
-        self.started = True
-
-    async def stop(self) -> None:
-        self.started = False
-
-    async def get(self, key: str) -> bytes | None:
-        if not self.started:
-            raise RuntimeError("store not started")
-        return await super().get(key)
-
-    async def set(self, key: str, value: bytes, *, overwrite: bool = False) -> bool:
-        if not self.started:
-            raise RuntimeError("store not started")
-        return await super().set(key, value, overwrite=overwrite)
-
-
 async def test_hooks_use_the_started_store() -> None:
-    store = _StrictStore()
+    store = StrictStore()
     app, _, _, worker = _setup(store)
     seen: list[bytes | None] = []
     started = asyncio.Event()
@@ -564,21 +535,10 @@ async def test_worker_with_null_store_runs_tasks(caplog: pytest.LogCaptureFixtur
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
-class _FailingStop(MemoryStore):
-    async def stop(self) -> None:
-        raise ConnectionError("stop failed")
-
-
-def _stop_failure_logged(caplog: pytest.LogCaptureFixture) -> None:
-    [record] = [r for r in caplog.records if r.getMessage() == "failed to stop the store"]
-    assert record.exc_info is not None
-    assert isinstance(record.exc_info[1], ConnectionError)
-
-
 async def test_cancelling_run_during_startup_logs_a_failing_store_stop(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    app, _, _, worker = _setup(_FailingStop())
+    app, _, _, worker = _setup(FailingStopStore())
     entered = asyncio.Event()
 
     @app.before_startup
@@ -592,13 +552,13 @@ async def test_cancelling_run_during_startup_logs_a_failing_store_stop(
         run.cancel()
         with pytest.raises(asyncio.CancelledError):
             await run
-    _stop_failure_logged(caplog)
+    assert_store_stop_failure_logged(caplog)
 
 
 async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    app, _, consumer, worker = _setup(_FailingStop())
+    app, _, consumer, worker = _setup(FailingStopStore())
 
     @app.after_startup
     def stop_now(runner: Runner) -> None:
@@ -613,4 +573,4 @@ async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
         pytest.raises(RuntimeError, match="hook failed"),
     ):
         await asyncio.wait_for(worker.run(), 1)
-    _stop_failure_logged(caplog)
+    assert_store_stop_failure_logged(caplog)

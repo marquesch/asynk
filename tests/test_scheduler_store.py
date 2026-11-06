@@ -5,8 +5,8 @@ import logging
 from typing import Any
 
 import pytest
+from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failure_logged
 from test_scheduler import BlockingClock, FakeClock, HangingProducer, _at, _published, _run, _slots
-from test_worker_store import _StrictStore
 
 from asynk.app import App
 from asynk.runner import Runner
@@ -206,7 +206,7 @@ async def test_cancelling_a_started_scheduler_runs_after_shutdown_then_stops_the
 
 
 async def test_hooks_use_the_started_store() -> None:
-    store = _StrictStore()
+    store = StrictStore()
     app, _ = _app(store)
     seen: list[bytes | None] = []
 
@@ -394,11 +394,7 @@ async def test_published_slot_keeps_its_claim() -> None:
 async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    class Broken(MemoryStore):
-        async def stop(self) -> None:
-            raise ConnectionError("stop failed")
-
-    app, _ = _app(Broken())
+    app, _ = _app(FailingStopStore())
 
     @app.after_shutdown
     def boom(runner: Any) -> None:
@@ -409,6 +405,4 @@ async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
         pytest.raises(RuntimeError, match="hook failed"),
     ):
         await _run(app, _clock())
-    [record] = [r for r in caplog.records if r.getMessage() == "failed to stop the store"]
-    assert record.exc_info is not None
-    assert isinstance(record.exc_info[1], ConnectionError)
+    assert_store_stop_failure_logged(caplog)
