@@ -35,8 +35,12 @@ class Runner(abc.ABC):
     def request_shutdown(self) -> None:
         """Asks `run` to stop; idempotent and safe in signal handlers."""
 
-    async def _run_lifecycle(self) -> None:
-        """Starts the store, starts up, serves, shuts down, and stops the store."""
+    async def run(self) -> None:
+        """Serves the app until shutdown is requested.
+
+        The app's store is started before the startup hooks and stopped after the
+        shutdown hooks; see `App.before_startup` and its siblings.
+        """
         store = self.app.store
         await store.start()
         try:

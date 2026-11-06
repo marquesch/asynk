@@ -59,6 +59,9 @@ class SystemClock:
 class Scheduler(Runner):
     """Publishes an app's scheduled tasks when their cron slots come due.
 
+    `run` publishes due slots until shutdown is requested. Each scheduled task
+    starts at its first slot after the current time.
+
     Each publish carries the metadata `idempotency_key`, `"<task name>:<slot>"`,
     and `scheduled_at`, the slot as a UTC ISO-8601 instant.
 
@@ -127,15 +130,6 @@ class Scheduler(Runner):
         """Runs like `run`, with SIGTERM and SIGINT requesting a shutdown."""
         with shutdown_signals(self.request_shutdown):
             await self.run()
-
-    async def run(self) -> None:
-        """Publishes due slots until shutdown is requested.
-
-        Each scheduled task starts at its first slot after the current time.
-        The app's store is started before the startup hooks and stopped after the
-        shutdown hooks; see `App.before_startup` and its siblings.
-        """
-        await self._run_lifecycle()
 
     async def _serve(self) -> None:
         self._beat()
