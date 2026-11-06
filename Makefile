@@ -1,4 +1,4 @@
-.PHONY: help install lint format format-check typecheck test check build clean docs docs-serve
+.PHONY: help install lint format format-check typecheck test cov check build clean docs docs-serve
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -21,6 +21,9 @@ typecheck:  ## Run mypy
 test:  ## Run the test suite
 	uv run pytest
 
+cov:  ## Run the test suite and report coverage
+	uv run pytest --cov
+
 check: lint format-check typecheck test  ## Run every check (what CI runs)
 
 build:  ## Build sdist and wheel into dist/
@@ -33,4 +36,4 @@ docs-serve:  ## Serve the documentation site locally
 	uv run --group docs zensical serve
 
 clean:  ## Remove build and cache artifacts
-	rm -rf dist site .pytest_cache .mypy_cache .ruff_cache
+	rm -rf dist site .coverage .pytest_cache .mypy_cache .ruff_cache

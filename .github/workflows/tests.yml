@@ -32,4 +32,4 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: make install
-      - run: make test
+      - run: make cov

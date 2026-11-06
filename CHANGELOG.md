@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Development: `make cov` runs the tests with `pytest-cov` (branch coverage of
+  `src/asynk`, no minimum), and CI reports the coverage of each test run.
 - **Breaking:** `TaskStatus.FAILED` is final: the task is not retried and is recorded
   as `FAILURE`. It used to be recorded as `RETRYING` and `result()` never completed.
 - **Breaking:** a middleware layer that raises before the task ran is retried through
