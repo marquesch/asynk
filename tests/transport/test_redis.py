@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import importlib
 import subprocess
 import sys
@@ -36,8 +35,10 @@ async def client() -> AsyncIterator[fakeredis.FakeAsyncRedis]:
     await redis.aclose()
 
 
-def _consumer(client: fakeredis.FakeAsyncRedis, **kwargs: Any) -> RedisConsumer:
-    return RedisConsumer(client=client, queue="q", block=0.05, **kwargs)
+def _consumer(
+    client: fakeredis.FakeAsyncRedis, *, block: float = 0.05, **kwargs: Any
+) -> RedisConsumer:
+    return RedisConsumer(client=client, queue="q", block=block, **kwargs)
 
 
 def _producer(client: fakeredis.FakeAsyncRedis) -> RedisProducer:
@@ -52,6 +53,7 @@ async def _next(consumer: RedisConsumer, timeout: float = 2) -> Any:
     return await asyncio.wait_for(anext(consumer.deliveries()), timeout)
 
 
+@pytest.mark.slow
 def test_core_imports_without_the_client_and_the_guard_names_the_extra() -> None:
     code = (
         "import sys; sys.modules['redis'] = None\n"
@@ -148,11 +150,11 @@ async def test_requeued_message_is_a_fresh_entry(client: fakeredis.FakeAsyncRedi
 async def test_expired_lease_is_taken_over_by_another_consumer(
     client: fakeredis.FakeAsyncRedis,
 ) -> None:
-    crashed = _consumer(client, lease=0.1)
+    crashed = _consumer(client, lease=0.02)
     await crashed.start()
     await _producer(client).publish(_env(), b"x")
     await _next(crashed)  # never settled
-    other = _consumer(client, lease=0.1)
+    other = _consumer(client, lease=0.02)
     await other.start()
     delivery = await _next(other)
     assert delivery.body == b"x"
@@ -163,18 +165,25 @@ async def test_expired_lease_is_taken_over_by_another_consumer(
 async def test_message_over_max_deliveries_is_dead_lettered(
     client: fakeredis.FakeAsyncRedis,
 ) -> None:
+    # Nothing here waits for a timeout: cancelling a read that is inside the consumer's
+    # upkeep can hang redis-py on Python 3.11, and a short block makes that likely.
+    def consumer() -> RedisConsumer:
+        return _consumer(client, block=0.01, lease=0.02, max_deliveries=2)
+
     await _producer(client).publish(_env(), b"poison")
-    await _consumer(client, lease=0.05).start()
-    for _ in range(3):  # each consumer receives it and never settles it
-        consumer = _consumer(client, lease=0.05, max_deliveries=2)
-        await consumer.start()
-        with contextlib.suppress(TimeoutError):
-            await _next(consumer, 0.3)
-        await asyncio.sleep(0.1)
-    checker = _consumer(client, lease=0.05, max_deliveries=2)
+    for _ in range(2):  # each consumer receives it and never settles it
+        unsettled = consumer()
+        await unsettled.start()
+        assert (await _next(unsettled)).body == b"poison"
+    await _producer(client).publish(_env(), b"after")
+    await asyncio.sleep(0.03)  # the lease of the last delivery expires
+    # A third delivery would exceed the limit: the message is dead-lettered, so the next
+    # delivery is the one published after it.
+    checker = consumer()
     await checker.start()
-    with pytest.raises(TimeoutError):
-        await _next(checker, 0.3)
+    after = await _next(checker)
+    assert after.body == b"after"
+    await after.ack()
     [(_, entry)] = await _dead(client)
     assert entry[b"reason"] == b"max_deliveries"
     assert entry[b"body"] == b"poison"
@@ -184,7 +193,7 @@ async def test_message_over_max_deliveries_is_dead_lettered(
 async def test_delayed_message_waits_in_the_sorted_set_then_moves(
     client: fakeredis.FakeAsyncRedis,
 ) -> None:
-    receipt = await _producer(client).publish(_env(), b"later", PublishOptions(delay=0.2))
+    receipt = await _producer(client).publish(_env(), b"later", PublishOptions(delay=0.05))
     assert isinstance(receipt, str)
     assert await client.zcard(DELAYED) == 1
     assert await client.xlen(STREAM) == 0
@@ -224,24 +233,32 @@ async def test_stop_removes_an_idle_consumer_but_not_one_with_pending_messages(
 
 
 async def test_connected_follows_the_connection(client: fakeredis.FakeAsyncRedis) -> None:
-    consumer = _consumer(client)
+    consumer = _consumer(client, block=0.01)
     await consumer.start()
     failing = True
+    failed, recovered = asyncio.Event(), asyncio.Event()
 
     async def flaky(*args: Any, **kwargs: Any) -> Any:
         if failing:
+            failed.set()
             raise ConnectionError("down")
-        await asyncio.sleep(0.05)  # an empty blocking read waits, as on a server
+        await asyncio.sleep(0)  # an empty read hands control back, as a blocking one does
+        recovered.set()
         return []
 
     client.xreadgroup = flaky  # type: ignore[method-assign]
-    with pytest.raises(TimeoutError):
-        await asyncio.wait_for(anext(consumer.deliveries()), 0.3)
+
+    async def deliveries() -> list[Any]:
+        return [delivery async for delivery in consumer.deliveries()]
+
+    run = asyncio.create_task(deliveries())
+    await failed.wait()
     assert not consumer.connected
     failing = False
-    with pytest.raises(TimeoutError):
-        await asyncio.wait_for(anext(consumer.deliveries()), 0.3)
+    await recovered.wait()
     assert consumer.connected
+    await consumer.stop()
+    assert await run == []
 
 
 async def test_worker_runs_a_task_over_the_transport(client: fakeredis.FakeAsyncRedis) -> None:
@@ -259,6 +276,8 @@ async def test_worker_runs_a_task_over_the_transport(client: fakeredis.FakeAsync
     for _ in range(100):
         if seen:
             break
+        # Real time, on purpose: shutting down at once cancels the consumer inside its upkeep,
+        # which can hang redis-py on Python 3.11; this lets it get back to its blocking read.
         await asyncio.sleep(0.05)
     worker.request_shutdown()
     await asyncio.wait_for(run, 5)

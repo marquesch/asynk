@@ -184,7 +184,8 @@ async def test_waiters_arriving_after_a_set_are_woken_by_the_next_one() -> None:
     await store.set("k", b"v")  # pops the event; `first` has not run yet
     clock.now = 11.0  # the value expires before `first` sees it
     second = asyncio.create_task(store.wait("k"))
-    await asyncio.sleep(0.01)
+    for _ in range(10):  # let both waiters run as far as they can
+        await asyncio.sleep(0)
     assert not first.done() and not second.done()
     await store.set("k", b"new")
     assert await asyncio.wait_for(first, 1) == b"new"

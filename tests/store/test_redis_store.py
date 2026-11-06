@@ -42,6 +42,7 @@ def _store(server: fakeredis.FakeServer, **kwargs: Any) -> RedisStore:
     return RedisStore(client=fakeredis.FakeAsyncRedis(server=server), **kwargs)
 
 
+@pytest.mark.slow
 def test_core_imports_without_the_client_and_the_guard_names_the_extra() -> None:
     code = (
         "import sys; sys.modules['redis'] = None\n"
@@ -84,6 +85,7 @@ def test_import_guard_reraises_a_failing_dependency_of_the_client(
     assert str(info.value) != MESSAGE
 
 
+@pytest.mark.slow
 def test_core_modules_do_not_import_the_client() -> None:
     code = (
         "import sys\n"
@@ -282,17 +284,17 @@ async def test_unreachable_server_raises_redis_error_on_writes(call: str) -> Non
 async def test_expired_key_is_not_returned_and_can_be_set_again(
     server: fakeredis.FakeServer,
 ) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"old")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.get("k") is None
     assert await store.set("k", b"new") is True
 
 
 async def test_delete_expired_key_returns_false(server: fakeredis.FakeServer) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"v")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.delete("k") is False
 
 
@@ -307,7 +309,7 @@ async def test_wait_returns_value_set_later_by_another_store(
 ) -> None:
     reader, writer = _store(server, max_poll_interval=0.01), _store(server)
     waiter = asyncio.create_task(reader.wait("k"))
-    await asyncio.sleep(0.03)
+    await asyncio.sleep(0)  # let the waiter start polling
     await writer.set("k", b"v")
     assert await asyncio.wait_for(waiter, 1) == b"v"
 
@@ -331,9 +333,9 @@ async def test_wait_with_zero_timeout_reads_once(server: fakeredis.FakeServer) -
 
 
 async def test_wait_ignores_expired_value(server: fakeredis.FakeServer) -> None:
-    store = _store(server, ttl=0.05)
+    store = _store(server, ttl=0.02)
     await store.set("k", b"v")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.04)
     assert await store.wait("k", timeout=0.05) is None
 
 

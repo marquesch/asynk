@@ -172,13 +172,13 @@ async def test_shutdown_waits_for_in_flight_task() -> None:
 
 
 async def test_shutdown_timeout_requeues_unfinished() -> None:
-    app, producer, consumer, worker = _setup(shutdown_timeout=0.1)
+    app, producer, consumer, worker = _setup(shutdown_timeout=0.02)
     started = asyncio.Event()
 
     @app.task(name="sleepy")
     async def sleepy() -> None:
         started.set()
-        await asyncio.sleep(5)
+        await asyncio.Event().wait()  # never finishes: only the shutdown timeout ends it
 
     env = Envelope.create("sleepy", (), {})
     await publish_envelope(producer, env)
@@ -232,8 +232,7 @@ async def test_sync_blocking_task_does_not_block_loop() -> None:
 
     @app.task(name="blocking")
     def blocking() -> None:
-        time.sleep(0.3)
-        sync_saw_async.append(async_done.is_set())
+        sync_saw_async.append(async_done.wait(2))  # returns once the loop ran `quick`
 
     @app.task(name="quick")
     async def quick() -> None:
@@ -342,7 +341,7 @@ async def _until(predicate: Any, limit: float = 2.0) -> None:
 
 
 async def test_worker_writes_probe_files_while_running(tmp_path: Path) -> None:
-    _, _, _, worker = _setup(probe_dir=tmp_path / "p", heartbeat_interval=0.05)
+    _, _, _, worker = _setup(probe_dir=tmp_path / "p", heartbeat_interval=0.01)
     run = asyncio.create_task(worker.run())
     liveness, readiness = tmp_path / "p" / "liveness", tmp_path / "p" / "readiness"
     await _until(lambda: liveness.exists() and readiness.exists())
@@ -354,7 +353,7 @@ async def test_worker_writes_probe_files_while_running(tmp_path: Path) -> None:
 
 
 async def test_readiness_removed_when_shutdown_starts(tmp_path: Path) -> None:
-    app, producer, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.05)
+    app, producer, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.01)
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -436,7 +435,7 @@ async def test_no_files_when_probe_dir_is_none(
     _, _, _, worker = _setup(heartbeat_interval=0.02)
     run = asyncio.create_task(worker.run())
     # Absence of probe files is the behavior: only observable over several real heartbeats.
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
     await _stop(worker, run)
     assert constructed == []
     assert _listing(tmp_path) == []
@@ -540,17 +539,18 @@ async def test_lifecycle_hooks_see_the_worker_role() -> None:
 async def test_before_shutdown_runs_before_in_flight_tasks_are_drained() -> None:
     app, producer, _, worker = _setup()
     order: list[str] = []
-    started = asyncio.Event()
+    started, release = asyncio.Event(), asyncio.Event()
 
     @app.task(name="slow")
     async def slow() -> None:
         started.set()
-        await asyncio.sleep(0.1)
+        await release.wait()  # in flight until the hook has run
         order.append("task done")
 
     @app.before_shutdown
     async def hook(w: Runner) -> None:
         order.append("before_shutdown")
+        release.set()
 
     await publish_envelope(producer, Envelope.create("slow", (), {}))
     run = asyncio.create_task(worker.run())
@@ -595,16 +595,17 @@ async def test_failing_after_startup_raises_after_cleaning_up() -> None:
 async def test_failing_before_shutdown_still_drains_and_cleans_up_then_raises() -> None:
     app, producer, consumer, worker = _setup()
     done: list[str] = []
-    started = asyncio.Event()
+    started, release = asyncio.Event(), asyncio.Event()
 
     @app.task(name="slow")
     async def slow() -> None:
         started.set()
-        await asyncio.sleep(0.1)
+        await release.wait()  # in flight until the hook has run
         done.append("task")
 
     @app.before_shutdown
     async def broken(w: Runner) -> None:
+        release.set()
         raise RuntimeError("flush failed")
 
     await publish_envelope(producer, Envelope.create("slow", (), {}))

@@ -14,7 +14,7 @@ async def test_delayed_publish_is_not_delivered_early(
 ) -> None:
     if not contract_settings.supports_delay:
         pytest.skip("transport does not support delayed publish")
-    delay = 0.6
+    delay = 0.15
     await make_transport.consumer.start()
     it = make_transport.consumer.deliveries()
     loop = asyncio.get_running_loop()

@@ -50,7 +50,7 @@ async def test_never_sleeps_past_the_timeout() -> None:
 
 async def test_cancellation_propagates() -> None:
     task = asyncio.create_task(poll(Source(misses=10**9), timeout=None, max_interval=0.01))
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0)  # let the poll start
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task

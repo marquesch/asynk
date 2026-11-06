@@ -40,6 +40,7 @@ async def test_a_client_made_from_the_url_is_closed() -> None:
     assert spy.closed
 
 
+@pytest.mark.slow
 def test_importing_it_without_the_client_names_the_extra() -> None:
     import subprocess
     import sys
