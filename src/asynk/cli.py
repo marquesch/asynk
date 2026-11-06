@@ -1,3 +1,5 @@
+"""The `asynk` command line: `worker`, `scheduler` and `health`."""
+
 from __future__ import annotations
 
 import argparse

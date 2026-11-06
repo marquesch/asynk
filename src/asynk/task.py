@@ -1,3 +1,5 @@
+"""`Task` and `BoundTask`, which run and publish task calls."""
+
 from __future__ import annotations
 
 import inspect
@@ -26,8 +28,9 @@ class Task(Generic[P, R]):
         app: The app the task is registered with.
         func: The wrapped function, sync or async.
         name: Unique name used to route messages to this task.
-        max_retries: Attempts after which failures stop being retried; None for no limit.
-        options: Extra options passed to the `App.task` decorator.
+        max_retries: Attempts after which a failure is reported as
+            `RETRIES_EXCEEDED` instead of `FAILED`; None for no limit.
+        options: Extra options passed to the decorator that registered the task.
     """
 
     def __init__(

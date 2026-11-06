@@ -1,3 +1,5 @@
+"""Errors shared across asynk."""
+
 from __future__ import annotations
 
 

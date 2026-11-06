@@ -1,3 +1,5 @@
+"""The `App`: tasks, transport, store, codec and hooks."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -103,7 +105,8 @@ class App:
 
         Args:
             name: Task name; defaults to the app name and the function's qualified name.
-            max_retries: Attempts after which failures stop being retried; None for no limit.
+            max_retries: Attempts after which a failure is reported as
+                `RETRIES_EXCEEDED` instead of `FAILED`; None for no limit.
             **options: Extra options stored on the task.
 
         Returns:
@@ -134,17 +137,14 @@ class App:
     ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
-        The cron expression and (when `name` is given) timezone are
-        checked immediately; the timezone is otherwise checked when decorating. The
-        arguments are checked by the app's codec when a `Scheduler` is created.
-
         Args:
             cron: Five-field cron expression.
             tz: IANA timezone for the expression; defaults to the app's.
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
             name: Task name; defaults to the app name and the function's qualified name.
-            max_retries: Attempts after which failures stop being retried; None for no limit.
+            max_retries: Attempts after which a failure is reported as
+                `RETRIES_EXCEEDED` instead of `FAILED`; None for no limit.
             **options: Extra options stored on the task.
 
         Returns:
@@ -203,17 +203,15 @@ class App:
         return TaskHandle(task_id, self.store, self.codec)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run before a worker starts its consumer or a scheduler its loop.
+        """Registers a hook run before a worker's consumer or a scheduler's loop starts.
 
-        Lifecycle hooks run in every asynk process, worker and scheduler alike.
-        They may be sync or async and receive the `Runner` (the `Worker` or
-        `Scheduler`); `runner.role` is "worker" or "scheduler". Registering the
-        same function twice has no effect. A hook that raises stops `Worker.run`
-        or `Scheduler.run`.
+        Lifecycle hooks may be sync or async and receive the `Runner` they run in,
+        a `Worker` or a `Scheduler`; `runner.role` tells them apart. Registering
+        the same hook twice has no effect.
 
         Example:
             Initialize telemetry in every process, but open a database pool only
-            in workers::
+            in workers:
 
                 @app.before_startup
                 async def startup(runner: Runner) -> None:
@@ -230,7 +228,7 @@ class App:
         return self.hooks.before_startup.add(hook)
 
     def after_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run once the consumer (worker) or the scheduler loop has started.
+        """Registers a hook run once a worker or scheduler has started.
 
         Same rules as `before_startup`.
 
@@ -243,11 +241,10 @@ class App:
         return self.hooks.after_startup.add(hook)
 
     def before_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run when a worker stops fetching (before draining) or a scheduler stops.
+        """Registers a hook run when a worker or scheduler begins to shut down.
 
-        Same rules as `before_startup`. If a hook raises, the worker still drains
-        and cleans up, then `Worker.run` raises; the scheduler cleans up and
-        `Scheduler.run` raises.
+        A worker runs it when it stops fetching, before draining. Same rules as
+        `before_startup`.
 
         Args:
             hook: The hook to register.
@@ -258,7 +255,7 @@ class App:
         return self.hooks.before_shutdown.add(hook)
 
     def after_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run last: after a worker drained and stopped, or a scheduler stopped.
+        """Registers a hook run last, after a worker or scheduler has stopped.
 
         Same rules as `before_startup`.
 

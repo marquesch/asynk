@@ -1,3 +1,5 @@
+"""The `Envelope` exchanged between producers and consumers."""
+
 from __future__ import annotations
 
 import uuid
@@ -38,8 +40,6 @@ class Envelope:
         metadata: Mapping[str, object] | None = None,
     ) -> Envelope:
         """Builds a new envelope with a fresh id.
-
-        Values are not validated; the codec checks what it can encode.
 
         Args:
             task: Registered name of the task to run.

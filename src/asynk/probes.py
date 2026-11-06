@@ -1,3 +1,5 @@
+"""Liveness and readiness probe files."""
+
 from __future__ import annotations
 
 import contextlib
@@ -24,10 +26,12 @@ class ProbeFiles:
 
     @property
     def liveness(self) -> Path:
+        """Path of the liveness file."""
         return self.directory / "liveness"
 
     @property
     def readiness(self) -> Path:
+        """Path of the readiness file."""
         return self.directory / "readiness"
 
     def beat(self, *, ready: bool) -> None:
@@ -35,6 +39,9 @@ class ProbeFiles:
 
         Args:
             ready: Whether to advertise readiness.
+
+        Raises:
+            OSError: If a probe file cannot be written.
         """
         self.directory.mkdir(parents=True, exist_ok=True)
         self._write(self.liveness)

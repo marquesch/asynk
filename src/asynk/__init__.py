@@ -24,6 +24,7 @@ try:
 except PackageNotFoundError:
     # Imported from a source tree without an installed distribution.
     __version__ = "0+unknown"
+"""The installed asynk version."""
 
 __all__ = [
     "__version__",

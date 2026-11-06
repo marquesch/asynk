@@ -1,3 +1,5 @@
+"""Signal handling for graceful shutdown."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,11 +14,10 @@ _SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 def shutdown_signals(request_shutdown: Callable[[], None]) -> Iterator[None]:
     """Makes SIGTERM and SIGINT call `request_shutdown` on the running loop.
 
-    The previous handlers are restored on exit. Must be used while an event
-    loop is running.
+    The previous handlers are restored on exit.
 
     Args:
-        request_shutdown: Called (from the event loop) when a signal arrives.
+        request_shutdown: Called when a signal arrives.
 
     Yields:
         None, while the handlers are installed.

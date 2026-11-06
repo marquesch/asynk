@@ -1,10 +1,5 @@
 """Five-field cron expressions and their next firing time.
 
-This module should change for almost no reason. A PR that changes it is a
-poor decision unless there is a clear reason for it. It is small and boring on
-purpose: pure functions over `datetime`, no I/O, no clock, no asyncio and no
-imports from the rest of asynk.
-
 Fields, separated by any whitespace:
 
     minute        0-59
@@ -16,7 +11,6 @@ Fields, separated by any whitespace:
 Each field is a comma-separated list of items. An item is `*`, a value `n`, a
 range `a-b`, or a stepped `*/s` or `a-b/s`. Names are case-insensitive and
 may be used as values and range ends in the month and day-of-week fields.
-Macros (`@daily`), `L`, `W`, `#`, `?` and a seconds field are not supported.
 
 Day matching follows classic Vixie cron. A day field is *restricted* when its
 text does not start with `*` (so `*` and `*/2` are unrestricted, `1-31` is
@@ -29,6 +23,11 @@ Slots are local wall-clock times in the tzinfo of the `datetime` given to
 spring-forward gap) is skipped. A wall time that occurs twice (a DST fall-back)
 fires once, at its first occurrence (`fold=0`).
 """
+
+# This module should change for almost no reason. A PR that changes it is a
+# poor decision unless there is a clear reason for it. It is small and boring on
+# purpose: pure functions over `datetime`, no I/O, no clock, no asyncio and no
+# imports from the rest of asynk.
 
 from __future__ import annotations
 
@@ -158,8 +157,7 @@ class CronExpression:
             as an instant.
 
         Raises:
-            ValueError: If `after` is naive. (A safety net also raises it if no
-                slot is found within 400 years, which `parse` rules out.)
+            ValueError: If `after` is naive.
         """
         tz = after.tzinfo
         if tz is None or after.utcoffset() is None:
@@ -193,6 +191,7 @@ class CronExpression:
                             continue
                         return candidate
             day += timedelta(days=1)
+        # Safety net only: `parse` rules out expressions with no slot in 400 years.
         raise ValueError(f"{self.expression!r}: no slot after {after.isoformat()}")
 
     def _day_matches(self, day: date) -> bool:

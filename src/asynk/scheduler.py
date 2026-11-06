@@ -1,3 +1,5 @@
+"""The `Scheduler`, which publishes scheduled tasks on their cron slots."""
+
 from __future__ import annotations
 
 import asyncio
@@ -56,19 +58,15 @@ class SystemClock:
 class Scheduler(Runner):
     """Publishes an app's scheduled tasks when their cron slots come due.
 
-    Fire times are decided with the wall clock, re-read after every wake, so a
-    slot is never published twice by one scheduler even if the clock steps back.
-    Each publish carries an `idempotency_key` of `"<task name>:<slot>"` and a
-    `scheduled_at`, the slot as a UTC ISO-8601 instant.
+    Each publish carries the metadata `idempotency_key`, `"<task name>:<slot>"`,
+    and `scheduled_at`, the slot as a UTC ISO-8601 instant.
 
     Attributes:
         app: The app whose scheduled tasks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
-        heartbeat_interval: Seconds between probe file updates, and the longest
-            single sleep.
-        grace: Seconds a slot may be late and still fire; older slots are
-            skipped with a warning.
+        heartbeat_interval: Seconds between probe file updates.
+        grace: Seconds a slot may be late and still fire.
         role: Always "scheduler".
     """
 
@@ -89,8 +87,7 @@ class Scheduler(Runner):
             app: The app to publish for; it must have a producer and scheduled tasks.
             clock: Source of time and sleeping; defaults to `SystemClock`.
             probe_dir: Directory for the liveness probe file; None disables it.
-            heartbeat_interval: Seconds between probe file updates, and the
-                longest single sleep.
+            heartbeat_interval: Seconds between probe file updates.
             grace: Seconds a slot may be late and still fire.
 
         Raises:
@@ -133,12 +130,9 @@ class Scheduler(Runner):
     async def run(self) -> None:
         """Publishes due slots until shutdown is requested.
 
-        Nothing fires at startup: each scheduled task's first slot is the first one after
-        the current time. Shutdown interrupts the sleep and does not wait for
-        slots that are not yet due.
-
+        Each scheduled task starts at its first slot after the current time.
         Startup and shutdown hooks run around the loop; see `App.before_startup`
-        and its siblings. A hook that raises makes this method raise.
+        and its siblings.
         """
         await run_hooks(self.app.hooks.before_startup, self)
         try:
@@ -207,9 +201,11 @@ class Scheduler(Runner):
     ) -> bool:
         """Claims and publishes one slot.
 
-        The claim is released unless the publish succeeded. Returns False if
-        shutdown cancelled the publish; True once the slot is handled
-        (published, claimed by another scheduler, or failed).
+        The claim is released unless the publish succeeded.
+
+        Returns:
+            False if shutdown cancelled the publish; True once the slot is handled
+            (published, claimed by another scheduler, or failed).
         """
         scheduled_at = _utc_iso(slot)
         idempotency_key = f"{task.name}:{scheduled_at}"

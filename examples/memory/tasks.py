@@ -1,15 +1,9 @@
-"""Tasks for the in-memory transport example.
-
-The memory transport is for demos and tests only: its queue lives inside one
-process and vanishes when that process exits. Do not use it in production.
-"""
+"""Tasks for the in-memory transport example."""
 
 from asynk import App, MemoryStore
 from asynk.transport.memory import memory_transport
 
-# Producer and consumer share one in-process queue, so whoever publishes and
-# whoever runs the worker must be the same process. Messages use JsonCodec.
-# The MemoryStore keeps task results, also in this process only.
+# Producer and consumer share one in-process queue; MemoryStore keeps the task results.
 producer, consumer = memory_transport()
 app = App("memory-example", producer=producer, consumer=consumer, store=MemoryStore())
 

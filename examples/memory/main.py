@@ -16,7 +16,7 @@ class FastClock:
 
     A `Scheduler` reads time with `now()` and waits with `sleep()`. Here `sleep()`
     only advances a virtual time, which makes minutes of schedule pass in
-    milliseconds. Real code uses the default `SystemClock`.
+    milliseconds.
     """
 
     def __init__(self, start: datetime, stop: datetime) -> None:
@@ -38,7 +38,7 @@ async def main() -> None:
     worker = Worker(app)
     run_worker = asyncio.create_task(worker.run())
 
-    # delay() only enqueues; arguments must be JSON-friendly.
+    # delay() publishes the call and returns a handle.
     handle = await add.delay(2, b=3)
     await shout.delay("hello")
 
