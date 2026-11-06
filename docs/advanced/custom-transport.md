@@ -96,5 +96,18 @@ The suite checks delayed publish when `supports_delay` is true in your
 `PublishOptions.delay`. It does not yet cover message ordering.
 
 The asynk repository runs the suite against the [Redis
-transport](../guides/redis-transport.md) twice: on `fakeredis` and, when
-`ASYNK_TEST_REDIS_URL` is set, on a real Redis server.
+transport](../guides/redis-transport.md) twice: on `fakeredis` and on a real Redis
+server. The real-server entry is always collected. It is skipped when
+`ASYNK_TEST_REDIS_URL` is unset or no server answers there, and it fails instead
+when `ASYNK_TEST_REQUIRE_SERVICES=1`, which CI sets. To run it locally with
+Docker:
+
+```sh
+docker run --rm -d --name asynk-redis -p 6379:6379 redis:7.4.12
+ASYNK_TEST_REDIS_URL=redis://localhost:6379/0 ASYNK_TEST_REQUIRE_SERVICES=1 \
+  uv run pytest tests/transport
+docker stop asynk-redis
+```
+
+The image is the one CI uses. What the fake cannot prove is listed under
+[Testing](../guides/redis-transport.md#testing) in the Redis transport guide.

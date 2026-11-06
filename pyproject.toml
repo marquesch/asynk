@@ -59,6 +59,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov"
 pythonpath = ["."]
+markers = [
+    "requires_redis: needs a real Redis server (ASYNK_TEST_REDIS_URL); skipped when unavailable, failed under ASYNK_TEST_REQUIRE_SERVICES=1",
+]
 
 [tool.coverage.run]
 source = ["src/asynk"]

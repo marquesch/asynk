@@ -119,4 +119,6 @@ defaults to `None` (no cap); set it in production.
 The contract suite runs against `fakeredis` by default, which covers the
 protocol and the transaction logic. It cannot prove how a real server behaves:
 blocking reads, lease expiry timing, `XAUTOCLAIM` under load and connection
-loss. Set `ASYNK_TEST_REDIS_URL` to run the same suite on a real server; CI does.
+loss. Set `ASYNK_TEST_REDIS_URL` to run the same suite on a real server; CI does. The
+[custom transport guide](../advanced/custom-transport.md#testing-your-transport) has a
+`docker run` recipe.
