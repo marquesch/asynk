@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transport contract suite: `ContractSettings.supports_delay` and a check that a
   delayed publish is not delivered early; a `redis` registry entry that runs on a
   real server when `ASYNK_TEST_REDIS_URL` is set.
+- MIT license: a `LICENSE` file and the `license` metadata of the package.
 - `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
   share, for task results and scheduler claims, installed with the `asynk[redis]`
   extra; documentation page "Redis store".
@@ -59,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Development: `make test` reports coverage through `pytest-cov` (branch coverage of
+  `src/asynk`, no minimum), and CI reports the coverage of each test run.
 - **Breaking:** `TaskStatus.FAILED` is final: the task is not retried and is recorded
   as `FAILURE`. It used to be recorded as `RETRYING` and `result()` never completed.
 - **Breaking:** a middleware layer that raises before the task ran is retried through

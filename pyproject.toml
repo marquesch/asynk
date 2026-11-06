@@ -7,6 +7,8 @@ authors = [
     { name = "Carlos Marques", email = "chmarques93@gmail.com" }
 ]
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["asyncio", "task-queue", "tasks", "workers", "scheduler"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -44,6 +46,7 @@ dev = [
     "mypy>=2.4.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.3",
 ]
 docs = [
@@ -54,7 +57,16 @@ docs = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--cov"
 pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["src/asynk"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
 
 [tool.mypy]
 strict = true

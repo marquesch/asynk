@@ -18,7 +18,7 @@ format-check:  ## Check formatting without changing files
 typecheck:  ## Run mypy
 	uv run mypy
 
-test:  ## Run the test suite
+test:  ## Run the test suite and report coverage
 	uv run pytest
 
 check: lint format-check typecheck test  ## Run every check (what CI runs)
@@ -33,4 +33,4 @@ docs-serve:  ## Serve the documentation site locally
 	uv run --group docs zensical serve
 
 clean:  ## Remove build and cache artifacts
-	rm -rf dist site .pytest_cache .mypy_cache .ruff_cache
+	rm -rf dist site .coverage .pytest_cache .mypy_cache .ruff_cache
