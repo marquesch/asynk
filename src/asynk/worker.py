@@ -227,21 +227,15 @@ class Worker(Runner):
     async def handle(self, delivery: Delivery) -> TaskResult | None:
         """Runs the task for one delivery inside the consumer's `process` context.
 
-        The delivery's body is decoded into an `Envelope` with the app's codec. A
-        body that cannot be decoded is logged and rejected without requeue.
-
-        The app's middleware runs around the task. If a layer raises before the
-        task ran, the error is logged and the message is redelivered with `attempt`
-        incremented (up to the task's `max_retries`), and the returned result has
-        status `FAILED`. If a layer raises after the task ran, the error is logged
-        and the task's own outcome stands. The task's state and result are
+        The body is decoded into an `Envelope` with the app's codec, the app's
+        middleware runs around the task, and the task's state and result are
         recorded in the app's store.
 
         Args:
             delivery: The delivery to handle.
 
         Returns:
-            The task's result, or None if the body could not be decoded.
+            The task's result, or None if the body is not a valid envelope.
         """
         result: TaskResult | None = None
         try:

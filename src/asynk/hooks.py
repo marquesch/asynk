@@ -105,7 +105,15 @@ class HookRegistry(Generic[H]):
 
 @dataclass
 class Hooks:
-    """The hooks registered on an app, one registry per event."""
+    """The hooks registered on an app, one registry per event.
+
+    Attributes:
+        before_startup: Hooks run before a worker or scheduler starts.
+        after_startup: Hooks run once a worker or scheduler has started.
+        before_shutdown: Hooks run when a worker or scheduler begins to shut down.
+        after_shutdown: Hooks run after a worker or scheduler has stopped.
+        middleware: Layers run around each task.
+    """
 
     before_startup: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     after_startup: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)

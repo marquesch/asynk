@@ -274,14 +274,20 @@ class App:
         """Registers a middleware layer around each task.
 
         A layer is an async function `(call: TaskCall, next: Next) -> TaskResult`.
-        It must `await next(call)` to run the rest of the chain and the task, and
-        return a `TaskResult`, which may be the one it received or a new one. The
-        last registered layer is the outermost: it runs first on the way in and
-        last on the way out. Return `call.skip()` without calling `next` to veto
-        the task. Registering the same layer twice has no effect.
+        It receives the call and `next`, which runs the rest of the chain and the
+        task, and returns a `TaskResult`: the one from `next` or another one, such
+        as `call.skip()`, the `SKIPPED` result that vetoes the task. The last
+        registered layer is the outermost. Registering the same layer twice has no
+        effect.
+
+        Args:
+            layer: The middleware layer to register.
+
+        Returns:
+            The layer, unchanged.
 
         Example:
-            Log how long each task takes::
+            Log how long each task takes:
 
                 @app.middleware
                 async def timed(call: TaskCall, next: Next) -> TaskResult:
@@ -289,11 +295,5 @@ class App:
                     result = await next(call)
                     logger.info("%s took %.3fs", call.envelope.task, time.monotonic() - started)
                     return result
-
-        Args:
-            layer: The middleware layer to register.
-
-        Returns:
-            The layer, unchanged.
         """
         return self.hooks.middleware.add(layer)

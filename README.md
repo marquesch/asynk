@@ -375,20 +375,18 @@ settles whatever the chain returns. A `try`/`finally` or `async with` in a layer
 also runs when the worker cancels a running task on shutdown.
 
 A layer vetoes a task by returning `call.skip()` without awaiting `next`: the
-task does not run, the result has status `SKIPPED`, and the delivery is acked. A
-layer that does not call `next` therefore skips the task. The chain also runs
-for unknown tasks, where the layers receive an `UNKNOWN_TASK` result. A layer may
-settle `call.delivery` itself, and then the worker leaves the delivery alone.
+task does not run, the result has status `SKIPPED`, and the delivery is acked.
+The chain also runs for unknown tasks, where the layers receive an
+`UNKNOWN_TASK` result. A layer may settle `call.delivery` itself, and then the
+worker leaves the delivery alone.
 
 If a layer raises before the task ran, the error is logged and the message is
 redelivered: the worker publishes `envelope.retry()` through `app.producer` and
 acks the original, so the failure counts towards `max_retries`. Once
-`envelope.attempt >= max_retries` the message is rejected instead. With
-`max_retries=None` a layer that always fails redelivers forever, with no
-backoff. Without a producer the worker falls back to `requeue=True`, which
-redelivers the message but does not increment `attempt`. If a layer raises after
-the task ran, the error is logged and the task's outcome stands: the message is
-not redelivered.
+`envelope.attempt >= max_retries` the message is rejected instead. Without a
+producer the worker falls back to `requeue=True`, which redelivers the message
+but does not increment `attempt`. If a layer raises after the task ran, the
+error is logged and the task's outcome stands: the message is not redelivered.
 
 ## Retries
 
