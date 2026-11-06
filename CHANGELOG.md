@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `asynk.__version__`, read from the installed distribution's metadata.
 - Package classifiers, keywords and project URLs.
+- Documentation site built with Zensical (strict build in CI, `make docs` and
+  `make docs-serve`, `docs` dependency group), deployed to GitHub Pages from
+  master.
 
 ### Changed
 
