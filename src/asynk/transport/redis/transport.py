@@ -23,12 +23,10 @@ _ID_LENGTH = 32
 
 
 def _raise_if_cancelled() -> None:
-    """Re-raises a cancellation that the Redis client swallowed.
-
-    On Python 3.11, `asyncio.wait_for`, which redis-py 8 wraps every command write in,
-    drops a cancellation that arrives as the write completes; the task keeps running with a
-    pending cancel request. A cancelled task's `cancelling` count stays above zero.
-    """
+    """Raises `CancelledError` if the current task has a pending cancellation."""
+    # NOTE: On Python 3.11, `asyncio.wait_for`, which redis-py 8 wraps every command write
+    # in, drops a cancellation that arrives as the write completes. The task keeps running
+    # with a pending cancel request, so its `cancelling` count stays above zero.
     task = asyncio.current_task()
     if task is not None and task.cancelling():
         raise asyncio.CancelledError
