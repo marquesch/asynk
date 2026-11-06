@@ -157,7 +157,7 @@ It prints:
 ```text
 add success: 2
 cleanup skipped: 1
-divide retries_exceeded: 1
+divide failed: 1
 ```
 
 followed by the total seconds per task.

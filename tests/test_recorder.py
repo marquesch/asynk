@@ -10,7 +10,7 @@ from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.hooks import TaskResult, TaskStatus
 from asynk.recorder import ResultRecorder
-from asynk.results import TaskHandle, TaskState
+from asynk.results import TaskHandle, TaskState, result_key
 from asynk.store.memory import MemoryStore
 
 CODEC = JsonCodec()
@@ -75,3 +75,22 @@ async def test_record_state_overwrites() -> None:
     await recorder.record_state("x", TaskState.RUNNING)
     await recorder.record_state("x", TaskState.PENDING)
     assert await TaskHandle("x", store, CODEC).state() is TaskState.PENDING
+
+
+async def test_failed_records_a_failure_with_the_error() -> None:
+    recorder, store = _setup()
+    env = _envelope()
+    await recorder.record(TaskResult(env, TaskStatus.FAILED, error=ValueError("bad")))
+    handle = TaskHandle(env.id, store, CODEC)
+    assert await handle.state() is TaskState.FAILURE
+    with pytest.raises(TaskError) as info:
+        await handle.result()
+    assert (info.value.type_name, info.value.message) == ("ValueError", "bad")
+
+
+async def test_retrying_records_the_state_only() -> None:
+    recorder, store = _setup()
+    env = _envelope()
+    await recorder.record(TaskResult(env, TaskStatus.RETRYING, error=ValueError("bad")))
+    assert await TaskHandle(env.id, store, CODEC).state() is TaskState.RETRYING
+    assert await store.get(result_key(env.id)) is None

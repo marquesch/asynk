@@ -307,7 +307,7 @@ async def test_raise_before_next_redelivers_with_attempt_incremented(
     app, producer, consumer, worker = _setup()
     ran: list[bool] = []
 
-    @app.task(name="t")
+    @app.task(name="t", retry={"max_retries": None})
     async def t() -> None:
         ran.append(True)
 
@@ -317,7 +317,7 @@ async def test_raise_before_next_redelivers_with_attempt_incremented(
     delivery = await _next(consumer)
     with caplog.at_level("ERROR", logger="asynk"):
         result = await _handle(worker, delivery)
-    assert result.status is TaskStatus.FAILED
+    assert result.status is TaskStatus.RETRYING
     assert isinstance(result.error, RuntimeError)
     assert ran == []
     assert delivery.settled
@@ -338,7 +338,7 @@ async def test_raise_before_next_stops_after_max_retries() -> None:
     env = Envelope.create("t", (), {})
     await publish_envelope(producer, env)
     first = await _handle(worker, await _next(consumer))
-    assert first.status is TaskStatus.FAILED
+    assert first.status is TaskStatus.RETRYING
     second_delivery = await _next(consumer)
     assert decode_delivery(second_delivery).attempt == 1
     second = await _handle(worker, second_delivery)
@@ -355,7 +355,7 @@ async def test_raise_before_next_stops_after_max_retries() -> None:
 
 async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() -> None:
     producer, consumer = memory_transport()
-    app = App("t", consumer=consumer)
+    app = App("t", consumer=consumer, retry={})
     worker = Worker(app)
 
     @app.task(name="ok")
@@ -367,7 +367,7 @@ async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() 
     assert decode_delivery(await _next(consumer)).attempt == 0
 
 
-async def test_raise_before_next_with_failing_republish_leaves_default_settlement() -> None:
+async def test_raise_before_next_with_failing_republish_requeues_the_same_attempt() -> None:
     class BrokenProducer:
         async def publish(
             self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
@@ -375,26 +375,26 @@ async def test_raise_before_next_with_failing_republish_leaves_default_settlemen
             raise ConnectionError("broker down")
 
     producer, consumer = memory_transport()
-    app = App("t", producer=BrokenProducer(), consumer=consumer)
+    app = App("t", producer=BrokenProducer(), consumer=consumer, retry={})
     worker = Worker(app)
 
     @app.task(name="ok")
     async def ok() -> None: ...
 
     _raise_before_next(app)
-    await publish_envelope(producer, Envelope.create("ok", (), {}))
-    delivery = await _next(consumer)
+    env = Envelope.create("ok", (), {})
+    await publish_envelope(producer, env)
+    delivery = _SpyDelivery(await _next(consumer))
     result = await _handle(worker, delivery)
-    assert result.status is TaskStatus.FAILED
-    assert delivery.settled
-    with pytest.raises(TimeoutError):
-        await _next(consumer)
+    assert result.status is TaskStatus.RETRYING
+    assert delivery.calls == [("reject", True)]
+    assert decode_delivery(await _next(consumer)) == env
 
 
 async def test_raise_before_next_publishes_the_retry_with_the_app_codec() -> None:
     producer, consumer = memory_transport()
     codec = _ReverseCodec()
-    app = App("t", producer=producer, consumer=consumer, codec=codec)
+    app = App("t", producer=producer, consumer=consumer, codec=codec, retry={})
     worker = Worker(app)
 
     @app.task(name="ok")
@@ -412,7 +412,7 @@ async def test_layer_that_settles_then_raises_is_only_logged(
 ) -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="ok")
+    @app.task(name="ok", retry={"max_retries": None})
     async def ok() -> None: ...
 
     @app.middleware
@@ -422,7 +422,8 @@ async def test_layer_that_settles_then_raises_is_only_logged(
 
     await publish_envelope(producer, Envelope.create("ok", (), {}))
     with caplog.at_level("ERROR", logger="asynk"):
-        await _handle(worker, await _next(consumer))
+        result = await _handle(worker, await _next(consumer))
+    assert result.status is TaskStatus.FAILED
     assert any(r.exc_info for r in caplog.records)
     with pytest.raises(TimeoutError):
         await _next(consumer)

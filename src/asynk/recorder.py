@@ -15,8 +15,9 @@ logger = logging.getLogger("asynk")
 _TERMINAL_STATES = {
     TaskStatus.SUCCESS: TaskState.SUCCESS,
     TaskStatus.SKIPPED: TaskState.SKIPPED,
-    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
+    TaskStatus.FAILED: TaskState.FAILURE,
     TaskStatus.RETRIES_EXCEEDED: TaskState.FAILURE,
+    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
 }
 
 
@@ -54,14 +55,17 @@ class ResultRecorder:
     async def record(self, result: TaskResult) -> None:
         """Writes the state, and for a finished task the result record, of a task result.
 
+        A `RETRYING` result writes the `RETRYING` state only; every other status
+        is final and also writes the result record.
+
         Args:
             result: The result to record.
         """
         envelope = result.envelope
-        state = _TERMINAL_STATES.get(result.status)
-        if state is None:
+        if result.status is TaskStatus.RETRYING:
             await self.record_state(envelope.id, TaskState.RETRYING)
             return
+        state = _TERMINAL_STATES[result.status]
         try:
             state, record = self._encode_outcome(result, state)
             await self._store.set(

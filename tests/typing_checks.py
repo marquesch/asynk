@@ -35,6 +35,10 @@ async def without_retries() -> None: ...
 async def old_style() -> None: ...
 
 
+@app.task(retry=True)  # type: ignore[arg-type]
+async def retry_true() -> None: ...
+
+
 async def _checks() -> None:
     await add.delay(1, b=2)
     _task_id: str = (await add.delay(1, b=2)).task_id

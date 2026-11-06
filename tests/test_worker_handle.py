@@ -96,20 +96,21 @@ async def test_retries_exceeded_status() -> None:
     async def limited() -> None:
         raise RuntimeError
 
-    @app.task(name="unlimited")
+    @app.task(name="unlimited", retry={"max_retries": None})
     async def unlimited() -> None:
         raise RuntimeError
 
     base = Envelope.create("limited", (), {})
     r = await _run(producer, consumer, worker, base.retry())
-    assert r.status is TaskStatus.FAILED
+    assert r.status is TaskStatus.RETRYING
+    assert decode_delivery(await _next(consumer)) == base.retry().retry()
     r = await _run(producer, consumer, worker, base.retry().retry())
     assert r.status is TaskStatus.RETRIES_EXCEEDED
     u = Envelope.create("unlimited", (), {})
     for _ in range(5):
         u = u.retry()
     r = await _run(producer, consumer, worker, u)
-    assert r.status is TaskStatus.FAILED
+    assert r.status is TaskStatus.RETRYING
 
 
 async def test_cancelled_handle_requeues_delivery_and_reraises() -> None:

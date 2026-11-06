@@ -23,9 +23,10 @@ class TaskStatus(enum.Enum):
 
     Attributes:
         SUCCESS: The task returned normally.
-        FAILED: The task raised and its delivery was requeued or republished for a retry.
+        FAILED: The task raised and is not retried: no retry policy applies, or
+            the exception is not in its `retry_on`.
         RETRYING: The task raised and a retry is published.
-        RETRIES_EXCEEDED: The task raised on its last allowed attempt; the delivery is rejected.
+        RETRIES_EXCEEDED: The task raised and its retry policy has no retries left.
         UNKNOWN_TASK: The envelope names a task this app has not registered.
         SKIPPED: Middleware skipped the task, so it did not run.
     """

@@ -58,7 +58,7 @@ async def test_middleware_metrics_example_counts_and_times_each_task() -> None:
     assert dict(metrics.counts) == {
         ("add", "success"): 2,
         ("cleanup", "skipped"): 1,
-        ("divide", "retries_exceeded"): 1,
+        ("divide", "failed"): 1,
     }
     assert set(metrics.seconds) == {"add", "cleanup", "divide"}
     assert all(seconds >= 0 for seconds in metrics.seconds.values())

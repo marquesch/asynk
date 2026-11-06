@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Built-in retries: a failing task with a retry policy is republished as
+  `envelope.retry()` after its backoff, and the original delivery is acked;
+  `TaskStatus.RETRYING` reports it. If the retry cannot be published, the delivery
+  is rejected with requeue.
 - `RetryPolicy(max_retries=1, backoff=None, retry_on=(Exception,))`, the
   `Exponential(base, factor, max, jitter=False)` backoff and the `Backoff`
   protocol for custom strategies.
@@ -39,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `TaskStatus.FAILED` is final: the task is not retried and is recorded
+  as `FAILURE`. It used to be recorded as `RETRYING` and `result()` never completed.
+- **Breaking:** a middleware layer that raises before the task ran is retried through
+  the task's retry policy; without a policy the failure is final. It used to be
+  republished with no limit when `max_retries` was not set.
+- **Breaking:** the worker no longer rejects a delivery itself when retries are used
+  up after a failing layer; the consumer settles it, as for any failed task.
 - **Breaking:** `Producer.publish(envelope, body, options=None)` takes publish
   options; custom producers must accept the parameter and may ignore it.
 - **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
@@ -96,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A failing task no longer stays `RETRYING` with `result()` never completing.
 - The scheduler releases its dedupe claim when the publish fails or is cancelled.
 - `MemoryStore` purges expired keys and frees wait events instead of keeping them
   for the life of the store.

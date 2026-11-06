@@ -209,16 +209,11 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
     assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
 
 
-async def test_missed_slots_are_not_fired() -> None:
-    app, consumer = _app()
-
-    @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
-
-    clock = FakeClock(_at("2026-11-04T10:59:30"), until=_at("2026-11-04T15:01:00"))
-    clock.warps[0] = timedelta(hours=3, minutes=30)  # first wake lands at 14:29:35
-    await _run(app, clock)
-    assert _slots(await _published(consumer)) == [("job", "2026-11-04T15:00:00+00:00")]
+def test_scheduled_task_has_no_catch_up() -> None:
+    app, _ = _app()
+    with pytest.raises(TypeError):
+        app.scheduled_task(cron="0 * * * *", tz="UTC", catch_up=True)  # type: ignore[call-arg]
+    assert app.scheduled_tasks == ()
 
 
 async def test_clock_step_back_does_not_refire() -> None:

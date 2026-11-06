@@ -88,9 +88,8 @@ async def test_retrying_then_success_keeps_one_id() -> None:
     handle = await flaky.delay()
     first = await _next(consumer)
     result = await _handle(worker, first)
-    assert result.status is TaskStatus.FAILED
+    assert result.status is TaskStatus.RETRYING
     assert await handle.state() is TaskState.RETRYING
-    await publish_envelope(producer, decode_delivery(first).retry())
     second = await _next(consumer)
     assert decode_delivery(second).id == handle.task_id
     result = await _handle(worker, second)
@@ -454,7 +453,7 @@ async def test_layer_failure_records_retrying_or_failure() -> None:
 
     handle = await once.delay()
     result = await _handle(worker, await _next(consumer))
-    assert result.status is TaskStatus.FAILED
+    assert result.status is TaskStatus.RETRYING
     assert await handle.state() is TaskState.RETRYING
     retried = await _next(consumer)
     assert decode_delivery(retried).id == handle.task_id
@@ -486,7 +485,7 @@ async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
     store = _BlockingSetStore(marker)
     app, producer, consumer, worker = _setup(store)
 
-    @app.task(name="t1")
+    @app.task(name="t1", retry={"max_retries": 1})
     async def t1() -> int:
         if marker == b"retrying":
             raise RuntimeError("fail")

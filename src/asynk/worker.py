@@ -28,9 +28,10 @@ from asynk.hooks import (
 from asynk.probes import ProbeFiles
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
+from asynk.retry import RetryPolicy, retry_delay, retry_status
 from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
-from asynk.transport import Consumer, Delivery
+from asynk.transport import Consumer, Delivery, PublishOptions
 
 T = TypeVar("T")
 
@@ -221,7 +222,10 @@ class Worker(Runner):
 
         The body is decoded into an `Envelope` with the app's codec, the app's
         middleware runs around the task, and the task's state and result are
-        recorded in the app's store.
+        recorded in the app's store. A `RETRYING` result whose delivery no layer
+        settled is republished as `envelope.retry()`, after the policy's backoff,
+        and the delivery is acked; when the retry cannot be published, the
+        delivery is rejected with requeue.
 
         Args:
             delivery: The delivery to handle.
@@ -256,7 +260,7 @@ class Worker(Runner):
                         self._log_result(result)
                     except Exception as exc:
                         if outcome is None:
-                            result = await self._on_middleware_failure(envelope, delivery, exc)
+                            result = self._on_middleware_failure(envelope, delivery, exc)
                         else:
                             logger.error(
                                 "middleware failed after task %r (id=%s) ran",
@@ -267,6 +271,8 @@ class Worker(Runner):
                             result = outcome
                             self._log_result(result)
                     await self._recorder.record(result)
+                    if result.status is TaskStatus.RETRYING and not delivery.settled:
+                        await self._publish_retry(envelope, delivery)
                 except asyncio.CancelledError:
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
@@ -278,7 +284,11 @@ class Worker(Runner):
         assert result is not None
         return result
 
-    async def _on_middleware_failure(
+    def _policy(self, task_name: str) -> RetryPolicy | None:
+        task = self.app.tasks.get(task_name)
+        return task.retry if task is not None else self.app.retry
+
+    def _on_middleware_failure(
         self, envelope: Envelope, delivery: Delivery, exc: Exception
     ) -> TaskResult:
         logger.error(
@@ -288,27 +298,46 @@ class Worker(Runner):
             envelope.attempt,
             exc_info=exc,
         )
-        status = TaskStatus.FAILED
-        if not delivery.settled:
-            task = self.app.tasks.get(envelope.task)
-            policy = task.retry if task is not None else self.app.retry
-            max_retries = policy.max_retries if policy is not None else None
-            if max_retries is not None and envelope.attempt >= max_retries:
-                status = TaskStatus.RETRIES_EXCEEDED
-                await delivery.reject()
-            elif self.app.producer is None:
-                await delivery.reject(requeue=True)
-            else:
-                try:
-                    retry = envelope.retry()
-                    await self.app.producer.publish(retry, self.app.codec.encode(retry.to_dict()))
-                except Exception:
-                    logger.exception(
-                        "failed to redeliver task %r (id=%s)", envelope.task, envelope.id
-                    )
-                else:
-                    await delivery.ack()
+        if delivery.settled:
+            status = TaskStatus.FAILED
+        else:
+            status = retry_status(self._policy(envelope.task), envelope.attempt, exc)
         return TaskResult(envelope, status, error=exc)
+
+    async def _publish_retry(self, envelope: Envelope, delivery: Delivery) -> None:
+        producer = self.app.producer
+        if producer is None:
+            logger.error(
+                "cannot publish a retry of task %r (id=%s): the app has no producer; requeueing",
+                envelope.task,
+                envelope.id,
+            )
+            await delivery.reject(requeue=True)
+            return
+        try:
+            retry = envelope.retry()
+            delay = retry_delay(self._policy(envelope.task), envelope.attempt)
+            body = self.app.codec.encode(retry.to_dict())
+            if delay is None:
+                await producer.publish(retry, body)
+            else:
+                await producer.publish(retry, body, PublishOptions(delay=delay))
+        except Exception:
+            logger.exception(
+                "failed to publish a retry of task %r (id=%s); requeueing",
+                envelope.task,
+                envelope.id,
+            )
+            await delivery.reject(requeue=True)
+            return
+        await delivery.ack()
+        logger.info(
+            "published retry of task %r (id=%s, attempt=%d, delay=%s)",
+            envelope.task,
+            envelope.id,
+            retry.attempt,
+            delay,
+        )
 
     @staticmethod
     def _log_result(result: TaskResult) -> None:
@@ -317,6 +346,14 @@ class Worker(Runner):
             case TaskStatus.FAILED:
                 logger.error(
                     "task %r (id=%s, attempt=%d) failed",
+                    name,
+                    result.envelope.id,
+                    result.envelope.attempt,
+                    exc_info=result.error,
+                )
+            case TaskStatus.RETRYING:
+                logger.warning(
+                    "task %r (id=%s, attempt=%d) failed; retrying",
                     name,
                     result.envelope.id,
                     result.envelope.attempt,
@@ -353,8 +390,5 @@ class Worker(Runner):
                 if inspect.isawaitable(value):
                     value = await value
         except Exception as exc:
-            max_retries = task.retry.max_retries if task.retry is not None else None
-            exceeded = max_retries is not None and envelope.attempt >= max_retries
-            status = TaskStatus.RETRIES_EXCEEDED if exceeded else TaskStatus.FAILED
-            return TaskResult(envelope, status, error=exc)
+            return TaskResult(envelope, retry_status(task.retry, envelope.attempt, exc), error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)
