@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar
+from typing import ClassVar
 
 from asynk.app import App
 from asynk.envelope import Envelope
@@ -24,15 +24,11 @@ from asynk.hooks import (
     TaskStatus,
     run_hooks,
 )
-from asynk.probes import ProbeFiles
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
 from asynk.retry import RetryPolicy, retry_delay, retry_status
 from asynk.runner import Role, Runner
-from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery, PublishOptions
-
-T = TypeVar("T")
 
 _CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
 
@@ -87,47 +83,28 @@ class Worker(Runner):
         """
         if concurrency < 1:
             raise ValueError(f"concurrency must be >= 1, got {concurrency}")
-        if heartbeat_interval <= 0:
-            raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
         if shutdown_timeout < 0:
             raise ValueError(f"shutdown_timeout must be >= 0, got {shutdown_timeout}")
         if app.consumer is None:
             raise NotConfiguredError(f"app {app.name!r} has no consumer configured")
-        self.app = app
+        super().__init__(app, probe_dir=probe_dir, heartbeat_interval=heartbeat_interval)
         self.consumer: Consumer = app.consumer
         self.concurrency = concurrency
         self.shutdown_timeout = shutdown_timeout
-        self.probe_dir = probe_dir
-        self.heartbeat_interval = heartbeat_interval
         self._recorder = ResultRecorder(app.store, app.codec)
-        self._shutdown = asyncio.Event()
-        self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
         self._probes_live = False
 
-    def request_shutdown(self) -> None:
-        """Asks `run` to stop fetching and drain; idempotent and safe in signal handlers."""
-        if not self._shutdown.is_set():
-            logger.info("worker shutdown requested")
-            self._shutdown.set()
-            if self._probes is not None and self._probes_live:
-                try:
-                    self._probes.remove_readiness()
-                except OSError:
-                    logger.exception("failed to remove readiness probe")
-
-    async def _heartbeat(self, probes: ProbeFiles) -> None:
-        while True:
-            ready = self.consumer.connected and not self._shutdown.is_set()
+    def _on_shutdown_requested(self) -> None:
+        if self._probes is not None and self._probes_live:
             try:
-                probes.beat(ready=ready)
+                self._probes.remove_readiness()
             except OSError:
-                logger.exception("failed to write probe files")
-            await asyncio.sleep(self.heartbeat_interval)
+                logger.exception("failed to remove readiness probe")
 
-    async def run_with_signals(self) -> None:
-        """Runs like `run`, with SIGTERM and SIGINT requesting a graceful shutdown."""
-        with shutdown_signals(self.request_shutdown):
-            await self.run()
+    async def _heartbeat(self) -> None:
+        while True:
+            self._beat(ready=self.consumer.connected and not self._shutdown.is_set())
+            await asyncio.sleep(self.heartbeat_interval)
 
     async def _start(self) -> None:
         await self.consumer.start()
@@ -136,26 +113,13 @@ class Worker(Runner):
         semaphore = asyncio.Semaphore(self.concurrency)
         in_flight: set[asyncio.Task[None]] = set()
         deliveries = aiter(self.consumer.deliveries())
-        shutdown = asyncio.ensure_future(self._shutdown.wait())
         heartbeat: asyncio.Task[None] | None = None
         if self._probes is not None:
             self._probes_live = True
-            heartbeat = asyncio.create_task(self._heartbeat(self._probes))
+            heartbeat = asyncio.create_task(self._heartbeat())
         try:
             await run_hooks(self.app.hooks.after_startup, self)
-            while not self._shutdown.is_set():
-                if not await self._race(semaphore.acquire(), shutdown):
-                    break
-                try:
-                    delivery = await self._race(anext(deliveries), shutdown)
-                except StopAsyncIteration:
-                    delivery = None
-                if delivery is None:
-                    semaphore.release()
-                    break
-                task = asyncio.create_task(self._handle_and_release(delivery, semaphore))
-                in_flight.add(task)
-                task.add_done_callback(in_flight.discard)
+            await self._consume(deliveries, semaphore, in_flight)
             try:
                 await run_hooks(self.app.hooks.before_shutdown, self)
             finally:
@@ -164,7 +128,6 @@ class Worker(Runner):
             await self._cancel(in_flight)
             raise
         finally:
-            shutdown.cancel()
             try:
                 aclose = getattr(deliveries, "aclose", None)
                 if aclose is not None:
@@ -174,24 +137,37 @@ class Worker(Runner):
                 if heartbeat is not None:
                     heartbeat.cancel()
                     await asyncio.gather(heartbeat, return_exceptions=True)
-                if self._probes is not None:
-                    self._probes_live = False
-                    try:
-                        self._probes.clear()
-                    except OSError:
-                        logger.exception("failed to clear probe files")
+                self._probes_live = False
+                self._clear_probes()
 
-    async def _race(self, aw: Awaitable[T], shutdown: asyncio.Future[Any]) -> T | None:
-        fut = asyncio.ensure_future(aw)
-        try:
-            await asyncio.wait({fut, shutdown}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            if not fut.done():
-                fut.cancel()
-                await asyncio.wait({fut})
-        if fut.cancelled():
+    async def _consume(
+        self,
+        deliveries: AsyncIterator[Delivery],
+        semaphore: asyncio.Semaphore,
+        in_flight: set[asyncio.Task[None]],
+    ) -> None:
+        while not self._shutdown.is_set():
+            delivery = await self._next_delivery(deliveries, semaphore)
+            if delivery is None:
+                return
+            task = asyncio.create_task(self._handle_and_release(delivery, semaphore))
+            in_flight.add(task)
+            task.add_done_callback(in_flight.discard)
+
+    async def _next_delivery(
+        self, deliveries: AsyncIterator[Delivery], semaphore: asyncio.Semaphore
+    ) -> Delivery | None:
+        """Returns the next delivery holding a concurrency slot, or None if the loop should end."""
+        acquired, _ = await self._race(semaphore.acquire())
+        if not acquired:
             return None
-        return fut.result()
+        try:
+            fetched, delivery = await self._race(anext(deliveries))
+        except StopAsyncIteration:
+            fetched, delivery = False, None
+        if not fetched:
+            semaphore.release()
+        return delivery
 
     async def _handle_and_release(self, delivery: Delivery, semaphore: asyncio.Semaphore) -> None:
         try:

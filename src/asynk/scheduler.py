@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
@@ -13,10 +12,8 @@ from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.errors import NotConfiguredError
 from asynk.hooks import run_hooks
-from asynk.probes import ProbeFiles
 from asynk.runner import Role, Runner
 from asynk.scheduled_task import ScheduledTask
-from asynk.signals import shutdown_signals
 
 logger = logging.getLogger("asynk")
 
@@ -104,37 +101,19 @@ class Scheduler(Runner):
             raise NotConfiguredError(f"app {app.name!r} has no producer configured")
         if not app.scheduled_tasks:
             raise ValueError(f"app {app.name!r} has no scheduled tasks")
-        if heartbeat_interval <= 0:
-            raise ValueError(f"heartbeat_interval must be > 0, got {heartbeat_interval}")
         if not 0 <= grace < _MAX_GRACE:
             raise ValueError(f"grace must be in [0, {_MAX_GRACE:g}), got {grace}")
         for task in app.scheduled_tasks:
             app.codec.validate(
                 Envelope.create(task.name, task.schedule.args, task.schedule.kwargs).to_dict()
             )
-        self.app = app
+        super().__init__(app, probe_dir=probe_dir, heartbeat_interval=heartbeat_interval)
         self.clock: Clock = clock if clock is not None else SystemClock()
-        self.probe_dir = probe_dir
-        self.heartbeat_interval = heartbeat_interval
         self.grace = grace
-        self._shutdown = asyncio.Event()
-        self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
-
-    def request_shutdown(self) -> None:
-        """Asks `run` to stop; idempotent and safe in signal handlers."""
-        if not self._shutdown.is_set():
-            logger.info("scheduler shutdown requested")
-            self._shutdown.set()
-
-    async def run_with_signals(self) -> None:
-        """Runs like `run`, with SIGTERM and SIGINT requesting a shutdown."""
-        with shutdown_signals(self.request_shutdown):
-            await self.run()
 
     async def _serve(self) -> None:
-        self._beat()
-        shutdown = asyncio.ensure_future(self._shutdown.wait())
         try:
+            self._beat(ready=False)
             now = self._now()
             pending: dict[ScheduledTask[..., Any], datetime] = {
                 task: task.schedule.cron.next_after(now.astimezone(task.schedule.tz))
@@ -144,26 +123,19 @@ class Scheduler(Runner):
             await run_hooks(self.app.hooks.after_startup, self)
             while not self._shutdown.is_set():
                 now = self._now()
-                await self._handle_due(pending, now, shutdown)
+                await self._handle_due(pending, now)
                 earliest = min(pending.values())
                 delay = min(max((earliest - now).total_seconds(), 0.0), self.heartbeat_interval)
-                await self._sleep(delay, shutdown)
-                self._beat()
+                await self._race(self.clock.sleep(delay))
+                self._beat(ready=False)
             await run_hooks(self.app.hooks.before_shutdown, self)
         finally:
-            shutdown.cancel()
-            await asyncio.gather(shutdown, return_exceptions=True)
-            if self._probes is not None:
-                try:
-                    self._probes.clear()
-                except OSError:
-                    logger.exception("failed to clear probe files")
+            self._clear_probes()
 
     async def _handle_due(
         self,
         pending: dict[ScheduledTask[..., Any], datetime],
         now: datetime,
-        shutdown: asyncio.Future[Any],
     ) -> None:
         grace = timedelta(seconds=self.grace)
         while True:
@@ -173,7 +145,7 @@ class Scheduler(Runner):
             if slot > now:
                 return
             if now - slot <= grace:
-                if not await self._fire(task, slot, shutdown):
+                if not await self._fire(task, slot):
                     return
                 pending[task] = task.schedule.cron.next_after(slot)
                 continue
@@ -187,9 +159,7 @@ class Scheduler(Runner):
                 _utc_iso(pending[task]),
             )
 
-    async def _fire(
-        self, task: ScheduledTask[..., Any], slot: datetime, shutdown: asyncio.Future[Any]
-    ) -> bool:
+    async def _fire(self, task: ScheduledTask[..., Any], slot: datetime) -> bool:
         """Claims and publishes one slot.
 
         The claim is released unless the publish succeeded.
@@ -228,7 +198,7 @@ class Scheduler(Runner):
         published = False
         try:
             try:
-                finished = await self._race(publish, shutdown)
+                finished, _ = await self._race(publish)
             except Exception:
                 logger.exception(
                     "failed to publish scheduled task %r for slot %s", task.name, scheduled_at
@@ -238,7 +208,7 @@ class Scheduler(Runner):
                 published = True
                 logger.debug("published scheduled task %r for slot %s", task.name, scheduled_at)
                 return True
-            if not shutdown.done():
+            if not self._shutdown.is_set():
                 # The publish cancelled itself: a failed publish, so the slot advances.
                 logger.error(
                     "publish of scheduled task %r for slot %s was cancelled; slot skipped",
@@ -271,41 +241,10 @@ class Scheduler(Runner):
                 scheduled_at,
             )
 
-    async def _sleep(self, seconds: float, shutdown: asyncio.Future[Any]) -> None:
-        await self._race(self.clock.sleep(seconds), shutdown)
-
-    @staticmethod
-    async def _race(aw: Awaitable[Any], shutdown: asyncio.Future[Any]) -> bool:
-        """Awaits `aw` unless shutdown comes first, then cancels it.
-
-        Returns:
-            True if `aw` finished (its exception, if any, is re-raised); False if
-            shutdown cancelled it.
-        """
-        fut = asyncio.ensure_future(aw)
-        try:
-            await asyncio.wait({fut, shutdown}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            if not fut.done():
-                fut.cancel()
-                await asyncio.wait({fut})
-        if fut.cancelled():
-            return False
-        fut.result()
-        return True
-
     def _now(self) -> datetime:
         # Normalized to UTC so comparisons and subtractions with slots (which
         # carry each scheduled task's zone) are between instants, never wall times.
         return self.clock.now().astimezone(UTC)
-
-    def _beat(self) -> None:
-        if self._probes is None:
-            return
-        try:
-            self._probes.beat(ready=False)
-        except OSError:
-            logger.exception("failed to write probe files")
 
 
 def _utc_iso(slot: datetime) -> str:

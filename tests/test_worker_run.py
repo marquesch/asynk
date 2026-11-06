@@ -344,6 +344,23 @@ async def test_readiness_removed_when_shutdown_starts(tmp_path: Path) -> None:
     await asyncio.wait_for(run, 1)
 
 
+async def test_readiness_removal_failure_is_logged_not_raised(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.01)
+    run = asyncio.create_task(worker.run())
+    await _until((tmp_path / "readiness").exists)
+    assert worker._probes is not None
+
+    def broken() -> None:
+        raise OSError("boom")
+
+    worker._probes.remove_readiness = broken  # type: ignore[method-assign]
+    worker.request_shutdown()
+    await asyncio.wait_for(run, 1)
+    assert "failed to remove readiness probe" in caplog.text
+
+
 async def test_probe_files_cleared_after_exit(tmp_path: Path) -> None:
     _, _, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.02)
     run = asyncio.create_task(worker.run())
@@ -378,7 +395,7 @@ async def test_no_files_when_probe_dir_is_none(
             return lambda *args, **kwargs: None
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    monkeypatch.setattr("asynk.worker.ProbeFiles", RecordingProbeFiles)
+    monkeypatch.setattr("asynk.runner.ProbeFiles", RecordingProbeFiles)
     _, _, _, worker = _setup(heartbeat_interval=0.02)
     run = asyncio.create_task(worker.run())
     # Absence of probe files is the behavior: only observable over several real heartbeats.
