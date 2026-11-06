@@ -39,8 +39,6 @@ class Envelope:
     ) -> Envelope:
         """Builds a new envelope with a fresh id.
 
-        Values are not validated; the codec checks what it can encode.
-
         Args:
             task: Registered name of the task to run.
             args: Positional arguments for the task.

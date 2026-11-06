@@ -89,9 +89,6 @@ class ScheduledTask(Task[P, R]):
 def resolve_timezone(key: str, owner: str) -> tzinfo:
     """Loads a timezone by IANA name.
 
-    "UTC" resolves to `datetime.timezone.utc` without touching the tz database;
-    any other name needs one (install `tzdata` where the system has none).
-
     Args:
         key: The timezone name.
         owner: Description of what asked for it, used in the error message.

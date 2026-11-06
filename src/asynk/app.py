@@ -134,10 +134,6 @@ class App:
     ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
-        The cron expression and (when `name` is given) timezone are
-        checked immediately; the timezone is otherwise checked when decorating. The
-        arguments are checked by the app's codec when a `Scheduler` is created.
-
         Args:
             cron: Five-field cron expression.
             tz: IANA timezone for the expression; defaults to the app's.
@@ -205,10 +201,9 @@ class App:
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
         """Registers a hook run before a worker starts its consumer or a scheduler its loop.
 
-        Lifecycle hooks run in every asynk process, worker and scheduler alike.
-        They may be sync or async and receive the `Runner` (the `Worker` or
-        `Scheduler`); `runner.role` is "worker" or "scheduler". Registering the
-        same function twice has no effect. A hook that raises stops `Worker.run`
+        Lifecycle hooks may be sync or async and receive the `Runner` they run in,
+        a `Worker` or a `Scheduler`; `runner.role` tells them apart. Registering
+        the same hook twice has no effect. A hook that raises stops `Worker.run`
         or `Scheduler.run`.
 
         Example:
@@ -245,9 +240,8 @@ class App:
     def before_shutdown(self, hook: LifecycleHook) -> LifecycleHook:
         """Registers a hook run when a worker stops fetching (before draining) or a scheduler stops.
 
-        Same rules as `before_startup`. If a hook raises, the worker still drains
-        and cleans up, then `Worker.run` raises; the scheduler cleans up and
-        `Scheduler.run` raises.
+        A worker runs it when it stops fetching, before draining. Same rules as
+        `before_startup`.
 
         Args:
             hook: The hook to register.

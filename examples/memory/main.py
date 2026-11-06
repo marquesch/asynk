@@ -38,7 +38,7 @@ async def main() -> None:
     worker = Worker(app)
     run_worker = asyncio.create_task(worker.run())
 
-    # delay() only enqueues; arguments must be JSON-friendly.
+    # delay() publishes the call and returns a handle.
     handle = await add.delay(2, b=3)
     await shout.delay("hello")
 

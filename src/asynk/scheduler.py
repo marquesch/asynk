@@ -56,10 +56,8 @@ class SystemClock:
 class Scheduler(Runner):
     """Publishes an app's scheduled tasks when their cron slots come due.
 
-    Fire times are decided with the wall clock, re-read after every wake, so a
-    slot is never published twice by one scheduler even if the clock steps back.
-    Each publish carries an `idempotency_key` of `"<task name>:<slot>"` and a
-    `scheduled_at`, the slot as a UTC ISO-8601 instant.
+    Each publish carries the metadata `idempotency_key`, `"<task name>:<slot>"`,
+    and `scheduled_at`, the slot as a UTC ISO-8601 instant.
 
     Attributes:
         app: The app whose scheduled tasks are published.
@@ -133,10 +131,7 @@ class Scheduler(Runner):
     async def run(self) -> None:
         """Publishes due slots until shutdown is requested.
 
-        Nothing fires at startup: each scheduled task's first slot is the first one after
-        the current time. Shutdown interrupts the sleep and does not wait for
-        slots that are not yet due.
-
+        Each scheduled task starts at its first slot after the current time.
         Startup and shutdown hooks run around the loop; see `App.before_startup`
         and its siblings. A hook that raises makes this method raise.
         """

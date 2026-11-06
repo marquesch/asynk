@@ -53,26 +53,12 @@ class Delivery(Protocol):
 class Consumer(Protocol):
     """Receives deliveries from a broker and decides how each is settled.
 
-    Implementer contract:
-
-    * `process` is entered once per delivery. If the task failed, was unknown, or
-      exceeded its retries, the worker raises `TaskFailedError` (with
-      `.result.status`) inside the block; any other exception is unexpected. On
-      a clean exit the context manager must settle an unsettled delivery
-      (usually ack). On an exception it must settle an unsettled delivery
-      (usually reject) and must not suppress the exception, notably
-      `asyncio.CancelledError`.
-    * The worker decodes each delivery's `body` inside `process`. A body it
-      cannot decode is rejected without requeue there, and the block exits
-      cleanly.
-    * When a task is cancelled at the shutdown timeout, the worker rejects its
-      unsettled delivery with `requeue=True` before the cancellation reaches
-      `process`, so the message is redelivered rather than dropped.
-    * `deliveries` may be cancelled at any await point during shutdown. If the
-      returned iterator has an `aclose()` method the worker calls it. When the
-      iterator ends, the worker drains in-flight tasks and `Worker.run` returns.
-    * `stop` is called after the iterator is closed. Deliveries still unsettled
-      then should be redelivered by the broker.
+    The worker calls `start`, iterates `deliveries`, closes the iterator, then
+    calls `stop`. Each delivery is handled inside `process(delivery)`. When a
+    task failed, was unknown or exceeded its retries and the delivery is still
+    unsettled, the worker raises `TaskFailedError` inside that block. On exit,
+    `process` settles a delivery that is still unsettled (usually ack on a
+    clean exit, reject on an exception) and re-raises the exception.
     """
 
     @property
