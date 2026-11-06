@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishing with metadata, probes, delivery guarantees and shutdown), advanced
   topics (lifecycle hooks, writing a custom transport, writing a custom store)
   and the changelog, with tested examples.
+- Documentation page on middleware (advanced topics): ordering, vetoes, cleanup,
+  failing layers and pitfalls, with a tested timing and counting example and its
+  Prometheus version.
 
 ### Changed
 

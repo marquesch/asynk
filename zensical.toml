@@ -20,6 +20,7 @@ nav = [
   ] },
   { "Advanced" = [
     { "Lifecycle hooks" = "advanced/lifecycle-hooks.md" },
+    { "Middleware" = "advanced/middleware.md" },
     { "Writing a custom transport" = "advanced/custom-transport.md" },
     { "Writing a custom store" = "advanced/custom-store.md" },
   ] },
