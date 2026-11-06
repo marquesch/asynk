@@ -560,3 +560,52 @@ async def test_retrying_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture)
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
     assert records[0].exc_info is not None
+
+
+async def test_cancel_during_the_retry_publish_requeues_the_original() -> None:
+    app, recording, consumer, worker = _setup()
+    started = asyncio.Event()
+
+    class BlockingProducer:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> str:
+            started.set()
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+    @app.task(name="boom", retry={"max_retries": 1})
+    async def boom() -> None:
+        raise ValueError("x")
+
+    env = Envelope.create("boom", (), {})
+    await publish_envelope(recording.inner, env)
+    app.producer = BlockingProducer()
+    delivery = _SpyDelivery(await _next(consumer))
+    handler = asyncio.create_task(worker.handle(delivery))
+    await asyncio.wait_for(started.wait(), 1)
+    handler.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handler
+    assert delivery.calls == [("reject", True)]
+    assert decode_delivery(await _next(consumer)) == env
+
+
+async def test_sync_task_is_retried() -> None:
+    app, _, consumer, worker = _setup()
+    calls: list[int] = []
+
+    @app.task(name="flaky", retry={"max_retries": 1})
+    def flaky() -> str:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("once")
+        return "ok"
+
+    handle = await flaky.delay()
+    first = await _handle(worker, await _next(consumer))
+    assert first.status is TaskStatus.RETRYING
+    second = await _handle(worker, await _next(consumer))
+    assert second.status is TaskStatus.SUCCESS
+    assert second.envelope.attempt == 1
+    assert await handle.result(timeout=1) == "ok"
