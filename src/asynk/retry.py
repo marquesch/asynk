@@ -6,7 +6,6 @@ import math
 import random
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from numbers import Real
 from typing import Any, Protocol
 
 from asynk.hooks import TaskStatus
@@ -51,6 +50,14 @@ class Exponential:
     jitter: bool = False
 
     def __post_init__(self) -> None:
+        for name in ("base", "factor", "max"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(f"{name} must be an int or float, got {value!r}")
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be finite, got {value!r}")
+        if not isinstance(self.jitter, bool):
+            raise TypeError(f"jitter must be a bool, got {self.jitter!r}")
         if not self.base > 0:
             raise ValueError(f"base must be positive, got {self.base!r}")
         if not self.factor >= 1:
@@ -75,7 +82,7 @@ class Exponential:
                 capped = min(self.max, self.base * self.factor**exponent)
             except OverflowError:
                 capped = self.max
-        return random.uniform(0, capped) if self.jitter else capped
+        return random.uniform(0, capped) if self.jitter else float(capped)
 
 
 @dataclass(frozen=True)
@@ -109,7 +116,7 @@ class RetryPolicy:
                 raise ValueError(f"max_retries must be at least 0, got {retries!r}")
 
         backoff = self.backoff
-        if isinstance(backoff, Real) and not isinstance(backoff, bool):
+        if isinstance(backoff, int | float) and not isinstance(backoff, bool):
             if not math.isfinite(backoff) or backoff < 0:
                 raise ValueError(
                     f"backoff must be a finite number of seconds >= 0, got {backoff!r}"
@@ -189,5 +196,7 @@ def retry_delay(policy: RetryPolicy | None, attempt: int) -> float | None:
     if policy is None or policy.backoff is None:
         return None
     backoff = policy.backoff
-    delay = float(backoff) if isinstance(backoff, int | float) else backoff.delay(attempt + 1)
+    delay = (
+        float(backoff) if isinstance(backoff, int | float) else float(backoff.delay(attempt + 1))
+    )
     return delay if delay > 0 else None

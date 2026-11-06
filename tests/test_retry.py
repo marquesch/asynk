@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from fractions import Fraction
 from typing import Any
 
 import pytest
@@ -134,3 +136,73 @@ def test_retry_delay_passes_the_retry_number_and_drops_non_positive() -> None:
 
     assert retry_delay(RetryPolicy(backoff=Rec()), 4) is None
     assert seen == [5]
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        (Fraction(1, 2), TypeError),
+        (True, TypeError),
+        (-1, ValueError),
+        (float("nan"), ValueError),
+        (float("inf"), ValueError),
+    ],
+)
+def test_constant_backoff_validation(value: Any, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        RetryPolicy(backoff=value)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"base": True, "factor": 2, "max": 4}, TypeError),
+        ({"base": "1", "factor": 2, "max": 4}, TypeError),
+        ({"base": 1, "factor": Fraction(2), "max": 4}, TypeError),
+        ({"base": 1, "factor": 2, "max": float("inf")}, ValueError),
+        ({"base": float("nan"), "factor": 2, "max": 4}, ValueError),
+        ({"base": 1, "factor": float("inf"), "max": 4}, ValueError),
+        ({"base": 1, "factor": 2, "max": 4, "jitter": 1}, TypeError),
+    ],
+)
+def test_exponential_validates_types_and_finiteness(
+    kwargs: dict[str, Any], error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        Exponential(**kwargs)
+
+
+def test_delays_are_floats() -> None:
+    assert type(Exponential(base=1, factor=2, max=60).delay(2)) is float
+    assert type(Exponential(base=1, factor=2, max=60).delay(9)) is float
+    assert type(retry_delay(RetryPolicy(backoff=2), 0)) is float
+    assert type(retry_delay(RetryPolicy(backoff=Exponential(1, 2, 8)), 0)) is float
+
+
+def test_max_retries_boundary() -> None:
+    policy = RetryPolicy(max_retries=3)
+    assert retry_status(policy, 2, ValueError()) is TaskStatus.RETRYING
+    assert retry_status(policy, 3, ValueError()) is TaskStatus.RETRIES_EXCEEDED
+
+
+def test_exponential_factor_one_is_constant() -> None:
+    e = Exponential(base=2, factor=1, max=10)
+    assert [e.delay(n) for n in (1, 5, 5000)] == [2, 2, 2]
+
+
+def test_exponential_float_overflow_returns_max() -> None:
+    assert Exponential(base=1, factor=1e308, max=60).delay(3) == 60
+
+
+def test_single_exception_class_as_retry_on_is_rejected() -> None:
+    with pytest.raises(TypeError):
+        RetryPolicy(retry_on=ValueError)  # type: ignore[arg-type]
+
+
+def test_base_exception_only_errors_fail() -> None:
+    assert retry_status(RetryPolicy(), 0, asyncio.CancelledError()) is TaskStatus.FAILED
+
+
+def test_mapping_accepts_a_backoff_object() -> None:
+    backoff = Exponential(base=1, factor=2, max=8)
+    assert as_retry_policy({"backoff": backoff}).backoff is backoff
