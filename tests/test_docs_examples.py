@@ -9,6 +9,7 @@ from types import ModuleType
 import pytest
 
 from asynk.store.redis import RedisStore
+from asynk.transport.redis import RedisConsumer
 
 ROOT = Path(__file__).parent.parent
 
@@ -92,6 +93,13 @@ def test_readme_relative_links_exist() -> None:
     targets = re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", readme)
     missing = [t for t in targets if "://" not in t and not (ROOT / t).exists()]
     assert missing == []
+
+
+def test_redis_transport_guide_includes_its_example_and_it_builds_the_app() -> None:
+    text = (ROOT / "docs" / "guides" / "redis-transport.md").read_text()
+    assert '--8<-- "examples/guides/redis_transport.py"' in text
+    module = _load("guides/redis_transport.py")  # constructing the transport does no I/O
+    assert isinstance(module.app.consumer, RedisConsumer)
 
 
 def test_redis_guide_includes_its_example_and_it_builds_the_app() -> None:

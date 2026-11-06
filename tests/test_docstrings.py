@@ -20,6 +20,8 @@ from asynk.envelope import Envelope
 from asynk.retry import Exponential, RetryPolicy
 from asynk.store.redis import RedisStore
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
+from asynk.transport.redis import RedisConsumer, RedisProducer
+from asynk.transport.redis.transport import RedisDelivery
 
 MEMBER_CLASSES = [
     TaskCall,
@@ -45,6 +47,9 @@ CLASS_ONLY = [
     MemoryConsumer,
     MemoryDelivery,
     RedisStore,
+    RedisProducer,
+    RedisConsumer,
+    RedisDelivery,
 ]
 
 

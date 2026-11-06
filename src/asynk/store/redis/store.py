@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from redis.asyncio import Redis
 
+from asynk._redis import RedisConnection
 from asynk.store.polling import poll
 
 
@@ -35,15 +36,8 @@ class RedisStore:
             ValueError: If not exactly one of `url` and `client` is given, or
                 `ttl` or `max_poll_interval` is not positive.
         """
-        if (url is None) == (client is None):
-            raise ValueError("RedisStore needs exactly one of url and client")
-        if client is None:
-            assert url is not None
-            client = Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=5.0)
-            self._owns_client = True
-        else:
-            self._owns_client = False
-        self._client = client
+        self._connection = RedisConnection(url, client, owner="RedisStore")
+        self._client = self._connection.client
         if ttl <= 0:
             raise ValueError(f"ttl must be > 0, got {ttl}")
         if max_poll_interval <= 0:
@@ -57,8 +51,7 @@ class RedisStore:
 
     async def stop(self) -> None:
         """Closes the client if the store created it."""
-        if self._owns_client:
-            await self._client.aclose()
+        await self._connection.close()
 
     def _key(self, key: str) -> str:
         return self._prefix + key

@@ -7,15 +7,20 @@ own transport, copy this directory and replace ``REGISTRY``.
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 import pytest
+from redis.asyncio import Redis
+from redis_helpers import BlockingFakeRedis
 
 from asynk.envelope import Envelope
 from asynk.transport import Consumer, Delivery, Producer
 from asynk.transport.memory import MemoryConsumer, MemoryProducer
+from asynk.transport.redis import RedisConsumer, RedisProducer
 
 
 @dataclass(frozen=True)
@@ -24,6 +29,9 @@ class ContractSettings:
 
     redelivery_timeout: float | None
     """Seconds to wait for a redelivery after `stop()`; None if there is none."""
+
+    supports_delay: bool = True
+    """Whether `publish` honors `PublishOptions.delay`."""
 
 
 class TransportHandle(Protocol):
@@ -76,11 +84,49 @@ class _MemoryHandle:
                 await consumer.stop()
 
 
-REGISTRY: dict[str, Callable[[], TransportHandle]] = {"memory": _MemoryHandle}
+class _RedisHandle:
+    """A transport on Redis Streams, with a fresh queue per handle."""
 
+    def __init__(self, client: Redis) -> None:
+        self._client = client
+        self._queue = f"contract-{uuid.uuid4().hex}"
+        self.producer = RedisProducer(client=client, queue=self._queue)
+        self._consumers: list[RedisConsumer] = []
+        self.consumer = self.new_consumer()
+
+    def new_consumer(self) -> RedisConsumer:
+        consumer = RedisConsumer(client=self._client, queue=self._queue, block=0.1, lease=0.3)
+        self._consumers.append(consumer)
+        return consumer
+
+    async def close(self) -> None:
+        for consumer in self._consumers:
+            if consumer.connected:
+                await consumer.stop()
+        await self._client.delete(*(f"asynk:{{{self._queue}}}:{kind}" for kind in KINDS))
+        await self._client.aclose()
+
+
+KINDS = ("stream", "delayed", "dead")
+
+
+def _fake_redis() -> TransportHandle:
+    return _RedisHandle(BlockingFakeRedis())
+
+
+REGISTRY: dict[str, Callable[[], TransportHandle]] = {
+    "memory": _MemoryHandle,
+    "redis-fake": _fake_redis,
+}
 _SETTINGS: dict[str, ContractSettings] = {
     "memory": ContractSettings(redelivery_timeout=None),
+    "redis-fake": ContractSettings(redelivery_timeout=3),
 }
+
+_REAL_URL = os.environ.get("ASYNK_TEST_REDIS_URL", "")
+if _REAL_URL:
+    REGISTRY["redis"] = lambda: _RedisHandle(Redis.from_url(_REAL_URL))
+    _SETTINGS["redis"] = _SETTINGS["redis-fake"]
 
 
 @pytest.fixture(params=sorted(REGISTRY))
