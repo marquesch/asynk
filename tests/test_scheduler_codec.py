@@ -35,7 +35,7 @@ def test_scheduler_validates_arguments_with_the_app_codec_rejecting() -> None:
     app = _app(_RejectEverythingCodec())
 
     @app.scheduled_task(cron="* * * * *", args=[1])
-    def job(n: int) -> None: ...
+    async def job(n: int) -> None: ...
 
     with pytest.raises(EncodeError):
         Scheduler(app)
@@ -45,7 +45,7 @@ def test_scheduler_validates_arguments_with_the_app_codec_accepting() -> None:
     app = _app(_PickleCodec())
 
     @app.scheduled_task(cron="* * * * *", args=[(1, 2)])
-    def job(pair: tuple[int, int]) -> None: ...
+    async def job(pair: tuple[int, int]) -> None: ...
 
     Scheduler(app)
 
@@ -55,7 +55,7 @@ def test_default_json_codec_rejects_the_same_tuple_argument() -> None:
     app = App("t", producer=producer)
 
     @app.scheduled_task(cron="* * * * *", args=[(1, 2)])
-    def job(pair: tuple[int, int]) -> None: ...
+    async def job(pair: tuple[int, int]) -> None: ...
 
     with pytest.raises(EncodeError):
         Scheduler(app)

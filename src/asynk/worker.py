@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from collections.abc import Awaitable
 from pathlib import Path
@@ -375,13 +374,7 @@ class Worker(Runner):
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
         await self._recorder.record_state(envelope.id, TaskState.RUNNING)
         try:
-            value: Any
-            if task.is_async:
-                value = await task.func(*envelope.args, **envelope.kwargs)
-            else:
-                value = await asyncio.to_thread(task.func, *envelope.args, **envelope.kwargs)
-                if inspect.isawaitable(value):
-                    value = await value
+            value = await task.func(*envelope.args, **envelope.kwargs)
         except Exception as exc:
             return TaskResult(envelope, retry_status(task.retry, envelope.attempt, exc), error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)

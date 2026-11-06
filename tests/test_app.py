@@ -1,4 +1,5 @@
-import inspect
+import functools
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -16,7 +17,7 @@ def test_task_registers_with_default_name() -> None:
     app = App("t")
 
     @app.task()
-    def fn() -> None: ...
+    async def fn() -> None: ...
 
     expected = f"t.{fn.func.__qualname__}"
     assert fn.name == expected
@@ -27,7 +28,7 @@ def test_task_registers_with_default_name() -> None:
 def test_default_name_ignores_module() -> None:
     app = App("t")
 
-    def fn() -> None: ...
+    async def fn() -> None: ...
 
     fn.__module__ = "__main__"
     task = app.task()(fn)
@@ -39,7 +40,7 @@ def test_explicit_name() -> None:
     app = App("t")
 
     @app.task(name="x")
-    def fn() -> None: ...
+    async def fn() -> None: ...
 
     assert fn.name == "x"
 
@@ -122,12 +123,12 @@ def test_duplicate_name_raises_value_error() -> None:
     app = App("t")
 
     @app.task(name="dup")
-    def a() -> None: ...
+    async def a() -> None: ...
 
     with pytest.raises(ValueError, match="dup"):
 
         @app.task(name="dup")
-        def b() -> None: ...
+        async def b() -> None: ...
 
 
 def test_unknown_task_raises_key_error() -> None:
@@ -139,30 +140,10 @@ async def test_direct_call_runs_function() -> None:
     app = App("t")
 
     @app.task()
-    def add(a: int, b: int) -> int:
+    async def add(a: int, b: int) -> int:
         return a + b
 
-    @app.task()
-    async def aadd(a: int, b: int) -> int:
-        return a + b
-
-    assert add(1, 2) == 3
-    coro = aadd(1, 2)
-    assert inspect.iscoroutine(coro)
-    assert await coro == 3
-
-
-def test_is_async_flag() -> None:
-    app = App("t")
-
-    @app.task()
-    def s() -> None: ...
-
-    @app.task()
-    async def a() -> None: ...
-
-    assert s.is_async is False
-    assert a.is_async is True
+    assert await add(1, 2) == 3
 
 
 def test_app_without_producer_or_consumer_is_valid() -> None:
@@ -207,3 +188,102 @@ async def test_get_task_returns_handle_bound_to_store_and_codec() -> None:
     assert handle.task_id == "abc"
     assert handle.receipt is None
     assert await handle.state() is TaskState.RUNNING
+
+
+class _SyncCallable:
+    def __call__(self) -> None: ...
+
+
+class _AsyncCallable:
+    async def __call__(self) -> None: ...
+
+
+def _returns_coroutine() -> object:
+    async def inner() -> None: ...
+
+    return inner()
+
+
+async def _agen() -> Any:
+    yield 1
+
+
+def _sync_add(a: int, b: int) -> int:
+    return a + b
+
+
+_REJECTED: list[Any] = [
+    pytest.param(lambda: None, id="lambda"),
+    pytest.param(_sync_add, id="def"),
+    pytest.param(functools.partial(_sync_add, 1), id="sync-partial"),
+    pytest.param(_returns_coroutine, id="def-returning-coroutine"),
+    pytest.param(_agen, id="async-generator"),
+    pytest.param(_SyncCallable(), id="sync-callable-instance"),
+    pytest.param(_AsyncCallable(), id="async-callable-instance"),
+]
+
+
+def _decorator(app: App, kind: str) -> Any:
+    if kind == "task":
+        return app.task(name="x")
+    return app.scheduled_task(cron="* * * * *", name="x")
+
+
+@pytest.mark.parametrize("func", _REJECTED)
+@pytest.mark.parametrize("kind", ["task", "scheduled_task"])
+def test_non_async_def_task_is_rejected(func: Any, kind: str) -> None:
+    app = App("t")
+    decorator = _decorator(app, kind)
+
+    with pytest.raises(TypeError, match="async def"):
+        decorator(func)
+
+    assert "x" not in app.tasks
+    assert not app.scheduled_tasks
+
+
+def test_rejection_message_names_the_function() -> None:
+    app = App("t")
+
+    with pytest.raises(TypeError, match="_sync_add.*asyncio.to_thread"):
+        app.task()(_sync_add)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("kind", ["task", "scheduled_task"])
+def test_rejected_task_does_not_claim_its_name(kind: str) -> None:
+    app = App("t")
+
+    with pytest.raises(TypeError):
+        _decorator(app, kind)(_sync_add)
+
+    task = _decorator(app, kind)(_async_add)
+
+    assert app.registered_task("x") is task
+
+
+async def _async_add(a: int, b: int) -> int:
+    return a + b
+
+
+class _Holder:
+    @staticmethod
+    async def static_add(a: int, b: int) -> int:
+        return a + b
+
+    async def method_add(self, a: int, b: int) -> int:
+        return a + b
+
+
+async def test_accepted_async_forms_are_awaitable_in_process() -> None:
+    app = App("t")
+    forms: dict[str, Callable[..., Awaitable[int]]] = {
+        "plain": _async_add,
+        "partial": functools.partial(_async_add, 1),
+        "static": _Holder.static_add,
+        "method": _Holder().method_add,
+    }
+
+    for name, func in forms.items():
+        task = app.task(name=name)(func)
+        args = (2,) if name == "partial" else (1, 2)
+        assert await task(*args) == 3

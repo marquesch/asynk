@@ -8,5 +8,5 @@ app = App("fixture", producer=_producer, consumer=_consumer)
 
 
 @app.task()
-def noop() -> None:
+async def noop() -> None:
     return None

@@ -587,7 +587,7 @@ async def test_sync_task_is_retried() -> None:
     calls: list[int] = []
 
     @app.task(name="flaky", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
-    def flaky() -> str:
+    async def flaky() -> str:
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("once")

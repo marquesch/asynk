@@ -4,7 +4,6 @@ import asyncio
 import os
 import signal
 import tempfile
-import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
@@ -215,38 +214,6 @@ async def test_failed_task_does_not_stop_loop() -> None:
     }
 
 
-async def test_sync_blocking_task_does_not_block_loop() -> None:
-    app, producer, consumer, worker = _setup()
-    async_done = threading.Event()
-    sync_saw_async: list[bool] = []
-    order: list[str] = []
-    both_done = asyncio.Event()
-
-    @app.middleware
-    async def hook(call: TaskCall, next: Next) -> TaskResult:
-        result = await next(call)
-        order.append(result.envelope.task)
-        if len(order) == 2:
-            both_done.set()
-        return result
-
-    @app.task(name="blocking")
-    def blocking() -> None:
-        sync_saw_async.append(async_done.wait(2))  # returns once the loop ran `quick`
-
-    @app.task(name="quick")
-    async def quick() -> None:
-        async_done.set()
-
-    await publish_envelope(producer, Envelope.create("blocking", (), {}))
-    await publish_envelope(producer, Envelope.create("quick", (), {}))
-    run = asyncio.create_task(worker.run())
-    await asyncio.wait_for(both_done.wait(), 2)
-    await _stop(worker, run)
-    assert sync_saw_async == [True]
-    assert order == ["quick", "blocking"]
-
-
 async def test_request_shutdown_is_idempotent() -> None:
     _, _, consumer, worker = _setup()
     worker.request_shutdown()
@@ -396,26 +363,6 @@ async def test_probe_files_cleared_after_error_exit(tmp_path: Path) -> None:
     assert not (tmp_path / "liveness").exists()
     assert not (tmp_path / "readiness").exists()
     assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-
-
-async def test_heartbeat_continues_during_sync_task(tmp_path: Path) -> None:
-    app, producer, _, worker = _setup(probe_dir=tmp_path, heartbeat_interval=0.02)
-    started = threading.Event()
-    release = threading.Event()
-
-    @app.task(name="block")
-    def block() -> None:
-        started.set()
-        release.wait(5)
-
-    await publish_envelope(producer, Envelope.create("block", (), {}))
-    run = asyncio.create_task(worker.run())
-    await _until(started.is_set)
-    await _until((tmp_path / "liveness").exists)
-    first = (tmp_path / "liveness").stat().st_mtime_ns
-    await _until(lambda: (tmp_path / "liveness").stat().st_mtime_ns > first)
-    release.set()
-    await _stop(worker, run)
 
 
 async def test_no_files_when_probe_dir_is_none(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, tzinfo
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
@@ -79,7 +79,7 @@ class ScheduledTask(Task[P, R]):
     def __init__(
         self,
         app: App,
-        func: Callable[P, R],
+        func: Callable[P, Awaitable[R]],
         name: str,
         retry: RetryPolicy | None,
         schedule: Schedule,

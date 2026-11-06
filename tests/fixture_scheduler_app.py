@@ -9,12 +9,12 @@ no_producer = App("fixture-no-producer")
 
 
 @app.scheduled_task(cron="0 0 1 1 *")
-def yearly() -> None:
+async def yearly() -> None:
     return None
 
 
 @no_producer.scheduled_task(cron="0 0 1 1 *")
-def orphan() -> None:
+async def orphan() -> None:
     return None
 
 
@@ -25,5 +25,5 @@ unencodable = App(
 
 
 @unencodable.scheduled_task(cron="0 0 1 1 *", args=[object()])
-def bad_args(value: object) -> None:
+async def bad_args(value: object) -> None:
     return None

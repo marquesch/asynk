@@ -28,13 +28,13 @@ async def test_scheduled_task_is_registered_as_task() -> None:
     app = App("t", producer=producer)
 
     @app.scheduled_task(cron="* * * * *")
-    def add(a: int, b: int = 0) -> int:
+    async def add(a: int, b: int = 0) -> int:
         return a + b
 
     assert isinstance(add, ScheduledTask)
     assert isinstance(add, Task)
     assert app.tasks[add.name] is add
-    assert add(1, b=2) == 3
+    assert await add(1, b=2) == 3
     assert (await add.delay(1, b=2)).receipt == "handle"
     assert producer.published[0].task == add.name
 
@@ -43,16 +43,16 @@ def test_scheduled_task_default_name_matches_task_rules() -> None:
     app = App("t")
 
     @app.task()
-    def plain() -> None: ...
+    async def plain() -> None: ...
 
     @app.scheduled_task(cron="* * * * *")
-    def scheduled() -> None: ...
+    async def scheduled() -> None: ...
 
     prefix = plain.name.removesuffix("plain")
     assert scheduled.name == f"{prefix}scheduled"
 
     @app.scheduled_task(cron="* * * * *", name="custom")
-    def other() -> None: ...
+    async def other() -> None: ...
 
     assert other.name == "custom"
 
@@ -61,20 +61,20 @@ def test_duplicate_name_with_task_raises_value_error() -> None:
     app = App("t")
 
     @app.task(name="x")
-    def a() -> None: ...
+    async def a() -> None: ...
 
     with pytest.raises(ValueError, match="'x'"):
 
         @app.scheduled_task(cron="* * * * *", name="x")
-        def b() -> None: ...
+        async def b() -> None: ...
 
     @app.scheduled_task(cron="* * * * *", name="y")
-    def c() -> None: ...
+    async def c() -> None: ...
 
     with pytest.raises(ValueError, match="'y'"):
 
         @app.task(name="y")
-        def d() -> None: ...
+        async def d() -> None: ...
 
 
 def test_app_tz_default_is_utc() -> None:
@@ -85,7 +85,7 @@ def test_scheduled_task_uses_app_tz_by_default() -> None:
     app = App("t", tz="Europe/Paris")
 
     @app.scheduled_task(cron="0 8 * * *")
-    def f() -> None: ...
+    async def f() -> None: ...
 
     assert f.schedule.tz == ZoneInfo("Europe/Paris")
 
@@ -94,7 +94,7 @@ def test_scheduled_task_tz_overrides_app_tz() -> None:
     app = App("t", tz="Europe/Paris")
 
     @app.scheduled_task(cron="0 8 * * *", tz="Asia/Tokyo")
-    def f() -> None: ...
+    async def f() -> None: ...
 
     assert f.schedule.tz == ZoneInfo("Asia/Tokyo")
 
@@ -103,7 +103,7 @@ def test_schedule_fields() -> None:
     app = App("t")
 
     @app.scheduled_task(cron="*/5 * * * *", args=[1, "a"], kwargs={"k": [1]})
-    def f(*args: object, **kwargs: object) -> None: ...
+    async def f(*args: object, **kwargs: object) -> None: ...
 
     s = f.schedule
     assert s.expression == "*/5 * * * *"
@@ -117,7 +117,7 @@ def test_schedule_defaults() -> None:
     app = App("t")
 
     @app.scheduled_task(cron="* * * * *")
-    def f() -> None: ...
+    async def f() -> None: ...
 
     assert f.schedule.args == ()
     assert f.schedule.kwargs == {}
@@ -146,12 +146,12 @@ def test_unknown_scheduled_task_tz_raises_value_error_naming_scheduled_task() ->
     with pytest.raises(ValueError, match="mytask"):
 
         @app.scheduled_task(cron="* * * * *", tz="Not/AZone", name="mytask")
-        def f() -> None: ...
+        async def f() -> None: ...
 
     with pytest.raises(ValueError, match="unnamed"):
 
         @app.scheduled_task(cron="* * * * *", tz="Not/AZone")
-        def unnamed() -> None: ...
+        async def unnamed() -> None: ...
 
     assert app.tasks == {}
 
@@ -160,13 +160,13 @@ def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:
     app = App("t")
 
     @app.scheduled_task(cron="* * * * *")
-    def first() -> None: ...
+    async def first() -> None: ...
 
     @app.task()
-    def plain() -> None: ...
+    async def plain() -> None: ...
 
     @app.scheduled_task(cron="* * * * *")
-    def second() -> None: ...
+    async def second() -> None: ...
 
     assert list(app.scheduled_tasks) == [first, second]
 
@@ -175,10 +175,10 @@ def test_scheduled_task_retry_policy() -> None:
     app = App("t")
 
     @app.scheduled_task(cron="* * * * *", options=TaskOptions(retry=RetryPolicy(max_retries=3)))
-    def f() -> None: ...
+    async def f() -> None: ...
 
     @app.scheduled_task(cron="* * * * *")
-    def g() -> None: ...
+    async def g() -> None: ...
 
     assert f.retry == RetryPolicy(max_retries=3)
     assert g.retry is None
@@ -198,7 +198,7 @@ def test_default_utc_does_not_need_tz_database() -> None:
     app = App("x")
 
     @app.scheduled_task(cron="* * * * *")
-    def f() -> None: ...
+    async def f() -> None: ...
 
     assert app.tz is UTC
     assert f.schedule.tz is UTC
@@ -213,7 +213,7 @@ def test_explicit_utc_does_not_need_tz_database() -> None:
     app = App("x", tz="UTC")
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="n")
-    def f() -> None: ...
+    async def f() -> None: ...
 
     assert f.schedule.tz is UTC
 

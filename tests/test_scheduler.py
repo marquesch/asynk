@@ -99,7 +99,7 @@ async def test_fires_on_slot_with_fixed_args_and_kwargs() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", args=[1, "a"], kwargs={"b": [2]}, name="job")
-    def job(n: int, s: str, *, b: list[int]) -> None: ...
+    async def job(n: int, s: str, *, b: list[int]) -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:00"), until=_at("2026-11-04T11:31:00"))
     await _run(app, clock)
@@ -113,7 +113,7 @@ async def test_metadata_has_idempotency_key_and_scheduled_at() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="30 8 * * *", tz="America/Sao_Paulo", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:00:00"), until=_at("2026-11-04T12:00:00"))
     await _run(app, clock)
@@ -130,7 +130,7 @@ async def test_two_schedulers_same_slot_same_key() -> None:
         app, consumer = _app()
 
         @app.scheduled_task(cron="*/5 * * * *", tz="Europe/Berlin", name="job")
-        def job() -> None: ...
+        async def job() -> None: ...
 
         clock = FakeClock(_at("2026-11-04T11:02:17"), until=_at("2026-11-04T11:06:00"))
         await _run(app, clock)
@@ -143,7 +143,7 @@ async def test_nothing_fires_at_startup() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="30 11 * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     # Starting exactly on a slot does not fire it.
     clock = FakeClock(_at("2026-11-04T11:30:00"), until=_at("2026-11-04T11:40:00"))
@@ -155,10 +155,10 @@ async def test_only_due_scheduled_tasks_fire() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="*/10 * * * *", tz="UTC", name="often")
-    def often() -> None: ...
+    async def often() -> None: ...
 
     @app.scheduled_task(cron="0 * * * *", tz="UTC", name="hourly")
-    def hourly() -> None: ...
+    async def hourly() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:41:00"), until=_at("2026-11-04T12:15:00"))
     await _run(app, clock)
@@ -174,7 +174,7 @@ async def test_late_within_grace_fires() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
     clock.warps[0] = timedelta(seconds=20)  # wakes 20 s after the slot
@@ -186,7 +186,7 @@ async def test_stall_beyond_grace_skips_missed_slots(caplog: pytest.LogCaptureFi
     app, consumer = _app()
 
     @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:00"), until=_at("2026-11-04T14:01:00"))
     clock.warps[0] = timedelta(hours=3)  # first wake lands at 13:59:30
@@ -202,7 +202,7 @@ async def test_stall_without_slot_in_grace_resumes_on_next_future_slot() -> None
     app, consumer = _app()
 
     @app.scheduled_task(cron="0 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T10:59:00"), until=_at("2026-11-04T15:01:00"))
     clock.warps[0] = timedelta(hours=3, minutes=30)  # first wake lands at 14:29:30
@@ -221,7 +221,7 @@ async def test_clock_step_back_does_not_refire() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:30"))
     clock.warps[1] = timedelta(minutes=-2)  # fires 11:30, then steps back to 11:29
@@ -253,7 +253,7 @@ async def test_publish_failure_is_logged_and_loop_continues(
     app.producer = Flaky()
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
     with caplog.at_level(logging.ERROR, logger="asynk"):
@@ -325,7 +325,7 @@ async def test_publish_cancelled_without_shutdown_is_a_failed_publish(
     app.producer = SelfCancelling()
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T11:31:00"))
     with caplog.at_level(logging.WARNING, logger="asynk"):
@@ -349,7 +349,7 @@ async def test_shutdown_interrupts_hung_publish(
     app.producer = producer
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T12:00:00"))
     with caplog.at_level(logging.WARNING, logger="asynk"):
@@ -365,7 +365,7 @@ async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
     scheduler = Scheduler(app, clock=clock)
@@ -380,7 +380,7 @@ async def test_probe_file_written_and_cleared(tmp_path: Path) -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
     scheduler = Scheduler(app, clock=clock, probe_dir=tmp_path)
@@ -399,7 +399,7 @@ async def test_probe_write_failure_is_logged_not_raised(
     app, _ = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     blocker = tmp_path / "file"
     blocker.write_text("")
@@ -417,7 +417,7 @@ def test_requires_producer() -> None:
     app = App("t")
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     with pytest.raises(NotConfiguredError):
         Scheduler(app)
@@ -441,7 +441,7 @@ def test_rejects_bad_numbers(kwargs: dict[str, Any], match: str) -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     with pytest.raises(ValueError, match=match):
         Scheduler(app, **kwargs)
@@ -451,7 +451,7 @@ def test_max_sleep_is_not_a_parameter() -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     with pytest.raises(TypeError):
         Scheduler(app, max_sleep=1)  # type: ignore[call-arg]
@@ -470,7 +470,7 @@ async def test_run_with_signals_sigterm() -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = BlockingClock(_at("2026-11-04T11:29:30"))
     scheduler = Scheduler(app, clock=clock)
@@ -488,7 +488,7 @@ async def test_sleep_is_capped_by_heartbeat_interval() -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="0 12 * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:58:00"), until=_at("2026-11-04T11:59:00"))
     await _run(app, clock, heartbeat_interval=7)
@@ -518,7 +518,7 @@ async def test_beats_repeatedly_while_idle(tmp_path: Path, monkeypatch: pytest.M
     app, _ = _app()
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     clock = FakeClock(_at("2026-11-04T11:00:00"), until=_at("2026-11-04T12:00:00"))
     await _run(app, clock, probe_dir=tmp_path, heartbeat_interval=5)
@@ -535,7 +535,7 @@ async def test_hung_publish_stops_beating(tmp_path: Path, monkeypatch: pytest.Mo
     app.producer = producer
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     # A 1 ms heartbeat: a beat from anywhere but the stuck loop would show up.
     clock = FakeClock(_at("2026-11-04T11:29:59.990"), until=_at("2026-11-04T12:00:00"))
@@ -556,7 +556,7 @@ async def test_non_utc_clock_judges_lateness_across_fall_back() -> None:
     app, consumer = _app()
 
     @app.scheduled_task(cron="0 * * * *", tz="America/New_York", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     # 00:59:30 EDT. A stall wakes the scheduler at 06:00:05Z, the second 01:00
     # (EST), so the 01:00 EDT slot (05:00Z) is an hour late and is skipped.
@@ -578,7 +578,7 @@ def _hooked_app() -> tuple[App, list[str]]:
     events: list[str] = []
 
     @app.scheduled_task(cron="0 0 1 1 *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     return app, events
 
@@ -658,7 +658,7 @@ async def test_nothing_fires_before_after_startup() -> None:
     fired: list[int] = []
 
     @app.scheduled_task(cron="* * * * *", tz="UTC", name="job")
-    def job() -> None: ...
+    async def job() -> None: ...
 
     @app.after_startup
     def after_startup(runner: Runner) -> None:
@@ -774,7 +774,7 @@ async def test_scheduler_rejects_unencodable_schedule_args_at_startup() -> None:
     app, _ = _app()
 
     @app.scheduled_task(cron="* * * * *", args=[object()])
-    def bad() -> None: ...
+    async def bad() -> None: ...
 
     with pytest.raises(EncodeError):
         Scheduler(app)
