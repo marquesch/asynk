@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Transport contract test suite (`tests/transport/contract/`) that custom
+  transports can copy to check their delivery, settle and `process` behaviour.
 - `AsynkError`, the base class of every exception asynk defines.
 - `CronError` is exported from `asynk`.
 - `asynk.__version__`, read from the installed distribution's metadata.
@@ -31,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Delivery` documents that a second `ack` or `reject` raises `RuntimeError`.
 - **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
   `asynk`; `asynk.app`, `asynk.codec` and `asynk.hooks` no longer provide them.
 - **Breaking:** they derive from `AsynkError` only: `except ValueError` no longer

@@ -59,3 +59,17 @@ What reaches `process`:
 - When a task is cancelled at the shutdown timeout, the worker rejects its
   unsettled delivery with `requeue=True` before the cancellation reaches
   `process`, so the message is redelivered rather than dropped.
+
+## Testing your transport
+
+asynk ships a contract test suite that checks the behaviour described above
+against a real transport. To use it:
+
+1. Copy `tests/transport/contract/` from the asynk repository into your tests.
+2. Replace `REGISTRY` in `conftest.py` with a factory for your transport.
+3. Install `pytest-asyncio`; the suite is written as async tests.
+
+The header of `conftest.py` names the asynk version the suite matches. Changes
+to the contract are recorded in the [changelog](../changelog.md).
+
+The suite does not yet cover message ordering or delayed publish.
