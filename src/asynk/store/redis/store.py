@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from redis.asyncio import Redis
 
 
@@ -76,3 +78,23 @@ class RedisStore:
     async def delete(self, key: str) -> bool:
         """Removes a key; returns False if it is missing or expired."""
         return await self._client.delete(self._key(key)) == 1
+
+    async def wait(self, key: str, timeout: float | None = None) -> bytes | None:
+        """Polls until the key has a value; returns None if `timeout` elapses first.
+
+        Args:
+            key: Key to wait for.
+            timeout: Seconds to wait, or None to wait until the key has a value.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+        pause = min(0.05, self._max_poll_interval)
+        while True:
+            value = await self.get(key)
+            if value is not None:
+                return value
+            remaining = None if deadline is None else deadline - loop.time()
+            if remaining is not None and remaining <= 0:
+                return None
+            await asyncio.sleep(pause if remaining is None else min(pause, remaining))
+            pause = min(pause * 2, self._max_poll_interval)

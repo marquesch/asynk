@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ import asynk
 import asynk.store.redis
 from asynk.app import App
 from asynk.hooks import TaskStatus
+from asynk.results import TaskState
+from asynk.store import Store
 from asynk.store.redis import RedisStore
 from asynk.transport.memory import memory_transport
 from asynk.worker import Worker
@@ -247,7 +250,7 @@ async def test_unreachable_server_raises_redis_error() -> None:
 
 async def test_worker_with_unreachable_redis_still_succeeds() -> None:
     producer, consumer = memory_transport()
-    store: Any = RedisStore("redis://127.0.0.1:1/0")  # Any until `wait` exists
+    store = RedisStore("redis://127.0.0.1:1/0")
     app = App("t", producer=producer, consumer=consumer, store=store)
 
     @app.task(name="add")
@@ -261,3 +264,127 @@ async def test_worker_with_unreachable_redis_still_succeeds() -> None:
     assert result.status is TaskStatus.SUCCESS
     assert delivery.settled
     await store.stop()
+
+
+@pytest.mark.parametrize("call", ["set", "delete"])
+async def test_unreachable_server_raises_redis_error_on_writes(call: str) -> None:
+    store = RedisStore("redis://127.0.0.1:1/0")
+    op = store.set("k", b"v") if call == "set" else store.delete("k")
+    with pytest.raises(redis.exceptions.ConnectionError):
+        await asyncio.wait_for(op, 5)
+    await store.stop()
+
+
+async def test_expired_key_is_not_returned_and_can_be_set_again(
+    server: fakeredis.FakeServer,
+) -> None:
+    store = _store(server, ttl=0.05)
+    await store.set("k", b"old")
+    await asyncio.sleep(0.1)
+    assert await store.get("k") is None
+    assert await store.set("k", b"new") is True
+
+
+async def test_delete_expired_key_returns_false(server: fakeredis.FakeServer) -> None:
+    store = _store(server, ttl=0.05)
+    await store.set("k", b"v")
+    await asyncio.sleep(0.1)
+    assert await store.delete("k") is False
+
+
+async def test_wait_returns_existing_value(server: fakeredis.FakeServer) -> None:
+    store = _store(server)
+    await store.set("k", b"v")
+    assert await store.wait("k") == b"v"
+
+
+async def test_wait_returns_value_set_later_by_another_store(
+    server: fakeredis.FakeServer,
+) -> None:
+    reader, writer = _store(server, max_poll_interval=0.01), _store(server)
+    waiter = asyncio.create_task(reader.wait("k"))
+    await asyncio.sleep(0.03)
+    await writer.set("k", b"v")
+    assert await asyncio.wait_for(waiter, 1) == b"v"
+
+
+async def test_wait_times_out_with_none(server: fakeredis.FakeServer) -> None:
+    assert await _store(server).wait("k", timeout=0.05) is None
+
+
+async def test_wait_never_sleeps_past_the_timeout(server: fakeredis.FakeServer) -> None:
+    store = _store(server, max_poll_interval=10.0)
+    start = time.monotonic()
+    assert await store.wait("k", timeout=0.05) is None
+    assert time.monotonic() - start < 0.5
+
+
+async def test_wait_with_zero_timeout_reads_once(server: fakeredis.FakeServer) -> None:
+    store = _store(server)
+    assert await store.wait("k", timeout=0) is None
+    await store.set("k", b"v")
+    assert await store.wait("k", timeout=0) == b"v"
+
+
+async def test_wait_ignores_expired_value(server: fakeredis.FakeServer) -> None:
+    store = _store(server, ttl=0.05)
+    await store.set("k", b"v")
+    await asyncio.sleep(0.1)
+    assert await store.wait("k", timeout=0.05) is None
+
+
+async def test_wait_backs_off_up_to_the_max_poll_interval(
+    server: fakeredis.FakeServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pauses: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(delay: float) -> None:
+        pauses.append(delay)
+        await real_sleep(0)
+
+    store = _store(server, max_poll_interval=0.3)
+    monkeypatch.setattr("asynk.store.redis.store.asyncio.sleep", fake_sleep)
+    waiter = asyncio.create_task(store.wait("k"))
+    while len(pauses) < 6:
+        await real_sleep(0)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert pauses[:6] == [0.05, 0.1, 0.2, 0.3, 0.3, 0.3]
+
+
+async def test_wait_cancellation_propagates(server: fakeredis.FakeServer) -> None:
+    waiter = asyncio.create_task(_store(server).wait("k"))
+    await asyncio.sleep(0.01)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+
+async def test_handle_reads_a_result_written_through_another_store(
+    server: fakeredis.FakeServer,
+) -> None:
+    producer, consumer = memory_transport()
+    app_a = App(
+        "t", producer=producer, consumer=consumer, store=_store(server, max_poll_interval=0.01)
+    )
+    app_b = App(
+        "t", producer=producer, consumer=consumer, store=_store(server, max_poll_interval=0.01)
+    )
+
+    @app_a.task(name="add")
+    async def add(a: int, b: int) -> int:
+        return a + b
+
+    handle = await add.delay(1, 2)
+    delivery: Any = await asyncio.wait_for(anext(consumer.deliveries()), 5)
+    await Worker(app_a).handle(delivery)
+    reader = app_b.get_task(handle.task_id)
+    assert await reader.result(timeout=1) == 3
+    assert await reader.state() is TaskState.SUCCESS
+
+
+def test_redis_store_satisfies_the_store_protocol(server: fakeredis.FakeServer) -> None:
+    store: Store = _store(server)
+    assert store is not None
