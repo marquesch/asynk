@@ -26,6 +26,14 @@
 
 ::: asynk.Next
 
+## Retries
+
+::: asynk.RetryPolicy
+
+::: asynk.Exponential
+
+::: asynk.Backoff
+
 ## Transport protocols
 
 ::: asynk.Producer

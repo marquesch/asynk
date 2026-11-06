@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RetryPolicy(max_retries=1, backoff=None, retry_on=(Exception,))`, the
+  `Exponential(base, factor, max, jitter=False)` backoff and the `Backoff`
+  protocol for custom strategies.
 - `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
   the memory transport delivers a message after its `delay`.
 - `AsynkError`, the base class of every exception asynk defines.

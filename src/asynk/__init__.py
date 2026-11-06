@@ -19,6 +19,7 @@ from asynk.errors import (
 )
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskHandle, TaskState
+from asynk.retry import Backoff, Exponential, RetryPolicy
 from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.scheduler import Scheduler
@@ -40,6 +41,7 @@ __all__ = [
     "__version__",
     "App",
     "AsynkError",
+    "Backoff",
     "Codec",
     "Consumer",
     "CronError",
@@ -50,10 +52,12 @@ __all__ = [
     "InvalidEnvelopeError",
     "JsonCodec",
     "EncodeError",
+    "Exponential",
     "NotConfiguredError",
     "Next",
     "Producer",
     "PublishOptions",
+    "RetryPolicy",
     "Runner",
     "Task",
     "TaskCall",
