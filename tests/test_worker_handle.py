@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 
-from asynk import NotConfiguredError
+from asynk import NotConfiguredError, RetryPolicy, TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
@@ -92,11 +92,11 @@ async def test_failure_sets_failed_and_rejects_without_requeue() -> None:
 async def test_retries_exceeded_status() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="limited", retry={"max_retries": 2})
+    @app.task(name="limited", options=TaskOptions(retry=RetryPolicy(max_retries=2)))
     async def limited() -> None:
         raise RuntimeError
 
-    @app.task(name="unlimited", retry={"max_retries": None})
+    @app.task(name="unlimited", options=TaskOptions(retry=RetryPolicy(max_retries=None)))
     async def unlimited() -> None:
         raise RuntimeError
 
@@ -180,7 +180,7 @@ async def test_failed_task_is_logged_with_exc_info(caplog: pytest.LogCaptureFixt
 async def test_retries_exceeded_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 0})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=0)))
     async def boom() -> None:
         raise RuntimeError("kaboom")
 

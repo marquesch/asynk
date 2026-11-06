@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from asynk import TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
@@ -43,51 +44,67 @@ def test_explicit_name() -> None:
     assert fn.name == "x"
 
 
-def test_app_has_no_retry_policy_by_default() -> None:
-    assert App("a").retry is None
+def test_app_has_no_task_options_by_default() -> None:
+    assert App("a").options == TaskOptions()
 
 
-def test_app_retry_accepts_a_mapping() -> None:
-    assert App("a", retry={"max_retries": 2}).retry == RetryPolicy(max_retries=2)
+def test_app_keeps_its_options() -> None:
+    options = TaskOptions(retry=RetryPolicy(max_retries=2))
+    assert App("a", options=options).options is options
 
 
 def test_task_inherits_the_app_default() -> None:
-    app = App("a", retry=RetryPolicy(max_retries=5))
+    app = App("a", options=TaskOptions(retry=RetryPolicy(max_retries=5)))
 
     @app.task()
     async def t() -> None: ...
 
-    assert t.retry is app.retry
+    assert t.retry is app.options.retry
 
 
 def test_task_policy_replaces_the_app_default_entirely() -> None:
-    app = App("a", retry=RetryPolicy(max_retries=5, backoff=3.0))
+    app = App("a", options=TaskOptions(retry=RetryPolicy(max_retries=5, backoff=3.0)))
 
-    @app.task(retry={"backoff": 1.0})
+    @app.task(options=TaskOptions(retry=RetryPolicy(backoff=1.0)))
     async def t() -> None: ...
 
     assert t.retry == RetryPolicy(max_retries=1, backoff=1.0)
 
 
-def test_retry_false_disables_retries() -> None:
-    app = App("a", retry={"max_retries": 5})
+def test_task_options_without_retry_use_the_app_default() -> None:
+    app = App("a", options=TaskOptions(retry=RetryPolicy(max_retries=5)))
 
-    @app.task(retry=False)
+    @app.task(options=TaskOptions())
+    async def t() -> None: ...
+
+    assert t.retry is app.options.retry
+
+
+def test_retry_false_disables_retries() -> None:
+    app = App("a", options=TaskOptions(retry=RetryPolicy(max_retries=5)))
+
+    @app.task(options=TaskOptions(retry=False))
     async def t() -> None: ...
 
     assert t.retry is None
 
 
-@pytest.mark.parametrize("bad", [{"max_retires": 3}, True, 3])
-def test_invalid_retry_raises_at_definition_and_registers_nothing(bad: Any) -> None:
-    app = App("a")
+def test_retry_false_at_app_level_means_no_retries() -> None:
+    app = App("a", options=TaskOptions(retry=False))
 
+    @app.task()
+    async def t() -> None: ...
+
+    assert t.retry is None
+
+
+@pytest.mark.parametrize("bad", [{"options": {"retry": 3}}, {"options": TaskOptions}])
+def test_invalid_options_are_rejected(bad: Any) -> None:
     with pytest.raises(TypeError):
-
-        @app.task(name="t", retry=bad)
-        async def t() -> None: ...
-
-    assert "t" not in app.tasks
+        App("a", **bad)
+    app = App("a")
+    with pytest.raises(TypeError):
+        app.task(options=bad["options"])
 
 
 def test_max_retries_and_extra_options_are_rejected() -> None:
@@ -95,6 +112,8 @@ def test_max_retries_and_extra_options_are_rejected() -> None:
 
     with pytest.raises(TypeError):
         app.task(max_retries=3)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        app.task(retry=RetryPolicy())  # type: ignore[call-arg]
     with pytest.raises(TypeError):
         app.task(queue="q")  # type: ignore[call-arg]
 

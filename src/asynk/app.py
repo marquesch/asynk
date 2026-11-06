@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
-from typing import Any, Literal, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
@@ -14,8 +14,9 @@ from asynk.hooks import (
     LifecycleHook,
     Middleware,
 )
+from asynk.options import TaskOptions, resolve_retry
 from asynk.results import TaskHandle
-from asynk.retry import RetryPolicy, as_retry_policy
+from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.store.null import NullStore
@@ -36,7 +37,7 @@ class App:
         store: Key-value store for task states, task results and scheduler claim keys.
         codec: Codec that encodes messages, task states and results.
         tz: Default timezone for scheduled tasks.
-        retry: Default retry policy of the app's tasks; None for no retries.
+        options: Default options of the app's tasks.
         hooks: The hooks and middleware registered through the `before_*`, `after_*` and
             `middleware` decorators.
     """
@@ -50,7 +51,7 @@ class App:
         store: Store | None = None,
         codec: Codec | None = None,
         tz: str = "UTC",
-        retry: RetryPolicy | Mapping[str, Any] | None = None,
+        options: TaskOptions | None = None,
     ) -> None:
         """Initializes the app.
 
@@ -63,16 +64,17 @@ class App:
             codec: Codec that encodes messages, task states and results;
                 defaults to a `JsonCodec`.
             tz: Default timezone for scheduled tasks.
-            retry: Default retry policy for the app's tasks, as a `RetryPolicy` or a
-                dict of its fields; None for no retries.
+            options: Default options for the app's tasks.
 
         Raises:
-            TypeError: If `retry` has an unknown field or a value of the wrong type.
-            ValueError: If the timezone is unknown, or a `retry` value is out of range.
+            TypeError: If `options` is not a `TaskOptions`.
+            ValueError: If the timezone is unknown.
         """
         self.name = name
         self.tz = resolve_timezone(tz, f"app {name!r}")
-        self.retry = None if retry is None else as_retry_policy(retry)
+        if options is not None and not isinstance(options, TaskOptions):
+            raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
+        self.options = options if options is not None else TaskOptions()
         self.producer = producer
         self.consumer = consumer
         self.store: Store = store if store is not None else NullStore()
@@ -95,24 +97,22 @@ class App:
         self,
         *,
         name: str | None = None,
-        retry: RetryPolicy | Mapping[str, Any] | Literal[False] | None = None,
+        options: TaskOptions | None = None,
     ) -> Callable[[Callable[P, R]], Task[P, R]]:
         """Decorator that registers a function as a task.
 
         Args:
             name: Task name; defaults to the app name and the function's qualified name.
-            retry: Retry policy, as a `RetryPolicy` or a dict of its fields; replaces the
-                app's default. None uses the app's default, False disables retries.
+            options: Options of this task; they override the app's defaults.
 
         Returns:
             A decorator producing a `Task`.
 
         Raises:
-            TypeError: If `retry` has an unknown field or a value of the wrong type.
-            ValueError: If the name is already registered, or a `retry` value is out
-                of range.
+            TypeError: If `options` is not a `TaskOptions`.
+            ValueError: If the name is already registered.
         """
-        policy = self._task_policy(retry)
+        policy = self._task_policy(options)
 
         def decorator(func: Callable[P, R]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
@@ -130,7 +130,7 @@ class App:
         args: Sequence[object] = (),
         kwargs: Mapping[str, object] | None = None,
         name: str | None = None,
-        retry: RetryPolicy | Mapping[str, Any] | Literal[False] | None = None,
+        options: TaskOptions | None = None,
     ) -> Callable[[Callable[P, R]], ScheduledTask[P, R]]:
         """Decorator that registers a function as a task published on a cron schedule.
 
@@ -140,21 +140,19 @@ class App:
             args: Positional arguments for each published call.
             kwargs: Keyword arguments for each published call.
             name: Task name; defaults to the app name and the function's qualified name.
-            retry: Retry policy, as a `RetryPolicy` or a dict of its fields; replaces the
-                app's default. None uses the app's default, False disables retries.
+            options: Options of this task; they override the app's defaults.
 
         Returns:
             A decorator producing a `ScheduledTask`.
 
         Raises:
             CronError: If the cron expression is invalid.
-            TypeError: If `retry` has an unknown field or a value of the wrong type.
-            ValueError: If the timezone is unknown, the name is already registered, or
-                a `retry` value is out of range.
+            TypeError: If `options` is not a `TaskOptions`.
+            ValueError: If the timezone is unknown, or the name is already registered.
         """
         # Built now so a bad expression fails at the call.
         schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
-        policy = self._task_policy(retry)
+        policy = self._task_policy(options)
         if tz is not None and name is not None:
             resolve_timezone(tz, f"scheduled task {name!r}")
 
@@ -168,14 +166,10 @@ class App:
 
         return decorator
 
-    def _task_policy(
-        self, retry: RetryPolicy | Mapping[str, Any] | Literal[False] | None
-    ) -> RetryPolicy | None:
-        if retry is None:
-            return self.retry
-        if retry is False:
-            return None
-        return as_retry_policy(retry)
+    def _task_policy(self, options: TaskOptions | None) -> RetryPolicy | None:
+        if options is not None and not isinstance(options, TaskOptions):
+            raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
+        return resolve_retry(options, self.options)
 
     def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
         task_name = name or f"{self.name}.{func.__qualname__}"

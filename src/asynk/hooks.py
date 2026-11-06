@@ -27,7 +27,7 @@ class TaskStatus(enum.Enum):
             no retry policy applies, the exception is not in its `retry_on`, or
             the layer settled the delivery.
         RETRYING: The task, or a layer before it ran, raised and the retry policy
-            has retries left; decided before the retry is published.
+            has retries left.
         RETRIES_EXCEEDED: The task, or a layer before it ran, raised and the retry
             policy has no retries left.
         UNKNOWN_TASK: The envelope names a task this app has not registered.
@@ -158,8 +158,6 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
 
 async def run_all_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
     """Calls every hook in order, even after one raises.
-
-    Each failure is logged. Only `Exception` is collected; cancellation propagates at once.
 
     Args:
         hooks: The hooks to call.

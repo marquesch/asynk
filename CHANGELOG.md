@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Built-in retries, configured with `retry=` on `App`, `@app.task` and
-  `@app.scheduled_task`, which takes a `RetryPolicy` or a dict of its fields; a
-  task's policy replaces the app's default, and `retry=False` disables retries. An
-  unknown field or a wrong type raises `TypeError` at definition. A failing task with
+- `TaskOptions(retry=None)`, per-task options, accepted as `options=` by `App` (the
+  default of every task), `@app.task` and `@app.scheduled_task`.
+- Built-in retries, configured with `TaskOptions(retry=...)`, which takes a
+  `RetryPolicy`, `False` or `None`; a task's policy replaces the app's default, and
+  `False` disables retries. A wrong type raises `TypeError` at definition. A failing task with
   retries left is reported as `TaskStatus.RETRYING`, republished as
   `envelope.retry()` after its backoff, and the original delivery is acked; if the
   retry cannot be published, the delivery is rejected with requeue.
@@ -99,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Breaking:** `max_retries=` on `@app.task` and `@app.scheduled_task`, and
-  `Task.max_retries`; write `retry={"max_retries": 3}` instead of `max_retries=3`.
+  `Task.max_retries`; write `options=TaskOptions(retry=RetryPolicy(max_retries=3))` instead of
+  `max_retries=3`.
 - **Breaking:** the extra keyword arguments of `@app.task` and `@app.scheduled_task`
   (`**options`) and `Task.options`; an unknown keyword argument raises `TypeError`.
 - **Breaking:** `App.before_task`, `App.after_task`, `BeforeTaskHook`, `AfterTaskHook`

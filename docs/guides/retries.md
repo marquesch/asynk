@@ -1,9 +1,11 @@
 # Retries
 
 A failing task is retried only when it has a retry policy. Without one, a
-failure is final. To retry a task, the worker publishes `envelope.retry()`, a
-copy with the same `id` and `attempt` incremented, and acks the original
-delivery.
+failure is final. When a failing task has retries left, the worker records the
+state `RETRYING`, publishes `envelope.retry()` (a copy with the same `id` and
+`attempt` incremented) after the policy's backoff, and acks the original
+delivery. If the retry cannot be published, the worker rejects the delivery with
+requeue instead; see [Delays and transports](#delays-and-transports).
 
 ``` { .python }
 --8<-- "examples/guides/retries.py"
@@ -32,31 +34,37 @@ A `RetryPolicy` has three fields:
 - `retry_on=(Exception,)`: the exception types that are retried; see
   [Which errors are retried](#which-errors-are-retried).
 
-Set a default for every task of an app with `App(retry=...)`, and a policy for
-one task with `@app.task(retry=...)` or `@app.scheduled_task(retry=...)`. Each
-takes a `RetryPolicy` or a dict of its fields:
+Retries are set through `TaskOptions`, a frozen dataclass whose `retry` field is
+a `RetryPolicy`, `False` or `None`. Set a default for every task of an app with
+`App(options=TaskOptions(retry=...))`, and options for one task with
+`@app.task(options=...)` or `@app.scheduled_task(options=...)`:
 
 ```python
-app = App("shop", producer=producer, consumer=consumer, retry={"max_retries": 3})
+app = App(
+    "shop",
+    producer=producer,
+    consumer=consumer,
+    options=TaskOptions(retry=RetryPolicy(max_retries=3)),
+)
 
 
-@app.task(retry=RetryPolicy(max_retries=5, backoff=10))
+@app.task(options=TaskOptions(retry=RetryPolicy(max_retries=5, backoff=10)))
 async def sync_stock() -> None: ...
 
 
-@app.task(retry=False)
+@app.task(options=TaskOptions(retry=False))
 async def send_receipt(order_id: str) -> None: ...
 ```
 
 - A task's policy replaces the app's entirely. Fields it leaves out take the
-  `RetryPolicy` defaults, not the app's values: `retry={"backoff": 10}` on a
+  `RetryPolicy` defaults, not the app's values: `RetryPolicy(backoff=10)` on a
   task means one retry, whatever the app sets.
-- `retry=False` turns retries off for one task.
-- A task without `retry=` uses the app's policy, as it is when the task is
-  defined. An app without `retry=` has none, so its tasks are not retried.
-- An unknown key in the dict, such as `{"max_retires": 3}`, or a value of the
-  wrong type raises `TypeError` when the app or task is defined; a value out of
-  range raises `ValueError`.
+- `TaskOptions(retry=False)` turns retries off for one task.
+- A task whose options leave `retry` as `None` uses the app's policy, as it is
+  when the task is defined. An app without a policy, or with `retry=False`, does
+  not retry its tasks.
+- A value of the wrong type raises `TypeError` when the options, app or task are
+  defined; a `RetryPolicy` field out of range raises `ValueError`.
 
 ## Backoff
 
@@ -79,7 +87,7 @@ worker publishes the retry.
 `retry_on` is an allow-list of exception types, matched with `isinstance`, so
 subclasses count. An error that does not match fails the task at once with
 status `FAILED`, even when retries are left. `retry_on` cannot be empty; use
-`retry=False` to turn retries off.
+`TaskOptions(retry=False)` to turn retries off.
 
 ## Statuses and states
 

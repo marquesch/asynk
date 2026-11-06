@@ -55,9 +55,6 @@ class ResultRecorder:
     async def record(self, result: TaskResult) -> None:
         """Writes the state, and for a finished task the result record, of a task result.
 
-        A `RETRYING` result writes the `RETRYING` state only; every other status
-        is final and also writes the result record.
-
         Args:
             result: The result to record.
         """

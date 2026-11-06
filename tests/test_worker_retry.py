@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 from timer_helpers import spy_on_delivery_timers
 
-from asynk import Exponential, RetryPolicy, TaskError
+from asynk import Exponential, RetryPolicy, TaskError, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
@@ -55,11 +54,17 @@ class _SpyDelivery:
 
 
 def _setup(
-    retry: RetryPolicy | Mapping[str, Any] | None = None,
+    retry: RetryPolicy | None = None,
 ) -> tuple[App, _RecordingProducer, MemoryConsumer, Worker]:
     inner, consumer = memory_transport()
     producer = _RecordingProducer(inner)
-    app = App("t", producer=producer, consumer=consumer, store=MemoryStore(), retry=retry)
+    app = App(
+        "t",
+        producer=producer,
+        consumer=consumer,
+        store=MemoryStore(),
+        options=TaskOptions(retry=retry),
+    )
     return app, producer, consumer, Worker(app)
 
 
@@ -87,7 +92,7 @@ def _raise_before_next(app: App, error: Exception) -> None:
 async def test_failure_with_retries_left_publishes_the_retry_and_acks() -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 2})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=2)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -114,7 +119,7 @@ async def test_retrying_is_recorded_before_the_retry_publish() -> None:
             seen.append(await app.get_task(envelope.id).state())
             return await recording.inner.publish(envelope, body, options)
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -129,7 +134,7 @@ async def test_retry_then_success_completes_the_result() -> None:
     app, _, consumer, worker = _setup()
     calls: list[int] = []
 
-    @app.task(name="flaky", retry={"max_retries": 1})
+    @app.task(name="flaky", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def flaky() -> str:
         calls.append(1)
         if len(calls) == 1:
@@ -150,7 +155,7 @@ async def test_retry_then_success_completes_the_result() -> None:
 async def test_used_up_retries_are_final() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("bad input")
 
@@ -192,7 +197,7 @@ async def test_no_policy_fails_for_good() -> None:
 async def test_retry_on_mismatch_fails_for_good() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"retry_on": (TimeoutError,)})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(retry_on=(TimeoutError,))))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -206,7 +211,9 @@ async def test_retry_on_mismatch_fails_for_good() -> None:
 async def test_retry_on_mismatch_on_the_last_attempt_is_failed() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 1, "retry_on": (TimeoutError,)})
+    @app.task(
+        name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1, retry_on=(TimeoutError,)))
+    )
     async def boom() -> None:
         raise ValueError("x")
 
@@ -218,7 +225,7 @@ async def test_retry_on_mismatch_on_the_last_attempt_is_failed() -> None:
 async def test_retry_on_matches_a_subclass() -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"retry_on": (OSError,)})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(retry_on=(OSError,))))
     async def boom() -> None:
         raise ConnectionError("x")
 
@@ -228,9 +235,9 @@ async def test_retry_on_matches_a_subclass() -> None:
 
 
 async def test_retry_false_overrides_the_app_default() -> None:
-    app, _, consumer, worker = _setup(retry={"max_retries": 3})
+    app, _, consumer, worker = _setup(RetryPolicy(max_retries=3))
 
-    @app.task(name="boom", retry=False)
+    @app.task(name="boom", options=TaskOptions(retry=False))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -242,7 +249,7 @@ async def test_retry_false_overrides_the_app_default() -> None:
 
 
 async def test_app_default_policy_applies() -> None:
-    app, _, consumer, worker = _setup(retry={"max_retries": 3})
+    app, _, consumer, worker = _setup(RetryPolicy(max_retries=3))
 
     @app.task(name="boom")
     async def boom() -> None:
@@ -257,13 +264,15 @@ async def test_backoff_is_passed_as_publish_options(monkeypatch: pytest.MonkeyPa
     timers = spy_on_delivery_timers(monkeypatch, run_now=True)
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="constant", retry={"backoff": 2.0})
+    @app.task(name="constant", options=TaskOptions(retry=RetryPolicy(backoff=2.0)))
     async def constant() -> None:
         raise ValueError("x")
 
     @app.task(
         name="exponential",
-        retry=RetryPolicy(max_retries=None, backoff=Exponential(base=1, factor=2, max=60)),
+        options=TaskOptions(
+            retry=RetryPolicy(max_retries=None, backoff=Exponential(base=1, factor=2, max=60))
+        ),
     )
     async def exponential() -> None:
         raise ValueError("x")
@@ -291,7 +300,7 @@ async def test_no_backoff_publishes_without_options_to_a_two_argument_producer()
             published.append(envelope)
             return await recording.inner.publish(envelope, body)
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -329,7 +338,7 @@ async def test_failed_retry_publish_requeues_the_same_attempt(
         ) -> str:
             raise ConnectionError("broker down")
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -348,7 +357,7 @@ async def test_raising_backoff_requeues_the_same_attempt() -> None:
 
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry=RetryPolicy(backoff=BrokenBackoff()))
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(backoff=BrokenBackoff())))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -360,7 +369,7 @@ async def test_raising_backoff_requeues_the_same_attempt() -> None:
 
 async def test_no_producer_requeues_the_same_attempt() -> None:
     producer, consumer = memory_transport()
-    app = App("t", consumer=consumer, store=MemoryStore(), retry={})
+    app = App("t", consumer=consumer, store=MemoryStore(), options=TaskOptions(retry=RetryPolicy()))
     worker = Worker(app)
 
     @app.task(name="boom")
@@ -382,7 +391,7 @@ async def test_middleware_sees_retrying() -> None:
         seen.append(result.status)
         return result
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -400,7 +409,7 @@ async def test_layer_that_settles_a_retrying_result_suppresses_the_retry() -> No
         await call.delivery.ack()
         return result
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -423,7 +432,7 @@ async def test_layer_raising_after_a_retrying_task_still_retries() -> None:
         await next(call)
         raise RuntimeError("layer broke")
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -455,7 +464,7 @@ async def test_layer_raising_before_the_task_without_a_policy_fails_for_good() -
 async def test_layer_raising_before_the_task_retries_through_the_policy() -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="ok", retry={"max_retries": 1})
+    @app.task(name="ok", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def ok() -> None: ...
 
     _raise_before_next(app, RuntimeError("layer broke"))
@@ -472,7 +481,7 @@ async def test_layer_raising_before_the_task_retries_through_the_policy() -> Non
 async def test_layer_raising_before_the_task_outside_retry_on_fails_for_good() -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="ok", retry={"retry_on": (ValueError,)})
+    @app.task(name="ok", options=TaskOptions(retry=RetryPolicy(retry_on=(ValueError,))))
     async def ok() -> None: ...
 
     _raise_before_next(app, RuntimeError("layer broke"))
@@ -483,7 +492,7 @@ async def test_layer_raising_before_the_task_outside_retry_on_fails_for_good() -
 
 
 async def test_layer_raising_before_an_unknown_task_uses_the_app_policy() -> None:
-    app, producer, consumer, worker = _setup(retry={"max_retries": 1})
+    app, producer, consumer, worker = _setup(RetryPolicy(max_retries=1))
     _raise_before_next(app, RuntimeError("layer broke"))
     env = Envelope.create("nope", (), {})
     await publish_envelope(producer.inner, env)
@@ -493,7 +502,7 @@ async def test_layer_raising_before_an_unknown_task_uses_the_app_policy() -> Non
 
 
 async def test_unknown_task_is_not_retried() -> None:
-    app, producer, consumer, worker = _setup(retry={"max_retries": 1})
+    app, producer, consumer, worker = _setup(RetryPolicy(max_retries=1))
     env = Envelope.create("nope", (), {})
     await publish_envelope(producer.inner, env)
     result = await _handle(worker, await _next(consumer))
@@ -512,7 +521,9 @@ async def test_retries_with_backoff_through_the_memory_transport(
 
     @app.task(
         name="flaky",
-        retry=RetryPolicy(max_retries=3, backoff=Exponential(base=1, factor=2, max=60)),
+        options=TaskOptions(
+            retry=RetryPolicy(max_retries=3, backoff=Exponential(base=1, factor=2, max=60))
+        ),
     )
     async def flaky() -> str:
         calls.append(1)
@@ -533,7 +544,7 @@ async def test_retries_with_backoff_through_the_memory_transport(
 async def test_retrying_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -558,7 +569,7 @@ async def test_cancel_during_the_retry_publish_requeues_the_original() -> None:
             await asyncio.Event().wait()
             raise AssertionError("unreachable")
 
-    @app.task(name="boom", retry={"max_retries": 1})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def boom() -> None:
         raise ValueError("x")
 
@@ -579,7 +590,7 @@ async def test_sync_task_is_retried() -> None:
     app, _, consumer, worker = _setup()
     calls: list[int] = []
 
-    @app.task(name="flaky", retry={"max_retries": 1})
+    @app.task(name="flaky", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     def flaky() -> str:
         calls.append(1)
         if len(calls) == 1:

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 
-from asynk import TaskError
+from asynk import RetryPolicy, TaskError, TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
@@ -307,7 +307,7 @@ async def test_raise_before_next_redelivers_with_attempt_incremented(
     app, producer, consumer, worker = _setup()
     ran: list[bool] = []
 
-    @app.task(name="t", retry={"max_retries": None})
+    @app.task(name="t", options=TaskOptions(retry=RetryPolicy(max_retries=None)))
     async def t() -> None:
         ran.append(True)
 
@@ -331,7 +331,7 @@ async def test_raise_before_next_redelivers_with_attempt_incremented(
 async def test_raise_before_next_stops_after_max_retries() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="t", retry={"max_retries": 1})
+    @app.task(name="t", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def t() -> None: ...
 
     _raise_before_next(app)
@@ -355,7 +355,7 @@ async def test_raise_before_next_stops_after_max_retries() -> None:
 
 async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() -> None:
     producer, consumer = memory_transport()
-    app = App("t", consumer=consumer, retry={})
+    app = App("t", consumer=consumer, options=TaskOptions(retry=RetryPolicy()))
     worker = Worker(app)
 
     @app.task(name="ok")
@@ -375,7 +375,9 @@ async def test_raise_before_next_with_failing_republish_requeues_the_same_attemp
             raise ConnectionError("broker down")
 
     producer, consumer = memory_transport()
-    app = App("t", producer=BrokenProducer(), consumer=consumer, retry={})
+    app = App(
+        "t", producer=BrokenProducer(), consumer=consumer, options=TaskOptions(retry=RetryPolicy())
+    )
     worker = Worker(app)
 
     @app.task(name="ok")
@@ -394,7 +396,13 @@ async def test_raise_before_next_with_failing_republish_requeues_the_same_attemp
 async def test_raise_before_next_publishes_the_retry_with_the_app_codec() -> None:
     producer, consumer = memory_transport()
     codec = _ReverseCodec()
-    app = App("t", producer=producer, consumer=consumer, codec=codec, retry={})
+    app = App(
+        "t",
+        producer=producer,
+        consumer=consumer,
+        codec=codec,
+        options=TaskOptions(retry=RetryPolicy()),
+    )
     worker = Worker(app)
 
     @app.task(name="ok")
@@ -412,7 +420,7 @@ async def test_layer_that_settles_then_raises_is_only_logged(
 ) -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="ok", retry={"max_retries": None})
+    @app.task(name="ok", options=TaskOptions(retry=RetryPolicy(max_retries=None)))
     async def ok() -> None: ...
 
     @app.middleware

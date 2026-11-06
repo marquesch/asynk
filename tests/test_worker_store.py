@@ -10,7 +10,7 @@ import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failure_logged
 
-from asynk import TaskError
+from asynk import RetryPolicy, TaskError, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
@@ -60,7 +60,7 @@ async def test_success_stores_value_and_state() -> None:
 async def test_failure_after_retries_exceeded_stores_error_type_and_message() -> None:
     app, producer, consumer, worker = _setup()
 
-    @app.task(name="boom", retry={"max_retries": 0})
+    @app.task(name="boom", options=TaskOptions(retry=RetryPolicy(max_retries=0)))
     async def boom() -> None:
         raise ValueError("bad input")
 
@@ -78,7 +78,7 @@ async def test_retrying_then_success_keeps_one_id() -> None:
     app, producer, consumer, worker = _setup()
     calls: list[int] = []
 
-    @app.task(name="flaky", retry={"max_retries": 1})
+    @app.task(name="flaky", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def flaky() -> str:
         calls.append(1)
         if len(calls) == 1:
@@ -443,7 +443,7 @@ async def test_hooks_use_the_started_store() -> None:
 async def test_layer_failure_records_retrying_or_failure() -> None:
     app, _, consumer, worker = _setup()
 
-    @app.task(name="once", retry={"max_retries": 1})
+    @app.task(name="once", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def once() -> int:
         return 1
 
@@ -485,7 +485,7 @@ async def test_cancel_while_recording_requeues_delivery(marker: bytes) -> None:
     store = _BlockingSetStore(marker)
     app, producer, consumer, worker = _setup(store)
 
-    @app.task(name="t1", retry={"max_retries": 1})
+    @app.task(name="t1", options=TaskOptions(retry=RetryPolicy(max_retries=1)))
     async def t1() -> int:
         if marker == b"retrying":
             raise RuntimeError("fail")

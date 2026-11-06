@@ -1,6 +1,6 @@
 """Tasks for the in-memory transport example."""
 
-from asynk import App, MemoryStore
+from asynk import App, MemoryStore, RetryPolicy, TaskOptions
 from asynk.transport.memory import memory_transport
 
 # Producer and consumer share one in-process queue; MemoryStore keeps the task results.
@@ -8,7 +8,7 @@ producer, consumer = memory_transport()
 app = App("memory-example", producer=producer, consumer=consumer, store=MemoryStore())
 
 
-@app.task(retry={"max_retries": 3})
+@app.task(options=TaskOptions(retry=RetryPolicy(max_retries=3)))
 async def add(a: int, b: int) -> int:
     print(f"{a} + {b} = {a + b}")
     return a + b

@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-import asynk.retry
+import asynk.retry.backoff
 from asynk.hooks import TaskStatus
-from asynk.retry import Exponential, RetryPolicy, as_retry_policy, retry_delay, retry_status
+from asynk.retry import Exponential, RetryPolicy, retry_delay, retry_status
 
 
 def test_exponential_doubles_from_base_and_caps() -> None:
@@ -25,7 +25,7 @@ def test_exponential_jitter_draws_up_to_the_capped_delay(monkeypatch: pytest.Mon
         def uniform(self, a: float, b: float) -> float:
             return (a + b) / 2
 
-    monkeypatch.setattr(asynk.retry, "random", Half())
+    monkeypatch.setattr(asynk.retry.backoff, "random", Half())
     assert Exponential(base=1, factor=2, max=60, jitter=True).delay(3) == 2.0
 
 
@@ -72,27 +72,9 @@ def test_retry_policy_validates(kwargs: dict[str, Any], error: type[Exception]) 
         RetryPolicy(**kwargs)
 
 
-def test_empty_retry_on_points_to_retry_false() -> None:
-    with pytest.raises(ValueError, match="retry=False"):
+def test_empty_retry_on_is_rejected() -> None:
+    with pytest.raises(ValueError, match="empty"):
         RetryPolicy(retry_on=())
-
-
-def test_as_retry_policy_converts_a_mapping() -> None:
-    assert as_retry_policy({"max_retries": 3}) == RetryPolicy(max_retries=3)
-    assert as_retry_policy({"retry_on": [ValueError]}).retry_on == (ValueError,)
-    policy = RetryPolicy()
-    assert as_retry_policy(policy) is policy
-
-
-def test_as_retry_policy_names_unknown_keys() -> None:
-    with pytest.raises(TypeError, match="max_retires"):
-        as_retry_policy({"max_retires": 3})
-
-
-@pytest.mark.parametrize("value", [True, False, 3, "x", None])
-def test_as_retry_policy_rejects_other_values(value: Any) -> None:
-    with pytest.raises(TypeError):
-        as_retry_policy(value)
 
 
 class Sub(ValueError): ...
@@ -201,8 +183,3 @@ def test_single_exception_class_as_retry_on_is_rejected() -> None:
 
 def test_base_exception_only_errors_fail() -> None:
     assert retry_status(RetryPolicy(), 0, asyncio.CancelledError()) is TaskStatus.FAILED
-
-
-def test_mapping_accepts_a_backoff_object() -> None:
-    backoff = Exponential(base=1, factor=2, max=8)
-    assert as_retry_policy({"backoff": backoff}).backoff is backoff

@@ -18,6 +18,7 @@ from asynk.errors import (
     TaskNotFoundError,
 )
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.options import TaskOptions
 from asynk.results import TaskHandle, TaskState
 from asynk.retry import Backoff, Exponential, RetryPolicy
 from asynk.runner import Runner
@@ -70,6 +71,7 @@ __all__ = [
     "MemoryStore",
     "NullStore",
     "TaskHandle",
+    "TaskOptions",
     "TaskState",
     "TaskError",
     "TaskNotFoundError",

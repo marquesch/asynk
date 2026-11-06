@@ -8,6 +8,8 @@
 
 ::: asynk.ScheduledTask
 
+::: asynk.TaskOptions
+
 ::: asynk.Scheduler
     options:
       inherited_members: true

@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-from asynk import CronError, ScheduledTask, Task
+from asynk import CronError, ScheduledTask, Task, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.retry import RetryPolicy
@@ -174,16 +174,14 @@ def test_scheduled_tasks_lists_only_scheduled_tasks_in_order() -> None:
 def test_scheduled_task_retry_policy() -> None:
     app = App("t")
 
-    @app.scheduled_task(cron="* * * * *", retry={"max_retries": 3})
+    @app.scheduled_task(cron="* * * * *", options=TaskOptions(retry=RetryPolicy(max_retries=3)))
     def f() -> None: ...
 
     @app.scheduled_task(cron="* * * * *")
     def g() -> None: ...
 
     assert f.retry == RetryPolicy(max_retries=3)
-    assert g.retry is app.retry
-    with pytest.raises(TypeError):
-        app.scheduled_task(cron="* * * * *", retry={"nope": 1})
+    assert g.retry is None
     assert len(app.scheduled_tasks) == 2
 
 

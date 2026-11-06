@@ -54,6 +54,7 @@ NAMES = [
     "MemoryStore",
     "NullStore",
     "TaskHandle",
+    "TaskOptions",
     "TaskState",
     "TaskError",
     "TaskNotFoundError",

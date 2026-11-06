@@ -25,6 +25,7 @@ from asynk.hooks import (
     TaskStatus,
     run_hooks,
 )
+from asynk.options import resolve_retry
 from asynk.probes import ProbeFiles
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
@@ -218,14 +219,7 @@ class Worker(Runner):
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def handle(self, delivery: Delivery) -> TaskResult | None:
-        """Runs the task for one delivery inside the consumer's `process` context.
-
-        The body is decoded into an `Envelope` with the app's codec, the app's
-        middleware runs around the task, and the task's state and result are
-        recorded in the app's store. A `RETRYING` result whose delivery no layer
-        settled is republished as `envelope.retry()`, after the policy's backoff,
-        and the delivery is acked; when the retry cannot be published, the
-        delivery is rejected with requeue.
+        """Handles one delivery: runs its task and records the outcome.
 
         Args:
             delivery: The delivery to handle.
@@ -286,7 +280,7 @@ class Worker(Runner):
 
     def _policy(self, task_name: str) -> RetryPolicy | None:
         task = self.app.tasks.get(task_name)
-        return task.retry if task is not None else self.app.retry
+        return task.retry if task is not None else resolve_retry(self.app.options)
 
     def _on_middleware_failure(
         self, envelope: Envelope, delivery: Delivery, exc: Exception
