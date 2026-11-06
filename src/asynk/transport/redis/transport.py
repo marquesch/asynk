@@ -22,6 +22,16 @@ _BODY = b"body"
 _ID_LENGTH = 32
 
 
+def _raise_if_cancelled() -> None:
+    """Raises `CancelledError` if the current task has a pending cancellation."""
+    # NOTE: On Python 3.11, `asyncio.wait_for`, which redis-py 8 wraps every command write
+    # in, drops a cancellation that arrives as the write completes. The task keeps running
+    # with a pending cancel request, so its `cancelling` count stays above zero.
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
+
+
 class _Queue:
     """The Redis keys, and the client, of one queue."""
 
@@ -236,6 +246,7 @@ class RedisConsumer:
         ready: deque[RedisDelivery] = deque()
         next_upkeep = 0.0
         while not self._stopped:
+            _raise_if_cancelled()
             try:
                 if ready:
                     yield ready.popleft()
