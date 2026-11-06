@@ -5,14 +5,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from asynk.envelope import Envelope
 from asynk.transport import Consumer, Delivery
 
-from .conftest import ContractSettings, TransportHandle
-
-
-def _env() -> Envelope:
-    return Envelope.create("t", (), {})
+from .conftest import ContractSettings, TransportHandle, envelope, next_delivery
 
 
 async def test_deliveries_can_be_cancelled_while_idle(make_transport: TransportHandle) -> None:
@@ -29,9 +24,9 @@ async def test_deliveries_can_be_cancelled_while_idle(make_transport: TransportH
 async def test_closing_deliveries_then_stop_works(make_transport: TransportHandle) -> None:
     consumer = make_transport.consumer
     await consumer.start()
-    await make_transport.producer.publish(_env(), b"one")
+    await make_transport.producer.publish(envelope(), b"one")
     it = consumer.deliveries()
-    delivery = await asyncio.wait_for(anext(it), 2)
+    delivery = await next_delivery(it)
     await delivery.ack()
     await it.aclose()  # type: ignore[attr-defined]
     await consumer.stop()
@@ -47,14 +42,14 @@ async def test_concurrent_consumers_never_share_an_unsettled_message(
     await other.start()
     bodies = [f"body-{i}".encode() for i in range(20)]
     for body in bodies:
-        await make_transport.producer.publish(_env(), body)
+        await make_transport.producer.publish(envelope(), body)
 
     async def drain(consumer: Consumer) -> list[bytes]:
         seen: list[bytes] = []
         it: AsyncIterator[Delivery] = consumer.deliveries()
         try:
             while True:
-                seen.append((await asyncio.wait_for(anext(it), 0.2)).body)
+                seen.append((await next_delivery(it, 0.2)).body)
         except TimeoutError:
             return seen
 
@@ -71,12 +66,12 @@ async def test_unsettled_messages_are_redelivered_after_stop(
     if timeout is None:
         pytest.skip("transport does not redeliver after stop()")
     await make_transport.consumer.start()
-    await make_transport.producer.publish(_env(), b"unsettled")
-    delivery = await asyncio.wait_for(anext(make_transport.consumer.deliveries()), 2)
+    await make_transport.producer.publish(envelope(), b"unsettled")
+    delivery = await next_delivery(make_transport.consumer.deliveries())
     assert delivery.body == b"unsettled"
     await make_transport.consumer.stop()
     again = make_transport.new_consumer()
     await again.start()
-    redelivered = await asyncio.wait_for(anext(again.deliveries()), timeout)
+    redelivered = await next_delivery(again.deliveries(), timeout)
     assert redelivered.body == b"unsettled"
     await redelivered.ack()

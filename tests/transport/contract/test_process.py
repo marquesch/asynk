@@ -6,16 +6,15 @@ from collections.abc import Callable
 import pytest
 
 from asynk import DeliveryFailedError, TaskResult, TaskStatus
-from asynk.envelope import Envelope
 from asynk.transport import Delivery
 
-from .conftest import TransportHandle
+from .conftest import TransportHandle, envelope, next_delivery
 
 
 async def _delivery(handle: TransportHandle) -> Delivery:
     await handle.consumer.start()
-    await handle.producer.publish(Envelope.create("t", (), {}), b"x")
-    return await asyncio.wait_for(anext(handle.consumer.deliveries()), 2)
+    await handle.producer.publish(envelope(), b"x")
+    return await next_delivery(handle.consumer.deliveries())
 
 
 async def test_process_acks_on_clean_exit(make_transport: TransportHandle) -> None:
@@ -26,7 +25,7 @@ async def test_process_acks_on_clean_exit(make_transport: TransportHandle) -> No
 
 
 def _failed() -> DeliveryFailedError:
-    result = TaskResult(Envelope.create("t", (), {}), TaskStatus.FAILED)
+    result = TaskResult(envelope(), TaskStatus.FAILED)
     return DeliveryFailedError(result)
 
 
