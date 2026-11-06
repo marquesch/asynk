@@ -81,21 +81,6 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
   [Writing a custom transport](advanced/custom-transport.md#testing-your-transport)
   with it. Streams need Redis 6.2 or later for `XAUTOCLAIM`.
 
-## Release notes
-
-The generated changelog lists every change. Anything that needs explaining, such as
-breaking changes and how to migrate, goes in [Release notes](release-notes.md), a
-single hand-written file with one section per release, newest first.
-
-The maintainer writes the section for a release before merging its Release PR, in a
-`docs:` pull request of its own (release-please regenerates the Release PR's branch, so
-do not commit to it):
-
-1. Add a `## <version>` section at the top of `docs/release-notes.md`.
-2. Put breaking changes first, saying what to write instead, then what was added,
-   changed, removed and fixed. Leave out the empty groups.
-3. Run `make docs`.
-
 ## First release
 
 `0.1.0` was the first release. It was forced with `"release-as": "0.1.0"` in
