@@ -231,6 +231,7 @@ async def test_connected_follows_the_connection(client: fakeredis.FakeAsyncRedis
     async def flaky(*args: Any, **kwargs: Any) -> Any:
         if failing:
             raise ConnectionError("down")
+        await asyncio.sleep(0.05)  # an empty blocking read waits, as on a server
         return []
 
     client.xreadgroup = flaky  # type: ignore[method-assign]
