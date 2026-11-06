@@ -32,6 +32,7 @@ nav = [
     { "0.1" = "release-notes/0.1.md" },
   ] },
   { "Changelog" = "changelog.md" },
+  { "Releasing" = "releasing.md" },
 ]
 
 # Follow the visitor's system color scheme by default; the header toggle cycles

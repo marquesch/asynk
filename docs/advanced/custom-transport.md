@@ -88,6 +88,7 @@ described above against your transport. To use it:
 3. Install `pytest-asyncio`; the suite is written as async tests.
 
 The header of `conftest.py` names the asynk version the suite matches. Changes
-to the contract are recorded in the [changelog](../changelog.md).
+to the contract appear in the generated [changelog](../changelog.md), and the
+[release notes](../release-notes/index.md) explain any that need changes to a transport.
 
 The suite does not yet cover message ordering or delayed publish.
