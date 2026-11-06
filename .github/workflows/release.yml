@@ -6,6 +6,11 @@ on:
 
 permissions: {}
 
+# Queue runs instead of overlapping them, and never cancel one that may be publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
@@ -32,9 +37,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+      # No cache in release jobs: a restored cache must not feed what gets published.
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Verify tag matches project version
         env:
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
@@ -64,6 +71,8 @@ jobs:
           name: dist
           path: dist/
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
       - run: uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/
 
   publish-pypi:
@@ -79,4 +88,6 @@ jobs:
           name: dist
           path: dist/
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
       - run: uv publish --trusted-publishing always

@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check the pull request title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
