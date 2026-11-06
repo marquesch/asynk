@@ -30,7 +30,7 @@ and `.message`.
 |---|---|
 | `PENDING` | published, not started yet |
 | `RUNNING` | a worker is running it |
-| `RETRYING` | an attempt failed and a retry is published |
+| `RETRYING` | an attempt failed and will be retried |
 | `SUCCESS` | finished; `result()` returns the value |
 | `FAILURE` | failed for good; `result()` raises `TaskError` |
 | `SKIPPED` | a middleware vetoed the task, so it did not run; `result()` returns `None` |
@@ -39,9 +39,10 @@ and `.message`.
 A failed attempt is final, `FAILURE`, when the task has no retry policy, when
 the error is not in the policy's `retry_on`, or when its retries are used up.
 Otherwise the state is `RETRYING` until the retry runs, and `result()` keeps
-waiting for a later attempt (see [Retries](retries.md)). A message for a task name the worker does not know
-is recorded as `FAILURE`. A return value the codec cannot encode is recorded as
-a `FAILURE` with the type name `ResultNotSerializable`.
+waiting for a later attempt (see [Retries](retries.md)). A message for a task
+name the worker does not know is recorded as `FAILURE`. A return value the codec
+cannot encode is recorded as a `FAILURE` with the type name
+`ResultNotSerializable`.
 
 Store errors never affect a task or its delivery: the worker logs them and
 carries on, so a record can be missing after a store outage.

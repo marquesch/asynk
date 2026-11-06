@@ -23,11 +23,13 @@ class TaskStatus(enum.Enum):
 
     Attributes:
         SUCCESS: The task returned normally.
-        FAILED: The task raised and is not retried: no retry policy applies, or
-            the exception is not in its `retry_on`.
+        FAILED: The task, or a layer before it ran, raised and is not retried:
+            no retry policy applies, the exception is not in its `retry_on`, or
+            the layer settled the delivery.
         RETRYING: The task, or a layer before it ran, raised and the retry policy
             has retries left; decided before the retry is published.
-        RETRIES_EXCEEDED: The task raised and its retry policy has no retries left.
+        RETRIES_EXCEEDED: The task, or a layer before it ran, raised and the retry
+            policy has no retries left.
         UNKNOWN_TASK: The envelope names a task this app has not registered.
         SKIPPED: Middleware skipped the task, so it did not run.
     """
