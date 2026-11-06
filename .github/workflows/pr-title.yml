@@ -5,17 +5,26 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 permissions:
-  contents: read
+  pull-requests: read
 
 jobs:
   conventional-title:
     name: Conventional commit title
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check the pull request title
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: python3 scripts/check_pr_title.py
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            chore
+            ci
+            build
+            revert
+          requireScope: false
