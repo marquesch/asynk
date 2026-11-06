@@ -8,7 +8,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from asynk import App, Delivery, Envelope, MemoryStore, Worker
+from asynk import App, Delivery, Envelope, MemoryStore, PublishOptions, Worker
 
 Queue = asyncio.Queue[bytes | None]
 
@@ -19,7 +19,10 @@ class QueueProducer:
     def __init__(self, queue: Queue) -> None:
         self._queue = queue
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
+        # The queue cannot delay a message, so `options` is ignored.
         await self._queue.put(body)
         return envelope.id  # the receipt, available as handle.receipt
 

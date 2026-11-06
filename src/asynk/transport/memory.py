@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import TypeAlias
 
 from asynk.envelope import Envelope
-from asynk.transport import Delivery
+from asynk.transport import Delivery, PublishOptions
 
 
 class _Stop:
@@ -31,17 +31,24 @@ class MemoryProducer:
         """
         self._queue = queue
 
-    async def publish(self, envelope: Envelope, body: bytes) -> str:
-        """Enqueues a message.
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> str:
+        """Enqueues a message, after `options.delay` seconds when one is given.
 
         Args:
             envelope: The envelope the message carries.
             body: The encoded message to enqueue.
+            options: The publish options.
 
         Returns:
             The envelope id.
         """
-        await self._queue.put(body)
+        delay = options.delay if options is not None else None
+        if delay:
+            asyncio.get_running_loop().call_later(delay, self._queue.put_nowait, body)
+        else:
+            await self._queue.put(body)
         return envelope.id
 
 

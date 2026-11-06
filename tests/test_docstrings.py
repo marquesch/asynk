@@ -17,6 +17,7 @@ from asynk import (
     Worker,
 )
 from asynk.envelope import Envelope
+from asynk.retry import Exponential, RetryPolicy
 from asynk.store.redis import RedisStore
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
 
@@ -33,6 +34,8 @@ MEMBER_CLASSES = [
     Worker,
     Scheduler,
     Envelope,
+    RetryPolicy,
+    Exponential,
 ]
 
 # Transport implementations: the class docstring is checked; their members

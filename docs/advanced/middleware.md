@@ -87,36 +87,38 @@ do not swallow it in a layer.
 What happens depends on whether the task already ran.
 
 - **Before the task ran** (the layer raised before `next`, or a layer further
-  in did): the error is logged and the message is retried like a failing task
-  would be. The worker publishes `envelope.retry()`, with `attempt`
-  incremented, and acks the original delivery; once `attempt` reaches the
-  task's `max_retries` the delivery is rejected and the result is
-  `RETRIES_EXCEEDED`. An app without a producer rejects the delivery with
-  requeue, keeping the same attempt.
+  in did): the error is logged and goes through the task's retry policy, like
+  a failing task (see [Retries](../guides/retries.md)). With retries left the
+  result is `RETRYING`: the worker publishes `envelope.retry()` and acks the
+  original delivery. With retries used up it is `RETRIES_EXCEEDED`, and with
+  no policy, or an error not in `retry_on`, it is `FAILED`.
 - **After the task ran** (the layer raised after `next` returned): the error is
   logged and the task's own outcome stands. It is recorded and settled as if
   the layer had returned it, and the layer's error causes no redelivery.
 
-With `max_retries=None`, a layer that always raises before the task redelivers
-the message forever, with no backoff.
+With `max_retries=None`, a layer that always raises before the task retries
+forever, waiting the policy's backoff between attempts.
 
 ## Settling the delivery yourself
 
 A layer may settle the delivery itself with `call.delivery.ack()` or
 `call.delivery.reject()`. The worker sees that the delivery is settled and does
-not settle it again. For example, a layer can republish failed tasks for a
-retry and ack the original:
+not settle it again. For example, a layer can ack deliveries whose retries are
+used up, instead of letting the consumer dead-letter them:
 
 ```python
 @app.middleware
-async def retry_failures(call: TaskCall, next: Next) -> TaskResult:
+async def ack_exhausted(call: TaskCall, next: Next) -> TaskResult:
     result = await next(call)
-    if result.status is TaskStatus.FAILED:
-        retried = call.envelope.retry()
-        await app.producer.publish(retried, app.codec.encode(retried.to_dict()))
+    if result.status is TaskStatus.RETRIES_EXCEEDED:
         await call.delivery.ack()
     return result
 ```
+
+The worker's own retry happens after the chain returns. A layer that settles
+the delivery of a `RETRYING` result takes over the retry: the worker publishes
+nothing, and the state stays `RETRYING` until another attempt records a new
+one.
 
 A layer that settles the delivery and then raises is only logged: the message
 is not redelivered.
@@ -157,7 +159,7 @@ It prints:
 ```text
 add success: 2
 cleanup skipped: 1
-divide retries_exceeded: 1
+divide failed: 1
 ```
 
 followed by the total seconds per task.

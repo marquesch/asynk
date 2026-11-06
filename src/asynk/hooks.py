@@ -23,14 +23,20 @@ class TaskStatus(enum.Enum):
 
     Attributes:
         SUCCESS: The task returned normally.
-        FAILED: The task raised and its delivery was requeued or republished for a retry.
-        RETRIES_EXCEEDED: The task raised on its last allowed attempt; the delivery is rejected.
+        FAILED: The task, or a layer before it ran, raised and is not retried:
+            no retry policy applies, the exception is not in its `retry_on`, or
+            the layer settled the delivery.
+        RETRYING: The task, or a layer before it ran, raised and the retry policy
+            has retries left.
+        RETRIES_EXCEEDED: The task, or a layer before it ran, raised and the retry
+            policy has no retries left.
         UNKNOWN_TASK: The envelope names a task this app has not registered.
         SKIPPED: Middleware skipped the task, so it did not run.
     """
 
     SUCCESS = "success"
     FAILED = "failed"
+    RETRYING = "retrying"
     RETRIES_EXCEEDED = "retries_exceeded"
     UNKNOWN_TASK = "unknown_task"
     SKIPPED = "skipped"
@@ -152,8 +158,6 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
 
 async def run_all_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
     """Calls every hook in order, even after one raises.
-
-    Each failure is logged. Only `Exception` is collected; cancellation propagates at once.
 
     Args:
         hooks: The hooks to call.

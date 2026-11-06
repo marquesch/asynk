@@ -28,8 +28,8 @@ message and returns a handle. A `Worker` consumes the message and runs the task.
 ## Defining tasks
 
 A task is an async function or a plain `def`. Plain functions run in a thread.
-Default argument values work as you would expect, and `max_retries` sets the
-number of attempts after which a failure is reported as `RETRIES_EXCEEDED`.
+Default argument values work as you would expect, and `retry` retries a failing
+task, here up to three times (see [Retries](guides/retries.md)).
 
 ``` { .python }
 --8<-- "examples/getting_started/defining_tasks.py"

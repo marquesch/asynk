@@ -16,7 +16,7 @@ class TaskState(enum.Enum):
     Attributes:
         PENDING: Published, not started yet.
         RUNNING: A worker is running it.
-        RETRYING: An attempt failed and a retry was published.
+        RETRYING: An attempt failed with retries left and will be retried.
         SUCCESS: Finished; `TaskHandle.result` returns the value.
         FAILURE: Failed for good; `TaskHandle.result` raises `TaskError`.
         SKIPPED: Middleware skipped the task; `TaskHandle.result` returns None.
