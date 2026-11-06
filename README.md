@@ -65,6 +65,7 @@ a worker with `asynk worker tasks:app`.
   backoff and an exception filter.
 - **Lifecycle hooks** shared by workers and the scheduler.
 - **Middleware** around every task: timing, metrics, vetoes, cleanup.
+- **OpenTelemetry** traces and metrics, switched on by installing `asynk[otel]`.
 - **Health probes and graceful shutdown**, ready for Kubernetes.
 
 ## Learn more
