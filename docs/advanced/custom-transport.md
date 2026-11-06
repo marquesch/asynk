@@ -28,9 +28,9 @@ transport never encodes anything itself. Whatever `publish` returns becomes
 ## Delivery
 
 A delivery carries the received `body` and is settled exactly once, with
-`ack()` or `reject(requeue=...)`. `settled` reports whether that happened. The
-worker settles some deliveries itself (see below), so `process` checks
-`settled` before settling.
+`ack()` or `reject(requeue=...)`; a second call raises `RuntimeError`.
+`settled` reports whether that happened. The worker settles some deliveries
+itself (see below), so `process` checks `settled` before settling.
 
 ## The consumer contract
 
@@ -62,11 +62,14 @@ What reaches `process`:
 
 ## Testing your transport
 
-asynk ships a contract test suite that checks the behaviour described above
-against a real transport. To use it:
+The asynk repository holds a contract test suite that checks the behavior
+described above against your transport. To use it:
 
 1. Copy `tests/transport/contract/` from the asynk repository into your tests.
-2. Replace `REGISTRY` in `conftest.py` with a factory for your transport.
+2. Replace `REGISTRY` in `conftest.py` with a factory for your transport. The
+   factory returns a `TransportHandle`: a producer, a consumer, a way to make
+   more consumers on the same queue, and a `close()` that stops them and
+   deletes the queue. Give each handle a fresh queue name.
 3. Install `pytest-asyncio`; the suite is written as async tests.
 
 The header of `conftest.py` names the asynk version the suite matches. Changes

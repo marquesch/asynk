@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Transport contract test suite (`tests/transport/contract/`) that custom
-  transports can copy to check their delivery, settle and `process` behaviour.
+  transports can copy to check their delivery, settle and `process` behavior.
 - `AsynkError`, the base class of every exception asynk defines.
 - `CronError` is exported from `asynk`.
 - `asynk.__version__`, read from the installed distribution's metadata.
