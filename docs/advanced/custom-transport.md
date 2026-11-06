@@ -31,8 +31,9 @@ the message for that many seconds before delivering it; the worker passes it
 when it publishes a retry with backoff, and only then, so `publish(envelope,
 body)` keeps working. Options are advisory: honor what your broker supports and
 ignore the rest. A transport that ignores `delay` delivers retries immediately,
-so they get no backoff; if that is not acceptable, raise from `publish` when
-`options.delay` is set. Broker limits, such as a maximum delay, are the
+so they get no backoff. Raising from `publish` instead is worse: the worker
+then rejects the original delivery with requeue, so it runs again at the same
+attempt and never uses up its retries. Broker limits, such as a maximum delay, are the
 transport's to handle. The memory transport holds a delayed message in a timer,
 so one not yet due is lost when the process exits.
 
@@ -62,9 +63,11 @@ worker settles some deliveries itself (see below), so `process` checks
 
 What reaches `process`:
 
-- When a task fails, is unknown or exceeds its retries, the worker raises
-  `DeliveryFailedError` inside the block; `.result.status` says which. Any other
-  exception is an unexpected error.
+- When a task fails for good, is unknown or exceeds its retries, the worker
+  raises `DeliveryFailedError` inside the block; `.result.status` says which. A
+  task that is retried is settled by the worker: it publishes the retry and
+  acks the delivery, or rejects it with requeue when the retry cannot be
+  published. Any other exception is an unexpected error.
 - The worker decodes each body inside `process`. A body it cannot decode is
   rejected without requeue there, and the block exits cleanly.
 - When a task is cancelled at the shutdown timeout, the worker rejects its

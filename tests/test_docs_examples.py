@@ -19,6 +19,7 @@ PAGES = {
     ],
     "guides/scheduled-tasks.md": ["guides/scheduled_tasks.py"],
     "guides/results.md": ["guides/results_store.py"],
+    "guides/retries.md": ["guides/retries.py"],
     "guides/metadata.md": ["guides/publish_metadata.py"],
     "advanced/lifecycle-hooks.md": ["advanced/lifecycle_hooks.py"],
     "advanced/middleware.md": [
@@ -51,6 +52,12 @@ async def test_middleware_order_example_runs_the_last_registered_layer_outermost
     module = _load("advanced/middleware_order.py")
     await asyncio.wait_for(module.main(), 10)
     assert module.order == ["second: in", "first: in", "task", "first: out", "second: out"]
+
+
+async def test_retries_example_retries_then_fails_for_good() -> None:
+    module = _load("guides/retries.py")
+    await asyncio.wait_for(module.main(), 10)
+    assert module.attempts == {"fetch": 3, "charge": 1}
 
 
 async def test_middleware_metrics_example_counts_and_times_each_task() -> None:

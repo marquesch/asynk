@@ -9,7 +9,8 @@ behind them.
 An `Envelope` is the message exchanged between producers and consumers. It
 carries the task name, its `args` and `kwargs`, a unique `id`, a zero-based
 `attempt` counter and free-form `metadata`. `envelope.retry()` returns a copy
-with `attempt` incremented and the same `id`.
+with `attempt` incremented and the same `id`; the worker publishes it to retry
+a task.
 
 ## Codec
 

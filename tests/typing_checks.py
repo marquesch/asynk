@@ -53,11 +53,9 @@ async def _checks() -> None:
 
 
 @app.middleware
-async def retry(call: TaskCall, next: Next) -> TaskResult:
+async def ack_exhausted(call: TaskCall, next: Next) -> TaskResult:
     result = await next(call)
-    if result.status is TaskStatus.FAILED:
-        retried = call.envelope.retry()
-        await producer.publish(retried, app.codec.encode(retried.to_dict()))
+    if result.status is TaskStatus.RETRIES_EXCEEDED:
         await call.delivery.ack()
     return result
 

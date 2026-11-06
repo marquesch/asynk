@@ -9,16 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Built-in retries: a failing task with a retry policy is republished as
-  `envelope.retry()` after its backoff, and the original delivery is acked;
-  `TaskStatus.RETRYING` reports it. If the retry cannot be published, the delivery
-  is rejected with requeue.
+- Built-in retries, configured with `retry=` on `App`, `@app.task` and
+  `@app.scheduled_task`, which takes a `RetryPolicy` or a dict of its fields; a
+  task's policy replaces the app's default, and `retry=False` disables retries. An
+  unknown field or a wrong type raises `TypeError` at definition. A failing task with
+  retries left is reported as `TaskStatus.RETRYING`, republished as
+  `envelope.retry()` after its backoff, and the original delivery is acked; if the
+  retry cannot be published, the delivery is rejected with requeue.
 - `RetryPolicy(max_retries=1, backoff=None, retry_on=(Exception,))`, the
   `Exponential(base, factor, max, jitter=False)` backoff and the `Backoff`
   protocol for custom strategies.
-- `retry=` on `App`, `@app.task` and `@app.scheduled_task`, taking a `RetryPolicy` or a
-  dict of its fields; a task's policy replaces the app's default, and `retry=False`
-  disables retries. An unknown field or a wrong type raises `TypeError` at definition.
 - `PublishOptions(delay=...)`, an optional third argument of `Producer.publish`;
   the memory transport delivers a message after its `delay`.
 - `AsynkError`, the base class of every exception asynk defines.
@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation page on middleware (advanced topics): ordering, vetoes, cleanup,
   failing layers and pitfalls, with a tested timing and counting example and its
   Prometheus version.
+- Documentation page on retries (guides), with a tested example.
 - The documentation site follows the system color scheme and has a light/dark toggle.
 
 ### Changed
@@ -50,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   republished with no limit when `max_retries` was not set.
 - **Breaking:** the worker no longer rejects a delivery itself when retries are used
   up after a failing layer; the consumer settles it, as for any failed task.
+- **Breaking:** when a layer raised before the task ran and the retry cannot be
+  published, the delivery is rejected with requeue at the same attempt; it used to
+  be left to the consumer's default settlement.
 - **Breaking:** `Producer.publish(envelope, body, options=None)` takes publish
   options; custom producers must accept the parameter and may ignore it.
 - **Breaking:** asynk's exceptions are defined in `asynk.errors` and exported from
@@ -107,7 +111,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A failing task no longer stays `RETRYING` with `result()` never completing.
 - The scheduler releases its dedupe claim when the publish fails or is cancelled.
 - `MemoryStore` purges expired keys and frees wait events instead of keeping them
   for the life of the store.
