@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import fakeredis
 import pytest
-from import_guard_helpers import core_without_the_client
 
 from asynk._redis import RedisConnection
 
@@ -43,4 +42,9 @@ async def test_a_client_made_from_the_url_is_closed() -> None:
 
 @pytest.mark.slow
 def test_importing_it_without_the_client_names_the_extra() -> None:
-    assert "pip install 'asynk[redis]'" in core_without_the_client()["asynk._redis"][0]
+    import subprocess
+    import sys
+
+    code = "import sys; sys.modules['redis'] = None\nimport asynk._redis\n"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert "pip install 'asynk[redis]'" in out.stderr

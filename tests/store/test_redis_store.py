@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -10,7 +11,6 @@ from typing import Any
 import fakeredis
 import pytest
 import redis.asyncio
-from import_guard_helpers import core_without_the_client
 
 import asynk
 import asynk.store.redis
@@ -44,9 +44,15 @@ def _store(server: fakeredis.FakeServer, **kwargs: Any) -> RedisStore:
 
 @pytest.mark.slow
 def test_core_imports_without_the_client_and_the_guard_names_the_extra() -> None:
-    result = core_without_the_client()
-    assert result["loaded"] == []
-    assert result["asynk.store.redis"] == [MESSAGE, "ModuleNotFoundError"]
+    code = (
+        "import sys; sys.modules['redis'] = None\n"
+        "import asynk, asynk.store, asynk.store.memory, asynk.worker, asynk.scheduler\n"
+        "assert not [m for m in sys.modules if m.startswith('redis') and sys.modules[m]]\n"
+        "try:\n    import asynk.store.redis\n"
+        "except ImportError as exc:\n    print(exc)\n    print(type(exc.__cause__).__name__)\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.splitlines() == [MESSAGE, "ModuleNotFoundError"]
 
 
 def test_import_guard_raises_when_the_client_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,7 +87,14 @@ def test_import_guard_reraises_a_failing_dependency_of_the_client(
 
 @pytest.mark.slow
 def test_core_modules_do_not_import_the_client() -> None:
-    assert core_without_the_client()["loaded"] == []
+    code = (
+        "import sys\n"
+        "import asynk, asynk.cli, asynk.store, asynk.worker, asynk.scheduler\n"
+        "import asynk.transport.memory\n"
+        "print(sorted(m for m in sys.modules if m == 'redis' or m.startswith('redis.')))\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"
 
 
 def test_package_exports_the_store() -> None:
@@ -296,7 +309,7 @@ async def test_wait_returns_value_set_later_by_another_store(
 ) -> None:
     reader, writer = _store(server, max_poll_interval=0.01), _store(server)
     waiter = asyncio.create_task(reader.wait("k"))
-    await asyncio.sleep(0.03)
+    await asyncio.sleep(0)  # let the waiter start polling
     await writer.set("k", b"v")
     assert await asyncio.wait_for(waiter, 1) == b"v"
 
