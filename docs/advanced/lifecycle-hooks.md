@@ -1,7 +1,8 @@
 # Lifecycle hooks
 
 Lifecycle hooks extend a worker or a scheduler without subclassing it, for
-example to open a connection pool at startup and close it at shutdown.
+example to open a connection pool at startup and close it at shutdown. To run
+code around each task instead, see [Middleware](middleware.md).
 
 ``` { .python }
 --8<-- "examples/advanced/lifecycle_hooks.py"
