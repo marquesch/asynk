@@ -31,10 +31,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def _timeout_of(options: TaskOptions) -> float | None:
-    return None if options.timeout is False else options.timeout
-
-
 class App:
     """Registry of tasks plus the producer and consumer that move their messages.
 
@@ -125,7 +121,7 @@ class App:
         def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
             task = Task(
-                func, task_name, resolved.policy, self.publish, timeout=_timeout_of(resolved)
+                func, task_name, resolved.policy, self.publish, timeout=resolved.timeout or None
             )
             self._tasks[task_name] = task
             return task
@@ -175,7 +171,7 @@ class App:
                 resolved.policy,
                 self.publish,
                 replace(schedule, tz=zone),
-                timeout=_timeout_of(resolved),
+                timeout=resolved.timeout or None,
             )
             self._tasks[task_name] = task
             self._scheduled_tasks.append(task)

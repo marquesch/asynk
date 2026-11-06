@@ -402,7 +402,7 @@ def test_task_timeout_is_unset_by_default() -> None:
     assert t.timeout is None
 
 
-def test_task_inherits_the_app_timeout_and_can_override_or_disable_it() -> None:
+def test_task_inherits_the_app_timeout_and_can_override_it() -> None:
     app = App("a", options=TaskOptions(timeout=30))
 
     @app.task()
@@ -411,18 +411,15 @@ def test_task_inherits_the_app_timeout_and_can_override_or_disable_it() -> None:
     @app.task(options=TaskOptions(timeout=5))
     async def overridden() -> None: ...
 
-    @app.task(options=TaskOptions(timeout=False))
-    async def disabled() -> None: ...
-
     @app.scheduled_task(cron="* * * * *")
     async def scheduled() -> None: ...
 
-    assert (inherited.timeout, overridden.timeout, disabled.timeout) == (30, 5, None)
+    assert (inherited.timeout, overridden.timeout) == (30, 5)
     assert scheduled.timeout == 30
 
 
-def test_app_timeout_false_means_no_timeout() -> None:
-    app = App("a", options=TaskOptions(timeout=False))
+def test_no_timeout_anywhere_means_no_limit() -> None:
+    app = App("a")
 
     @app.task()
     async def t() -> None: ...

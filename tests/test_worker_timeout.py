@@ -76,9 +76,9 @@ async def test_a_task_within_its_timeout_succeeds() -> None:
 
 
 async def test_a_task_without_a_timeout_is_not_limited() -> None:
-    app, consumer, worker = _setup(TaskOptions(timeout=TINY))
+    app, consumer, worker = _setup()
 
-    @app.task(options=TaskOptions(timeout=False))
+    @app.task()
     async def slow() -> str:
         await asyncio.sleep(TINY * 5)
         return "done"

@@ -26,12 +26,6 @@ async def call_partner() -> None:
     await asyncio.Event().wait()  # never answers
 
 
-# False turns the limit off for this task.
-@app.task(options=TaskOptions(timeout=False))
-async def rebuild_index() -> str:
-    return "built"
-
-
 async def main() -> None:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
@@ -41,8 +35,6 @@ async def main() -> None:
         await handle.result(timeout=5)
     except TaskError as exc:
         print("call_partner failed:", exc.type_name, "after", attempts, "attempts")
-
-    print("rebuild_index:", await (await rebuild_index.delay()).result(timeout=5))
 
     worker.request_shutdown()
     await run
