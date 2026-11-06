@@ -48,8 +48,8 @@ settings or retries, pass your own `client`.
 
 | Store method | Redis command |
 |---|---|
-| `set(key, value)` | `SET prefix+key value PX ttl NX` |
-| `set(key, value, overwrite=True)` | `SET prefix+key value PX ttl` |
+| `set(key, value)` | `SET prefix+key value PX <ttl in milliseconds> NX` |
+| `set(key, value, overwrite=True)` | `SET prefix+key value PX <ttl in milliseconds>` |
 | `get(key)` | `GET prefix+key` |
 | `delete(key)` | `DEL prefix+key` |
 | `wait(key, timeout)` | `GET` repeated with a growing pause |
@@ -67,6 +67,16 @@ share one store and exactly one publishes each slot.
   as logged store errors, not as a failed startup. The worker and scheduler
   carry on without the store, as described in
   [Results and the store](results.md).
+- A hung Redis slows every task and every `delay()`: each store call waits up
+  to `socket_timeout` (5 seconds by default). A task pays that for its running
+  state, its terminal state and its result write, and `delay()` pays it once
+  for the pending state.
+- The scheduler guarantee that exactly one scheduler publishes each slot holds
+  only while Redis answers. When the claim fails, every scheduler publishes; see
+  [Scheduled tasks](scheduled-tasks.md).
+- `TaskHandle.state()` and `result()` raise the client's
+  `redis.exceptions.ConnectionError` or `TimeoutError` when Redis is down.
+  Readers see the error; workers and the scheduler carry on without the store.
 - A client you pass in without socket timeouts lets a hung Redis stall a claim
   or a record.
 - A client you pass in must use `decode_responses=False`: values are bytes. With

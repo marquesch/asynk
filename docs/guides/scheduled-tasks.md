@@ -70,7 +70,8 @@ Each publish carries two metadata keys:
 
 **With a store**, schedulers claim each slot in the store before publishing it,
 so overlapping schedulers publish each slot once. Give them one shared store:
-`MemoryStore` covers one process, and several machines need a network store. A
+`MemoryStore` covers one process, and several machines need a network store, such as the
+[Redis store](redis.md). A
 scheduler releases its claim when its publish fails or is cancelled, so another
 scheduler can publish that slot. If the store cannot be reached, the scheduler
 publishes anyway rather than stop the schedule. A hard crash between the claim
