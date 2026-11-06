@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RedisStore` in `asynk.store.redis`: a store on Redis that several processes
+  share, for task results and scheduler claims, installed with the `asynk[redis]`
+  extra; documentation page "Redis store".
 - `AsynkError`, the base class of every exception asynk defines.
 - `CronError` is exported from `asynk`.
 - `asynk.__version__`, read from the installed distribution's metadata.

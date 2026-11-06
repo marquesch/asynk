@@ -17,6 +17,7 @@ from asynk import (
     Worker,
 )
 from asynk.envelope import Envelope
+from asynk.store.redis import RedisStore
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
 
 MEMBER_CLASSES = [
@@ -25,6 +26,7 @@ MEMBER_CLASSES = [
     TaskHandle,
     NullStore,
     MemoryStore,
+    RedisStore,
     Codec,
     JsonCodec,
     App,
@@ -39,6 +41,7 @@ CLASS_ONLY = [
     MemoryProducer,
     MemoryConsumer,
     MemoryDelivery,
+    RedisStore,
 ]
 
 

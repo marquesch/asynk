@@ -50,6 +50,8 @@
 
 ::: asynk.NullStore
 
+::: asynk.store.redis.RedisStore
+
 ## Results
 
 ::: asynk.TaskHandle

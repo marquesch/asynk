@@ -54,7 +54,9 @@ a worker with `asynk worker tasks:app`.
 - **Decoupled producers and consumers**: the core only knows an envelope, a
   codec and two small protocols, so any broker can sit behind them.
 - **Pluggable transport and store**: bring your own broker and result store; an
-  in-memory transport and store ship for development and tests.
+  in-memory transport and store ship for development and tests, and a
+  [Redis store](https://marquesch.github.io/asynk/guides/redis/) comes with
+  `asynk[redis]`.
 - **Type-checked `delay`**: calls are checked against the task's signature.
 - **Cron scheduled tasks** with per-slot dedupe when schedulers share a store.
 - **Task results** through a store, with states and awaitable handles.

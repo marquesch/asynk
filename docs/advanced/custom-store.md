@@ -1,8 +1,8 @@
 # Writing a custom store
 
 `MemoryStore` covers one process. To share task results and scheduler claims
-between processes or machines, implement the `Store` protocol over Redis or a
-database. Like the transport protocols it needs no base class.
+between processes or machines, use the [Redis store](../guides/redis.md), or
+implement the `Store` protocol for another backend. Like the transport protocols it needs no base class.
 
 ``` { .python }
 --8<-- "examples/advanced/custom_store.py"
