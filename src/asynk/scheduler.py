@@ -65,10 +65,8 @@ class Scheduler(Runner):
         app: The app whose scheduled tasks are published.
         clock: Source of time and sleeping.
         probe_dir: Directory for the liveness probe file; None disables it.
-        heartbeat_interval: Seconds between probe file updates, and the longest
-            single sleep.
-        grace: Seconds a slot may be late and still fire; older slots are
-            skipped with a warning.
+        heartbeat_interval: Seconds between probe file updates.
+        grace: Seconds a slot may be late and still fire.
         role: Always "scheduler".
     """
 
@@ -89,8 +87,7 @@ class Scheduler(Runner):
             app: The app to publish for; it must have a producer and scheduled tasks.
             clock: Source of time and sleeping; defaults to `SystemClock`.
             probe_dir: Directory for the liveness probe file; None disables it.
-            heartbeat_interval: Seconds between probe file updates, and the
-                longest single sleep.
+            heartbeat_interval: Seconds between probe file updates.
             grace: Seconds a slot may be late and still fire.
 
         Raises:
@@ -135,7 +132,7 @@ class Scheduler(Runner):
 
         Each scheduled task starts at its first slot after the current time.
         Startup and shutdown hooks run around the loop; see `App.before_startup`
-        and its siblings. A hook that raises makes this method raise.
+        and its siblings.
         """
         await run_hooks(self.app.hooks.before_startup, self)
         try:

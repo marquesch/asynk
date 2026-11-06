@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** the `Store` protocol gains `delete(key) -> bool`; third-party stores must
   implement it.
 - Docstrings reviewed for consistency: `max_retries` is described as the attempt count
-  after which a failure is reported as `RETRIES_EXCEEDED`, and every module has a docstring.
+  after which a failure is reported as `RETRIES_EXCEEDED`, and every module has a docstring, and the status and state enum members are documented.
 
 ### Removed
 

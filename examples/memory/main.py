@@ -16,7 +16,7 @@ class FastClock:
 
     A `Scheduler` reads time with `now()` and waits with `sleep()`. Here `sleep()`
     only advances a virtual time, which makes minutes of schedule pass in
-    milliseconds. Real code uses the default `SystemClock`.
+    milliseconds.
     """
 
     def __init__(self, start: datetime, stop: datetime) -> None:

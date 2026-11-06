@@ -1,4 +1,4 @@
-"""Lifecycle and task hooks, and task results."""
+"""Lifecycle hooks, task middleware types, and task results."""
 
 from __future__ import annotations
 
@@ -16,7 +16,15 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
-    """Outcome of running a task, as seen by middleware and the consumer."""
+    """Outcome of running a task, as seen by middleware and the consumer.
+
+    Attributes:
+        SUCCESS: The task returned normally.
+        FAILED: The task raised and its delivery was requeued or republished for a retry.
+        RETRIES_EXCEEDED: The task raised on its last allowed attempt; the delivery is rejected.
+        UNKNOWN_TASK: The envelope names a task this app has not registered.
+        SKIPPED: Middleware skipped the task, so it did not run.
+    """
 
     SUCCESS = "success"
     FAILED = "failed"

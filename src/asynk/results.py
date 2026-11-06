@@ -10,7 +10,17 @@ from asynk.store import Store
 
 
 class TaskState(enum.Enum):
-    """Lifecycle state of a task as recorded in the store."""
+    """Lifecycle state of a task as recorded in the store.
+
+    Attributes:
+        PENDING: Published, not started yet.
+        RUNNING: A worker is running it.
+        RETRYING: An attempt failed and a retry was published.
+        SUCCESS: Finished; `TaskHandle.result` returns the value.
+        FAILURE: Failed for good; `TaskHandle.result` raises `TaskError`.
+        SKIPPED: A `before_task` hook raised `SkipTask`; `TaskHandle.result` returns None.
+        UNKNOWN: The store has no record for this id.
+    """
 
     PENDING = "pending"
     RUNNING = "running"

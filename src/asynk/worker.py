@@ -133,7 +133,7 @@ class Worker(Runner):
         are cancelled and their deliveries requeued.
 
         Startup and shutdown hooks run around the consumer; see `App.before_startup`
-        and its siblings. A hook that raises makes this method raise.
+        and its siblings.
         """
         await run_hooks(self.app.hooks.before_startup, self)
         await self.consumer.start()

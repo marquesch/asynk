@@ -207,8 +207,7 @@ class App:
 
         Lifecycle hooks may be sync or async and receive the `Runner` they run in,
         a `Worker` or a `Scheduler`; `runner.role` tells them apart. Registering
-        the same hook twice has no effect. A hook that raises stops `Worker.run`
-        or `Scheduler.run`.
+        the same hook twice has no effect.
 
         Example:
             Initialize telemetry in every process, but open a database pool only
