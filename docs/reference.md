@@ -62,8 +62,6 @@
 
 ::: asynk.TaskFailedError
 
-::: asynk.SkipTask
-
 ::: asynk.DecodeError
 
 ::: asynk.EncodeError

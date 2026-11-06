@@ -11,7 +11,7 @@ from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import TaskResult, TaskStatus
+from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskError, TaskState
 from asynk.store.memory import MemoryStore
 from asynk.transport import Delivery
@@ -98,15 +98,14 @@ async def test_retrying_then_success_keeps_one_id() -> None:
 
 async def test_skipped_task_result_returns_none() -> None:
     app, _, consumer, worker = _setup()
-    from asynk.hooks import SkipTask
 
     @app.task(name="t1")
     async def t1() -> int:
         return 1
 
-    @app.before_task
-    async def veto(envelope: Envelope, delivery: Delivery) -> None:
-        raise SkipTask
+    @app.middleware
+    async def veto(call: TaskCall, next: Next) -> TaskResult:
+        return call.skip()
 
     handle = await t1.delay()
     result = await _handle(worker, await _next(consumer))
@@ -324,15 +323,15 @@ async def test_worker_stops_store_when_serving_raises() -> None:
     assert "store.stop" in calls
 
 
-async def test_hook_failure_records_retrying_or_failure() -> None:
+async def test_layer_failure_records_retrying_or_failure() -> None:
     app, _, consumer, worker = _setup()
 
     @app.task(name="once", max_retries=1)
     async def once() -> int:
         return 1
 
-    @app.before_task
-    async def broken(envelope: Envelope, delivery: Delivery) -> None:
+    @app.middleware
+    async def broken(call: TaskCall, next: Next) -> TaskResult:
         raise OSError("hook down")
 
     handle = await once.delay()

@@ -9,8 +9,6 @@ from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
 from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
-    AfterTaskHook,
-    BeforeTaskHook,
     Hooks,
     LifecycleHook,
     Middleware,
@@ -271,38 +269,6 @@ class App:
             The hook, unchanged.
         """
         return self.hooks.after_shutdown.add(hook)
-
-    def before_task(self, hook: BeforeTaskHook) -> BeforeTaskHook:
-        """Registers a hook run before each known task.
-
-        Hooks may be sync or async and receive the `Envelope` and `Delivery`.
-        Raise `SkipTask` to veto the task. Any other exception is treated as a
-        hook failure: the message is redelivered with its attempt count
-        incremented, up to the task's `max_retries`. Registering the same function
-        twice has no effect.
-
-        Args:
-            hook: The hook to register.
-
-        Returns:
-            The hook, unchanged.
-        """
-        return self.hooks.before_task.add(hook)
-
-    def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
-        """Registers a hook run after each task, before its delivery is settled.
-
-        Hooks may be sync or async and receive the `TaskResult` and `Delivery`, and
-        may settle the delivery. They also run for unknown and skipped tasks.
-        Failures are handled as for `before_task`.
-
-        Args:
-            hook: The hook to register.
-
-        Returns:
-            The hook, unchanged.
-        """
-        return self.hooks.after_task.add(hook)
 
     def middleware(self, layer: Middleware) -> Middleware:
         """Registers a middleware layer around each task.

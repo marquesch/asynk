@@ -13,7 +13,6 @@ from asynk.envelope import Envelope, InvalidEnvelopeError
 from asynk.hooks import (
     Middleware,
     Next,
-    SkipTask,
     TaskCall,
     TaskFailedError,
     TaskResult,
@@ -231,11 +230,12 @@ class Worker(Runner):
         The delivery's body is decoded into an `Envelope` with the app's codec. A
         body that cannot be decoded is logged and rejected without requeue.
 
-        `before_task` and `after_task` hooks run around the task. If a hook raises,
-        the error is logged and the message is redelivered with `attempt`
+        The app's middleware runs around the task. If a layer raises before the
+        task ran, the error is logged and the message is redelivered with `attempt`
         incremented (up to the task's `max_retries`), and the returned result has
-        status `FAILED`. The task's state and result are recorded in the app's
-        store.
+        status `FAILED`. If a layer raises after the task ran, the error is logged
+        and the task's own outcome stands. The task's state and result are
+        recorded in the app's store.
 
         Args:
             delivery: The delivery to handle.
@@ -268,9 +268,18 @@ class Worker(Runner):
                     try:
                         result = await chain(call)
                         self._log_result(result)
-                        await run_hooks(self.app.hooks.after_task, result, delivery)
                     except Exception as exc:
-                        result = await self._on_hook_failure(envelope, delivery, exc)
+                        if outcome is None:
+                            result = await self._on_middleware_failure(envelope, delivery, exc)
+                        else:
+                            logger.error(
+                                "middleware failed after task %r (id=%s) ran",
+                                envelope.task,
+                                envelope.id,
+                                exc_info=exc,
+                            )
+                            result = outcome
+                            self._log_result(result)
                     await self._record(result)
                 except asyncio.CancelledError:
                     if not delivery.settled:
@@ -283,11 +292,11 @@ class Worker(Runner):
         assert result is not None
         return result
 
-    async def _on_hook_failure(
+    async def _on_middleware_failure(
         self, envelope: Envelope, delivery: Delivery, exc: Exception
     ) -> TaskResult:
         logger.error(
-            "hook failed for task %r (id=%s, attempt=%d)",
+            "middleware failed for task %r (id=%s, attempt=%d)",
             envelope.task,
             envelope.id,
             envelope.attempt,
@@ -397,15 +406,11 @@ class Worker(Runner):
                 logger.debug("task %r (id=%s) succeeded", name, result.envelope.id)
 
     async def _execute(self, call: TaskCall) -> TaskResult:
-        envelope, delivery = call.envelope, call.delivery
+        envelope = call.envelope
         try:
             task = self.app.registered_task(envelope.task)
         except KeyError:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
-        try:
-            await run_hooks(self.app.hooks.before_task, envelope, delivery)
-        except SkipTask:
-            return TaskResult(envelope, TaskStatus.SKIPPED)
         await self._record_state(envelope.id, TaskState.RUNNING)
         try:
             value: Any

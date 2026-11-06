@@ -7,7 +7,7 @@ from asynk.codec import Codec, DecodeError, EncodeError
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope, InvalidEnvelopeError
 from asynk.errors import NotConfiguredError
-from asynk.hooks import Next, SkipTask, TaskCall, TaskFailedError, TaskResult, TaskStatus
+from asynk.hooks import Next, TaskCall, TaskFailedError, TaskResult, TaskStatus
 from asynk.results import TaskError, TaskHandle, TaskNotFoundError, TaskState
 from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
@@ -40,7 +40,6 @@ __all__ = [
     "Next",
     "Producer",
     "Runner",
-    "SkipTask",
     "Task",
     "TaskCall",
     "TaskFailedError",

@@ -8,7 +8,7 @@ import pytest
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import SkipTask, TaskCall, TaskResult, TaskStatus
+from asynk.hooks import TaskCall, TaskResult, TaskStatus
 from asynk.transport import Delivery
 
 EVENTS = [
@@ -16,8 +16,6 @@ EVENTS = [
     "after_startup",
     "before_shutdown",
     "after_shutdown",
-    "before_task",
-    "after_task",
     "middleware",
 ]
 
@@ -70,18 +68,18 @@ def test_hooks_made_by_a_factory_all_register() -> None:
         return hook
 
     first, second = make(), make()
-    app.before_task(first)
-    app.before_task(second)
-    assert list(app.hooks.before_task) == [first, second]
+    app.after_startup(first)
+    app.after_startup(second)
+    assert list(app.hooks.after_startup) == [first, second]
 
 
 def test_distinct_lambdas_all_register() -> None:
     app = App("t")
     first: Any = lambda *args: None  # noqa: E731
     second: Any = lambda *args: None  # noqa: E731
-    app.before_task(first)
-    app.before_task(second)
-    assert list(app.hooks.before_task) == [first, second]
+    app.after_startup(first)
+    app.after_startup(second)
+    assert list(app.hooks.after_startup) == [first, second]
 
 
 class _Recorder:
@@ -93,18 +91,18 @@ class _Recorder:
 def test_bound_methods_of_different_instances_all_register() -> None:
     app = App("t")
     a, b = _Recorder(), _Recorder()
-    app.before_task(a.hook)
-    app.before_task(b.hook)
-    assert list(app.hooks.before_task) == [a.hook, b.hook]
+    app.after_startup(a.hook)
+    app.after_startup(b.hook)
+    assert list(app.hooks.after_startup) == [a.hook, b.hook]
 
 
 def test_the_same_bound_method_accessed_twice_registers_once() -> None:
     app = App("t")
     a = _Recorder()
     assert a.hook is not a.hook
-    app.before_task(a.hook)
-    app.before_task(a.hook)
-    assert list(app.hooks.before_task) == [a.hook]
+    app.after_startup(a.hook)
+    app.after_startup(a.hook)
+    assert list(app.hooks.after_startup) == [a.hook]
 
 
 def test_partials_register() -> None:
@@ -113,34 +111,33 @@ def test_partials_register() -> None:
     def base(*args: Any) -> None: ...
 
     first, second = functools.partial(base, 1), functools.partial(base, 2)
-    app.before_task(first)
-    app.before_task(second)
-    app.before_task(first)
-    assert list(app.hooks.before_task) == [first, second]
+    app.after_startup(first)
+    app.after_startup(second)
+    app.after_startup(first)
+    assert list(app.hooks.after_startup) == [first, second]
 
 
 def test_callable_instances_register() -> None:
     app = App("t")
     first, second = _Recorder(), _Recorder()
-    app.before_task(first)
-    app.before_task(second)
-    app.before_task(first)
-    assert list(app.hooks.before_task) == [first, second]
+    app.after_startup(first)
+    app.after_startup(second)
+    app.after_startup(first)
+    assert list(app.hooks.after_startup) == [first, second]
 
 
 def test_same_function_may_be_registered_for_different_events() -> None:
     app = App("t")
 
-    def hook(*args: Any) -> None: ...
+    async def hook(*args: Any) -> Any: ...
 
-    app.before_task(hook)
-    app.after_task(hook)
-    assert list(app.hooks.before_task) == [hook]
-    assert list(app.hooks.after_task) == [hook]
+    app.before_shutdown(hook)
+    app.middleware(hook)
+    assert list(app.hooks.before_shutdown) == [hook]
+    assert list(app.hooks.middleware) == [hook]
 
 
-def test_skip_task_is_an_exception_and_skipped_is_a_status() -> None:
-    assert issubclass(SkipTask, Exception)
+def test_skipped_is_a_status() -> None:
     assert TaskStatus.SKIPPED.value == "skipped"
 
 

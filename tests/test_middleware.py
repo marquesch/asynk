@@ -7,9 +7,10 @@ import pytest
 from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
+from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
-from asynk.results import TaskState
+from asynk.results import TaskError, TaskState
 from asynk.store.memory import MemoryStore
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
@@ -277,3 +278,214 @@ async def test_layer_registered_after_worker_creation_applies() -> None:
     await publish_envelope(producer, Envelope.create("t", (), {}))
     await _handle(worker, await _next(consumer))
     assert seen == ["t"]
+
+
+class _ReverseCodec:
+    def __init__(self) -> None:
+        self._json = JsonCodec()
+
+    def validate(self, value: object) -> None:
+        self._json.validate(value)
+
+    def encode(self, value: object) -> bytes:
+        return self._json.encode(value)[::-1]
+
+    def decode(self, data: bytes) -> object:
+        return self._json.decode(data[::-1])
+
+
+def _raise_before_next(app: App) -> None:
+    @app.middleware
+    async def broken(call: TaskCall, next: Next) -> TaskResult:
+        raise RuntimeError("layer broke")
+
+
+async def test_raise_before_next_redelivers_with_attempt_incremented(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, producer, consumer, worker = _setup()
+    ran: list[bool] = []
+
+    @app.task(name="t")
+    async def t() -> None:
+        ran.append(True)
+
+    _raise_before_next(app)
+    handle_env = Envelope.create("t", (), {})
+    await publish_envelope(producer, handle_env)
+    delivery = await _next(consumer)
+    with caplog.at_level("ERROR", logger="asynk"):
+        result = await _handle(worker, delivery)
+    assert result.status is TaskStatus.FAILED
+    assert isinstance(result.error, RuntimeError)
+    assert ran == []
+    assert delivery.settled
+    assert any(r.exc_info for r in caplog.records)
+    assert await app.get_task(handle_env.id).state() is TaskState.RETRYING
+    again = await _next(consumer)
+    assert decode_delivery(again).id == handle_env.id
+    assert decode_delivery(again).attempt == 1
+
+
+async def test_raise_before_next_stops_after_max_retries() -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="t", max_retries=1)
+    async def t() -> None: ...
+
+    _raise_before_next(app)
+    env = Envelope.create("t", (), {})
+    await publish_envelope(producer, env)
+    first = await _handle(worker, await _next(consumer))
+    assert first.status is TaskStatus.FAILED
+    second_delivery = await _next(consumer)
+    assert decode_delivery(second_delivery).attempt == 1
+    second = await _handle(worker, second_delivery)
+    assert second.status is TaskStatus.RETRIES_EXCEEDED
+    assert second_delivery.settled
+    handle = app.get_task(env.id)
+    assert await handle.state() is TaskState.FAILURE
+    with pytest.raises(TaskError) as info:
+        await handle.result(timeout=1)
+    assert (info.value.type_name, info.value.message) == ("RuntimeError", "layer broke")
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_raise_before_next_without_a_producer_requeues_the_same_attempt() -> None:
+    producer, consumer = memory_transport()
+    app = App("t", consumer=consumer)
+    worker = Worker(app)
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    _raise_before_next(app)
+    await publish_envelope(producer, Envelope.create("ok", (), {}))
+    await worker.handle(await _next(consumer))
+    assert decode_delivery(await _next(consumer)).attempt == 0
+
+
+async def test_raise_before_next_with_failing_republish_leaves_default_settlement() -> None:
+    class BrokenProducer:
+        async def publish(self, envelope: Envelope, body: bytes) -> None:
+            raise ConnectionError("broker down")
+
+    producer, consumer = memory_transport()
+    app = App("t", producer=BrokenProducer(), consumer=consumer)
+    worker = Worker(app)
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    _raise_before_next(app)
+    await publish_envelope(producer, Envelope.create("ok", (), {}))
+    delivery = await _next(consumer)
+    result = await _handle(worker, delivery)
+    assert result.status is TaskStatus.FAILED
+    assert delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_raise_before_next_publishes_the_retry_with_the_app_codec() -> None:
+    producer, consumer = memory_transport()
+    codec = _ReverseCodec()
+    app = App("t", producer=producer, consumer=consumer, codec=codec)
+    worker = Worker(app)
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    _raise_before_next(app)
+    env = Envelope.create("ok", (), {})
+    await publish_envelope(producer, env, codec)
+    await worker.handle(await _next(consumer))
+    assert decode_delivery(await _next(consumer), codec) == env.retry()
+
+
+async def test_layer_that_settles_then_raises_is_only_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, producer, consumer, worker = _setup()
+
+    @app.task(name="ok")
+    async def ok() -> None: ...
+
+    @app.middleware
+    async def broken(call: TaskCall, next: Next) -> TaskResult:
+        await call.delivery.ack()
+        raise RuntimeError("layer broke")
+
+    await publish_envelope(producer, Envelope.create("ok", (), {}))
+    with caplog.at_level("ERROR", logger="asynk"):
+        await _handle(worker, await _next(consumer))
+    assert any(r.exc_info for r in caplog.records)
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_raise_after_next_logs_and_keeps_the_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, consumer, worker = _setup()
+
+    @app.task(name="ok")
+    async def ok() -> int:
+        return 1
+
+    @app.middleware
+    async def broken(call: TaskCall, next: Next) -> TaskResult:
+        await next(call)
+        raise RuntimeError("layer broke")
+
+    handle = await ok.delay()
+    delivery = await _next(consumer)
+    with caplog.at_level("ERROR", logger="asynk"):
+        result = await _handle(worker, delivery)
+    assert result.status is TaskStatus.SUCCESS
+    assert result.value == 1
+    assert any(r.exc_info and "ran" in r.getMessage() for r in caplog.records)
+    assert await handle.state() is TaskState.SUCCESS
+    assert await handle.result(timeout=1) == 1
+    assert delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_raise_after_next_keeps_the_failure() -> None:
+    app, _, consumer, worker = _setup()
+
+    @app.task(name="boom")
+    async def boom() -> None:
+        raise ValueError("task broke")
+
+    @app.middleware
+    async def broken(call: TaskCall, next: Next) -> TaskResult:
+        await next(call)
+        raise RuntimeError("layer broke")
+
+    await boom.delay()
+    delivery = await _next(consumer)
+    result = await _handle(worker, delivery)
+    assert result.status is TaskStatus.FAILED
+    assert isinstance(result.error, ValueError)
+    assert delivery.settled
+    with pytest.raises(TimeoutError):
+        await _next(consumer)
+
+
+async def test_undecodable_body_runs_no_layer() -> None:
+    app, producer, consumer, worker = _setup()
+    seen: list[Envelope] = []
+
+    @app.middleware
+    async def spy(call: TaskCall, next: Next) -> TaskResult:
+        seen.append(call.envelope)
+        return await next(call)
+
+    await producer.publish(Envelope.create("t", (), {}), b"garbage")
+    delivery = _SpyDelivery(await _next(consumer))
+    assert await worker.handle(delivery) is None
+    assert delivery.calls == [("reject", False)]
+    assert seen == []

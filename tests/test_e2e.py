@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import asynk
-from asynk import App, Delivery, Envelope, Runner, SkipTask, TaskResult, Worker
+from asynk import App, Delivery, Envelope, Next, Runner, TaskCall, TaskResult, Worker
 from asynk.scheduler import Scheduler
 from asynk.transport.memory import memory_transport
 
@@ -31,7 +31,6 @@ NAMES = [
     "TaskFailedError",
     "DecodeError",
     "InvalidEnvelopeError",
-    "SkipTask",
     "ScheduledTask",
     "Scheduler",
     "Runner",
@@ -187,22 +186,22 @@ async def test_scheduler_publishes_and_worker_runs() -> None:
     keys: list[str] = []
     done = asyncio.Event()
 
-    @app.before_task
-    def dedupe(envelope: Envelope, delivery: Delivery) -> None:
-        key = str(envelope.metadata["idempotency_key"])
+    @app.middleware
+    async def dedupe(call: TaskCall, next: Next) -> TaskResult:
+        key = str(call.envelope.metadata["idempotency_key"])
         keys.append(key)
         if key in seen_keys:
-            raise SkipTask
-        seen_keys.add(key)
+            result = call.skip()
+        else:
+            seen_keys.add(key)
+            result = await next(call)
+        if len(keys) == 2:
+            done.set()
+        return result
 
     @app.scheduled_task(cron="30 * * * *", tz="UTC", args=[7], name="job")
     def job(n: int) -> None:
         runs.append(n)
-
-    @app.after_task
-    def finished(result: TaskResult, delivery: Delivery) -> None:
-        if len(keys) == 2:
-            done.set()
 
     worker = Worker(app)
     run = asyncio.create_task(worker.run())

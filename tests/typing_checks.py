@@ -1,6 +1,6 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
-from asynk import Delivery, Next, Runner, TaskCall, TaskResult, TaskStatus, Worker
+from asynk import Next, Runner, TaskCall, TaskResult, TaskStatus, Worker
 from asynk.app import App
 from asynk.results import TaskState
 from asynk.transport.memory import memory_transport
@@ -32,12 +32,14 @@ async def _checks() -> None:
     await scheduled.delay("x")  # type: ignore[arg-type]
 
 
-@app.after_task
-async def retry(result: TaskResult, delivery: Delivery) -> None:
+@app.middleware
+async def retry(call: TaskCall, next: Next) -> TaskResult:
+    result = await next(call)
     if result.status is TaskStatus.FAILED:
-        retry = result.envelope.retry()
-        await producer.publish(retry, app.codec.encode(retry.to_dict()))
-        await delivery.ack()
+        retried = call.envelope.retry()
+        await producer.publish(retried, app.codec.encode(retried.to_dict()))
+        await call.delivery.ack()
+    return result
 
 
 @app.middleware

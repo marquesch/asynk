@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
-    """Outcome of running a task, as seen by hooks and the consumer."""
+    """Outcome of running a task, as seen by middleware and the consumer."""
 
     SUCCESS = "success"
     FAILED = "failed"
@@ -72,21 +72,7 @@ Middleware: TypeAlias = Callable[[TaskCall, Next], Awaitable[TaskResult]]
 LifecycleHook: TypeAlias = Callable[["Runner"], Awaitable[None] | None]
 """Hook for the lifecycle events of a worker or scheduler; sync or async, receives the runner."""
 
-BeforeTaskHook: TypeAlias = Callable[[Envelope, Delivery], Awaitable[None] | None]
-"""Hook run before a task. Raise `SkipTask` to veto the task."""
-
-AfterTaskHook: TypeAlias = Callable[[TaskResult, Delivery], Awaitable[None] | None]
-"""Hook run after a task, before the delivery is settled; it may settle the delivery."""
-
 H = TypeVar("H", bound=Callable[..., Any])
-
-
-class SkipTask(Exception):
-    """Raised by a `before_task` hook to veto the task.
-
-    The task does not run and its delivery is acknowledged. `after_task` hooks
-    still run, with a `TaskStatus.SKIPPED` result.
-    """
 
 
 class HookRegistry(Generic[H]):
@@ -125,8 +111,6 @@ class Hooks:
     after_startup: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     before_shutdown: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     after_shutdown: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
-    before_task: HookRegistry[BeforeTaskHook] = field(default_factory=HookRegistry)
-    after_task: HookRegistry[AfterTaskHook] = field(default_factory=HookRegistry)
     middleware: HookRegistry[Middleware] = field(default_factory=HookRegistry)
 
 
