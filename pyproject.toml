@@ -60,6 +60,7 @@ testpaths = ["tests"]
 addopts = "--cov"
 pythonpath = [".", "tests"]
 markers = [
+    "requires_redis: needs a real Redis server (ASYNK_TEST_REDIS_URL); skipped when unavailable, failed under ASYNK_TEST_REQUIRE_SERVICES=1",
     "slow: starts a subprocess or otherwise takes over ~0.2 s; deselect with -m 'not slow'",
 ]
 

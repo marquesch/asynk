@@ -7,7 +7,6 @@ own transport, copy this directory and replace ``REGISTRY``.
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from typing import Any, Protocol
 import pytest
 from redis.asyncio import Redis
 from redis_helpers import BlockingFakeRedis
+from service_helpers import redis_url
 
 from asynk.envelope import Envelope
 from asynk.transport import Consumer, Delivery, Producer
@@ -123,13 +123,14 @@ _SETTINGS: dict[str, ContractSettings] = {
     "redis-fake": ContractSettings(redelivery_timeout=3),
 }
 
-_REAL_URL = os.environ.get("ASYNK_TEST_REDIS_URL", "")
-if _REAL_URL:
-    REGISTRY["redis"] = lambda: _RedisHandle(Redis.from_url(_REAL_URL))
-    _SETTINGS["redis"] = _SETTINGS["redis-fake"]
+REGISTRY["redis"] = lambda: _RedisHandle(Redis.from_url(redis_url()))
+_SETTINGS["redis"] = _SETTINGS["redis-fake"]
+# Entries that need a real service: collected always, skipped (or failed, when
+# ASYNK_TEST_REQUIRE_SERVICES=1) by the `requires_redis` marker.
+_MARKS: dict[str, list[pytest.MarkDecorator]] = {"redis": [pytest.mark.requires_redis]}
 
 
-@pytest.fixture(params=sorted(REGISTRY))
+@pytest.fixture(params=[pytest.param(n, marks=_MARKS.get(n, [])) for n in sorted(REGISTRY)])
 def transport_name(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 

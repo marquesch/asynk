@@ -75,12 +75,11 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
   the new SHA and release notes before merging. The `uv_build` pin and the uv version
   in the workflows are not covered by Dependabot; bump them by hand together.
 
-## Release notes
-
-The generated changelog lists every change. Anything that needs explaining, such as
-breaking changes and how to migrate, goes in a hand-written page under
-`docs/release-notes/`. See [Release notes](release-notes/index.md) for how to add one.
-Write it in the pull request that makes the change, or before merging the Release PR.
+- The Redis service container in `.github/workflows/tests.yml` is pinned to an exact
+  tag (`redis:7.4.12`). Dependabot's `github-actions` ecosystem does not update
+  workflow service images, so bump the tag by hand, and the `docker run` command in
+  [Writing a custom transport](advanced/custom-transport.md#testing-your-transport)
+  with it. Streams need Redis 6.2 or later for `XAUTOCLAIM`.
 
 ## First release
 
