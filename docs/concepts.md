@@ -64,8 +64,8 @@ when started from the `asynk` command line.
 
 Every exception asynk defines derives from `AsynkError` and can be imported
 from `asynk`: `NotConfiguredError`, `EncodeError`, `DecodeError`,
-`InvalidEnvelopeError`, `CronError`, `TaskError`, `TaskNotFoundError` and
-`DeliveryFailedError`. `except AsynkError` catches all of them. Invalid
+`InvalidEnvelopeError`, `CronError`, `TaskError`, `TaskNotFoundError`,
+`TaskTimeoutError` and `DeliveryFailedError`. `except AsynkError` catches all of them. Invalid
 arguments, such as `Worker(concurrency=0)` or an unknown time zone, raise the
 built-in `ValueError`, and `TaskHandle.result(timeout=...)` raises the built-in
 `TimeoutError`.

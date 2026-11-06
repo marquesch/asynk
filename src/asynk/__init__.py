@@ -16,6 +16,7 @@ from asynk.errors import (
     NotConfiguredError,
     TaskError,
     TaskNotFoundError,
+    TaskTimeoutError,
 )
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.options import TaskOptions
@@ -75,4 +76,5 @@ __all__ = [
     "TaskState",
     "TaskError",
     "TaskNotFoundError",
+    "TaskTimeoutError",
 ]

@@ -15,6 +15,7 @@ from asynk.errors import (
     DeliveryFailedError,
     InvalidEnvelopeError,
     NotConfiguredError,
+    TaskTimeoutError,
 )
 from asynk.hooks import (
     Middleware,
@@ -346,7 +347,10 @@ class Worker(Runner):
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
         await self._recorder.record_state(envelope.id, TaskState.RUNNING)
         try:
-            value = await task.func(*envelope.args, **envelope.kwargs)
+            async with asyncio.timeout(task.timeout) as limit:
+                value = await task.func(*envelope.args, **envelope.kwargs)
         except Exception as exc:
+            if isinstance(exc, TimeoutError) and limit.expired():
+                exc = TaskTimeoutError(f"task {envelope.task!r} exceeded {task.timeout} s")
             return TaskResult(envelope, retry_status(task.retry, envelope.attempt, exc), error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)

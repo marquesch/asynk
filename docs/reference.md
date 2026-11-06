@@ -98,4 +98,6 @@
 
 ::: asynk.TaskNotFoundError
 
+::: asynk.TaskTimeoutError
+
 ::: asynk.DeliveryFailedError

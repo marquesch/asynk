@@ -25,6 +25,7 @@ class Task(Generic[P, R]):
         func: The wrapped `async def` function.
         name: Unique name used to route messages to this task.
         retry: The task's retry policy; None for no retries.
+        timeout: Seconds one attempt may run; None for no limit.
     """
 
     def __init__(
@@ -33,6 +34,8 @@ class Task(Generic[P, R]):
         name: str,
         retry: RetryPolicy | None,
         publish: Publish,
+        *,
+        timeout: float | None = None,
     ) -> None:
         if not inspect.iscoroutinefunction(func):
             raise TypeError(
@@ -43,6 +46,7 @@ class Task(Generic[P, R]):
         self.func = func
         self.name = name
         self.retry = retry
+        self.timeout = timeout
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
         """Calls the wrapped function in-process; await the result."""

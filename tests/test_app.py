@@ -391,3 +391,40 @@ def test_task_does_not_hold_the_app() -> None:
     async def fn() -> None: ...
 
     assert not hasattr(fn, "app")
+
+
+def test_task_timeout_is_unset_by_default() -> None:
+    app = App("a")
+
+    @app.task()
+    async def t() -> None: ...
+
+    assert t.timeout is None
+
+
+def test_task_inherits_the_app_timeout_and_can_override_or_disable_it() -> None:
+    app = App("a", options=TaskOptions(timeout=30))
+
+    @app.task()
+    async def inherited() -> None: ...
+
+    @app.task(options=TaskOptions(timeout=5))
+    async def overridden() -> None: ...
+
+    @app.task(options=TaskOptions(timeout=False))
+    async def disabled() -> None: ...
+
+    @app.scheduled_task(cron="* * * * *")
+    async def scheduled() -> None: ...
+
+    assert (inherited.timeout, overridden.timeout, disabled.timeout) == (30, 5, None)
+    assert scheduled.timeout == 30
+
+
+def test_app_timeout_false_means_no_timeout() -> None:
+    app = App("a", options=TaskOptions(timeout=False))
+
+    @app.task()
+    async def t() -> None: ...
+
+    assert t.timeout is None

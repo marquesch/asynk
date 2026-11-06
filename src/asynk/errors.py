@@ -50,6 +50,10 @@ class TaskNotFoundError(AsynkError):
     """Raised by `TaskHandle.result` for a task id the store does not know."""
 
 
+class TaskTimeoutError(AsynkError):
+    """Raised inside a worker when a task attempt exceeds its `timeout`."""
+
+
 class DeliveryFailedError(AsynkError):
     """Raised in `Consumer.process` for a failed, unknown or retries-exceeded task.
 
