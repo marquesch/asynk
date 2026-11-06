@@ -18,7 +18,7 @@ async def main() -> None:
     worker = Worker(app)
     run = asyncio.create_task(worker.run())
 
-    # Positional and keyword arguments, checked against the task signature.
+    # Positional and keyword arguments, type-checked against the task signature.
     first = await greet.delay("Ada")
     second = await greet.delay("Grace", greeting="Welcome")
 

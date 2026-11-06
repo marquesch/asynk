@@ -61,6 +61,6 @@ class Store(Protocol):
             key: The key to remove.
 
         Returns:
-            True if the key existed and was removed, False if it was missing or expired.
+            Whether the key existed and was removed.
         """
         ...

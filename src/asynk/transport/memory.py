@@ -22,6 +22,11 @@ class MemoryProducer:
     """Producer that publishes to an in-process queue."""
 
     def __init__(self, queue: _Queue) -> None:
+        """Initializes the producer.
+
+        Args:
+            queue: The shared in-process queue.
+        """
         self._queue = queue
 
     async def publish(self, envelope: Envelope, body: bytes) -> str:
@@ -42,16 +47,24 @@ class MemoryDelivery:
     """Delivery from an in-process queue; rejecting with `requeue` re-enqueues it."""
 
     def __init__(self, body: bytes, queue: _Queue) -> None:
+        """Initializes the delivery.
+
+        Args:
+            body: The message bytes.
+            queue: The shared in-process queue.
+        """
         self._body = body
         self._queue = queue
         self._settled = False
 
     @property
     def body(self) -> bytes:
+        """The message bytes."""
         return self._body
 
     @property
     def settled(self) -> bool:
+        """Whether `ack` or `reject` has been called."""
         return self._settled
 
     def _settle(self) -> None:
@@ -60,9 +73,15 @@ class MemoryDelivery:
         self._settled = True
 
     async def ack(self) -> None:
+        """Settles the delivery."""
         self._settle()
 
     async def reject(self, *, requeue: bool = False) -> None:
+        """Settles the delivery, re-enqueuing it if `requeue` is true.
+
+        Args:
+            requeue: Whether to put the message back on the queue.
+        """
         self._settle()
         if requeue:
             await self._queue.put(self._body)
@@ -75,21 +94,30 @@ class MemoryConsumer:
     """
 
     def __init__(self, queue: _Queue) -> None:
+        """Initializes the consumer.
+
+        Args:
+            queue: The shared in-process queue.
+        """
         self._queue = queue
         self._connected = False
 
     @property
     def connected(self) -> bool:
+        """Whether `start` has run and `stop` has not."""
         return self._connected
 
     async def start(self) -> None:
+        """Marks the consumer connected."""
         self._connected = True
 
     async def stop(self) -> None:
+        """Marks the consumer disconnected and ends `deliveries`."""
         self._connected = False
         self._queue.put_nowait(_STOP)
 
     async def deliveries(self) -> AsyncIterator[Delivery]:
+        """Yields a delivery for each queued message until `stop`."""
         while True:
             item = await self._queue.get()
             if isinstance(item, _Stop):
@@ -98,6 +126,14 @@ class MemoryConsumer:
 
     @asynccontextmanager
     async def process(self, delivery: Delivery) -> AsyncIterator[None]:
+        """Acks on a clean exit and rejects without requeue on an exception.
+
+        Args:
+            delivery: The delivery being handled.
+
+        Yields:
+            None, while the delivery is handled.
+        """
         try:
             yield
         except BaseException:

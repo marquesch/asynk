@@ -202,9 +202,11 @@ class Scheduler(Runner):
     ) -> bool:
         """Claims and publishes one slot.
 
-        The claim is released unless the publish succeeded. Returns False if
-        shutdown cancelled the publish; True once the slot is handled
-        (published, claimed by another scheduler, or failed).
+        The claim is released unless the publish succeeded.
+
+        Returns:
+            False if shutdown cancelled the publish; True once the slot is handled
+            (published, claimed by another scheduler, or failed).
         """
         scheduled_at = _utc_iso(slot)
         idempotency_key = f"{task.name}:{scheduled_at}"

@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from asynk.app import App
 
 Role: TypeAlias = Literal["worker", "scheduler"]
+"""Kind of asynk process: "worker" or "scheduler"."""
 
 
 class Runner(abc.ABC):

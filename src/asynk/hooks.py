@@ -136,7 +136,7 @@ async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:
 
 
 class TaskFailedError(Exception):
-    """Raised inside `Consumer.process` when the task did not succeed.
+    """Raised in `Consumer.process` for a failed, unknown or retries-exceeded task.
 
     Attributes:
         result: The failed task's result.

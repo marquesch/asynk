@@ -7,7 +7,14 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 def configure_logging(level: str | int = "INFO") -> None:
-    """Configure root logging for asynk CLI processes (stderr, shared format)."""
+    """Configures root logging to stderr in the asynk log format.
+
+    Args:
+        level: A level name, such as "INFO", or a level number.
+
+    Raises:
+        ValueError: If `level` is not a known level name.
+    """
     if isinstance(level, str):
         resolved = logging.getLevelName(level.upper())
         if not isinstance(resolved, int):

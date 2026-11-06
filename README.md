@@ -272,8 +272,9 @@ do on success (usually ack) and on an exception (usually reject).
 
 ### Consumer process contract
 
-When a task fails, is unknown or exceeds its retries, the failure reaches
-`consumer.process()` as a `TaskFailedError` (see `.result.status`); other
+When a task fails, is unknown or exceeds its retries and the delivery is still
+unsettled, the failure reaches `consumer.process()` as a `TaskFailedError`
+(see `.result.status`); other
 exceptions are unexpected errors. `process()` must settle a delivery that is
 still unsettled when the block exits, and must never suppress exceptions,
 especially `asyncio.CancelledError`. On shutdown cancellation the worker
