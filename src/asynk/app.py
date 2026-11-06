@@ -193,10 +193,9 @@ class App:
         return TaskHandle(task_id, self.store, self.codec)
 
     def before_startup(self, hook: LifecycleHook) -> LifecycleHook:
-        """Registers a hook run before a worker or scheduler starts, once the store has started.
+        """Registers a hook run once the store has started, before a worker's consumer or a scheduler's loop starts.
 
-        It runs before a worker's consumer or a scheduler's loop starts. Lifecycle
-        hooks may be sync or async and receive the `Runner` they run in, a `Worker`
+        Lifecycle hooks may be sync or async and receive the `Runner` they run in, a `Worker`
         or a `Scheduler`; `runner.role` tells them apart. Registering the same hook
         twice has no effect.
 

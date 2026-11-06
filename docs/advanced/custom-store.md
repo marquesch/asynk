@@ -16,7 +16,8 @@ The signatures are in the API reference, under
 - `start()` and `stop()` open and close resources such as a connection pool.
   A worker and a scheduler call them around their lifecycle hooks, so they
   need nothing extra; `stop()` is called only after `start()` returned, also
-  when startup fails later. A producer-only script calls them itself (see [Store lifecycle](../guides/results.md#store-lifecycle)).
+  when startup fails later. A producer-only script calls them itself (see
+  [Store lifecycle](../guides/results.md#store-lifecycle)).
 - `get(key)` returns the value, or `None` when the key is missing.
 - `set(key, value, *, overwrite=False)` writes a value. It returns `False`, and
   writes nothing, when the key exists and `overwrite` is false. The scheduler

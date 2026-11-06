@@ -562,3 +562,55 @@ async def test_worker_with_null_store_runs_tasks(caplog: pytest.LogCaptureFixtur
         worker.request_shutdown()
         await asyncio.wait_for(run, 1)
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+class _FailingStop(MemoryStore):
+    async def stop(self) -> None:
+        raise ConnectionError("stop failed")
+
+
+def _stop_failure_logged(caplog: pytest.LogCaptureFixture) -> None:
+    [record] = [r for r in caplog.records if r.getMessage() == "failed to stop the store"]
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], ConnectionError)
+
+
+async def test_cancelling_run_during_startup_logs_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, _, worker = _setup(_FailingStop())
+    entered = asyncio.Event()
+
+    @app.before_startup
+    async def hang(runner: object) -> None:
+        entered.set()
+        await asyncio.Event().wait()
+
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        run = asyncio.create_task(worker.run())
+        await asyncio.wait_for(entered.wait(), 1)
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+    _stop_failure_logged(caplog)
+
+
+async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, _, consumer, worker = _setup(_FailingStop())
+
+    @app.after_startup
+    def stop_now(runner: Runner) -> None:
+        runner.request_shutdown()
+
+    @app.after_shutdown
+    def boom(runner: object) -> None:
+        raise RuntimeError("hook failed")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="asynk"),
+        pytest.raises(RuntimeError, match="hook failed"),
+    ):
+        await asyncio.wait_for(worker.run(), 1)
+    _stop_failure_logged(caplog)

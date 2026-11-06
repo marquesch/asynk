@@ -389,3 +389,26 @@ async def test_published_slot_keeps_its_claim() -> None:
     assert _slots(await _published(consumer)) == [("job", SLOT)]
     assert not [e for e in store.events if e.startswith("delete")]
     assert await store.get(CLAIM) == b"1"
+
+
+async def test_failing_after_shutdown_hook_wins_over_a_failing_store_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Broken(MemoryStore):
+        async def stop(self) -> None:
+            raise ConnectionError("stop failed")
+
+    app, _ = _app(Broken())
+
+    @app.after_shutdown
+    def boom(runner: Any) -> None:
+        raise RuntimeError("hook failed")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="asynk"),
+        pytest.raises(RuntimeError, match="hook failed"),
+    ):
+        await _run(app, _clock())
+    [record] = [r for r in caplog.records if r.getMessage() == "failed to stop the store"]
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], ConnectionError)

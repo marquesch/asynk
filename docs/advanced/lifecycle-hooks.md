@@ -52,8 +52,8 @@ Hooks fail loudly. A lifecycle hook that raises makes `Worker.run()` or
 `Scheduler.run()` raise, and the remaining hooks of that event do not run, with
 one exception: every `after_shutdown` hook runs even when one raises. Each
 failure is logged. One failure is re-raised as is; several are raised together
-as an `ExceptionGroup`, which you catch with `except*`. The process still
-cleans up first, and a worker still drains its running tasks.
+as an `ExceptionGroup`, which you catch with `except*`. Once started, the
+process still cleans up first, and a worker still drains its running tasks.
 
 If a `before_startup` hook raises, the consumer fails to start, or `run()` is
 cancelled before startup completes, no further hook runs: not `after_startup`,
@@ -62,9 +62,13 @@ propagates. If the store's `stop()` raises while this unwinds, that error is
 logged and never hides the original one.
 
 So a resource opened by an earlier `before_startup` hook is not closed by your
-`after_shutdown` hook when a later step fails. Close it yourself: open and
-close it in one hook, with `try`/`except` around what can fail. A failing
-`after_startup` hook still runs the shutdown path, including `after_shutdown`.
+`after_shutdown` hook when a later step fails. Nothing closes it for you. If
+you call `run()` yourself, wrap it in `try`/`finally`. Under the `asynk` CLI the
+process exits on the error. A failure inside your own hook is yours to clean up
+before you re-raise.
+
+A failing `after_startup` hook still runs the shutdown path, including
+`after_shutdown` (but not `before_shutdown`).
 
 In a scheduler, keep hooks quick: the liveness probe is not refreshed while a
 hook runs, and a slow shutdown hook delays exit by its full duration. See
