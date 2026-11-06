@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0](https://github.com/marquesch/asynk/compare/v0.1.0...v0.2.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* publish through an injected callable so Task no longer holds the App ([#80](https://github.com/marquesch/asynk/issues/80))
+* tasks must be async def ([#77](https://github.com/marquesch/asynk/issues/77))
+
+### Refactoring
+
+* publish through an injected callable so Task no longer holds the App ([#80](https://github.com/marquesch/asynk/issues/80)) ([5f765e6](https://github.com/marquesch/asynk/commit/5f765e685c00e8b7a25bba20ad275fc4f9280297))
+* tasks must be async def ([#77](https://github.com/marquesch/asynk/issues/77)) ([6107a2a](https://github.com/marquesch/asynk/commit/6107a2aaa57e8c6768fb3aa126d25f8f73e3fc80))
+
+
+### Documentation
+
+* drop the hand-written release notes ([#73](https://github.com/marquesch/asynk/issues/73)) ([e030264](https://github.com/marquesch/asynk/commit/e0302646dbcbdf262a667e8e64bb1302fa64168b))
+* keep the release notes in a single file ([#69](https://github.com/marquesch/asynk/issues/69)) ([76567ae](https://github.com/marquesch/asynk/commit/76567ae08e672326831fa4ae6ff03d1d2ac321e7))
+* simplify the release notes steps for a single maintainer ([#71](https://github.com/marquesch/asynk/issues/71)) ([e051d64](https://github.com/marquesch/asynk/commit/e051d64f3192b8f50e72cd4154d8505ce44ab086))
+
 ## 0.1.0 (2026-11-06)
 
 
