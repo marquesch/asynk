@@ -74,3 +74,7 @@ a worker with `asynk worker tasks:app`.
   [advanced topics](https://marquesch.github.io/asynk/advanced/lifecycle-hooks/)
 - [API reference](https://marquesch.github.io/asynk/reference/)
 - [Changelog](CHANGELOG.md), including breaking changes
+
+## License
+
+MIT, see [LICENSE](LICENSE).

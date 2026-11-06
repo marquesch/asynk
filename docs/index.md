@@ -28,3 +28,5 @@ a worker with `asynk worker tasks:app`.
 
 Continue with [Getting started](getting-started.md) and the
 [Concepts](concepts.md), or browse the [API reference](reference.md).
+
+asynk is released under the MIT license.
