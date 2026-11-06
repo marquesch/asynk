@@ -1,5 +1,8 @@
 # Redis store
 
+This page covers the store. For the Redis broker transport, see
+[Redis transport](redis-transport.md).
+
 `RedisStore` keeps task states, results and scheduler claims in Redis, so
 producers, workers and schedulers in different processes or on different
 machines share them.

@@ -46,6 +46,10 @@
 
 ::: asynk.Delivery
 
+::: asynk.transport.redis.RedisProducer
+
+::: asynk.transport.redis.RedisConsumer
+
 ## Codec
 
 ::: asynk.Codec

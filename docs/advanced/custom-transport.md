@@ -90,4 +90,10 @@ described above against your transport. To use it:
 The header of `conftest.py` names the asynk version the suite matches. Changes
 to the contract are recorded in the [changelog](../changelog.md).
 
-The suite does not yet cover message ordering or delayed publish.
+The suite checks delayed publish when `supports_delay` is true in your
+`ContractSettings` (the default); set it to false if your transport ignores
+`PublishOptions.delay`. It does not yet cover message ordering.
+
+The asynk repository runs the suite against the [Redis
+transport](../guides/redis-transport.md) twice: on `fakeredis` and, when
+`ASYNK_TEST_REDIS_URL` is set, on a real Redis server.
