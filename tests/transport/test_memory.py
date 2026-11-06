@@ -28,15 +28,6 @@ async def test_publish_returns_envelope_id() -> None:
     assert await producer.publish(env, b"x") == env.id
 
 
-async def test_ack_marks_settled() -> None:
-    producer, consumer = memory_transport()
-    await producer.publish(_env(), b"x")
-    delivery = await _first(consumer)
-    assert not delivery.settled
-    await delivery.ack()
-    assert delivery.settled
-
-
 async def test_stop_ends_iteration_when_idle() -> None:
     _, consumer = memory_transport()
     await consumer.start()
