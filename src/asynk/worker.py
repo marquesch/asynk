@@ -14,7 +14,6 @@ from asynk.envelope import Envelope
 from asynk.errors import (
     DecodeError,
     DeliveryFailedError,
-    EncodeError,
     InvalidEnvelopeError,
     NotConfiguredError,
 )
@@ -27,7 +26,8 @@ from asynk.hooks import (
     run_hooks,
 )
 from asynk.probes import ProbeFiles
-from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
+from asynk.recorder import ResultRecorder
+from asynk.results import TaskState
 from asynk.runner import Role, Runner
 from asynk.signals import shutdown_signals
 from asynk.transport import Consumer, Delivery
@@ -35,13 +35,6 @@ from asynk.transport import Consumer, Delivery
 T = TypeVar("T")
 
 _CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
-
-_TERMINAL_STATES = {
-    TaskStatus.SUCCESS: TaskState.SUCCESS,
-    TaskStatus.SKIPPED: TaskState.SKIPPED,
-    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
-    TaskStatus.RETRIES_EXCEEDED: TaskState.FAILURE,
-}
 
 logger = logging.getLogger("asynk")
 
@@ -106,6 +99,7 @@ class Worker(Runner):
         self.shutdown_timeout = shutdown_timeout
         self.probe_dir = probe_dir
         self.heartbeat_interval = heartbeat_interval
+        self._recorder = ResultRecorder(app.store, app.codec)
         self._shutdown = asyncio.Event()
         self._probes = ProbeFiles(probe_dir) if probe_dir is not None else None
         self._probes_live = False
@@ -272,7 +266,7 @@ class Worker(Runner):
                             )
                             result = outcome
                             self._log_result(result)
-                    await self._record(result)
+                    await self._recorder.record(result)
                 except asyncio.CancelledError:
                     if not delivery.settled:
                         await delivery.reject(requeue=True)
@@ -315,61 +309,6 @@ class Worker(Runner):
                     await delivery.ack()
         return TaskResult(envelope, status, error=exc)
 
-    async def _record_state(self, task_id: str, state: TaskState) -> None:
-        try:
-            await self.app.store.set(
-                state_key(task_id), encode_state(self.app.codec, state), overwrite=True
-            )
-        except Exception:
-            # Fail open: store errors never affect the task or its delivery.
-            logger.exception("failed to record state %s for task id=%s", state.value, task_id)
-
-    async def _record(self, result: TaskResult) -> None:
-        envelope = result.envelope
-        state = _TERMINAL_STATES.get(result.status)
-        if state is None:
-            await self._record_state(envelope.id, TaskState.RETRYING)
-            return
-        try:
-            state, record = self._encode_outcome(result, state)
-            await self.app.store.set(
-                state_key(envelope.id), encode_state(self.app.codec, state), overwrite=True
-            )
-            await self.app.store.set(result_key(envelope.id), record)
-        except Exception:
-            # Fail open: store errors never affect the task or its delivery.
-            logger.exception(
-                "failed to record result for task %r (id=%s)", envelope.task, envelope.id
-            )
-
-    def _encode_outcome(self, result: TaskResult, state: TaskState) -> tuple[TaskState, bytes]:
-        codec = self.app.codec
-        envelope = result.envelope
-        if result.status is TaskStatus.SUCCESS:
-            try:
-                return state, encode_result(codec, state, value=result.value)
-            except EncodeError as exc:
-                logger.warning(
-                    "result of task %r (id=%s) cannot be encoded; recording a failure",
-                    envelope.task,
-                    envelope.id,
-                    exc_info=True,
-                )
-                error = (
-                    "ResultNotSerializable",
-                    f"task {envelope.task!r} returned a value of type "
-                    f"{type(result.value).__name__!r} that cannot be encoded: {exc}",
-                )
-                return TaskState.FAILURE, encode_result(codec, TaskState.FAILURE, error=error)
-        if result.status is TaskStatus.SKIPPED:
-            return state, encode_result(codec, state)
-        if result.status is TaskStatus.UNKNOWN_TASK:
-            return state, encode_result(codec, state, error=("UnknownTask", envelope.task))
-        error_value = result.error
-        return state, encode_result(
-            codec, state, error=(type(error_value).__name__, str(error_value))
-        )
-
     @staticmethod
     def _log_result(result: TaskResult) -> None:
         name = result.envelope.task
@@ -403,7 +342,7 @@ class Worker(Runner):
             task = self.app.registered_task(envelope.task)
         except KeyError:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
-        await self._record_state(envelope.id, TaskState.RUNNING)
+        await self._recorder.record_state(envelope.id, TaskState.RUNNING)
         try:
             value: Any
             if task.is_async:
