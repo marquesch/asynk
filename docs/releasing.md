@@ -63,8 +63,10 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
 
 - Every action in every workflow is pinned to a full commit SHA, with the release in a
   trailing `# vX.Y.Z` comment. Tags can be moved; SHAs cannot.
-- `astral-sh/setup-uv` installs an exact uv (`version: "0.9.9"`), and the build backend
-  is pinned exactly in `pyproject.toml` (`uv_build==0.9.9`).
+- `astral-sh/setup-uv` installs an exact uv (`version: "0.13.7"`), and the build backend
+  is pinned exactly in `pyproject.toml` (`uv_build==...`). Keep the uv version at or
+  above the `uv_build` version and the `uv.lock` revision, so uv is never older than
+  what wrote the lock or the backend it builds with.
 - Installs use `uv sync --locked` (and `uv run --locked --group docs`), so CI fails if
   `uv.lock` is out of date instead of silently re-resolving.
 - [Dependabot](https://docs.github.com/en/code-security/dependabot) (`.github/dependabot.yml`)
