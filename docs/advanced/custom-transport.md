@@ -89,7 +89,7 @@ described above against your transport. To use it:
 
 The header of `conftest.py` names the asynk version the suite matches. Changes
 to the contract appear in the generated [changelog](../changelog.md), and the
-[release notes](../release-notes/index.md) explain any that need changes to a transport.
+[release notes](../release-notes.md) explain any that need changes to a transport.
 
 The suite checks delayed publish when `supports_delay` is true in your
 `ContractSettings` (the default); set it to false if your transport ignores

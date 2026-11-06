@@ -84,9 +84,18 @@ reusable workflows. The environments must stay named `testpypi` and `pypi`.
 ## Release notes
 
 The generated changelog lists every change. Anything that needs explaining, such as
-breaking changes and how to migrate, goes in a hand-written page under
-`docs/release-notes/`. See [Release notes](release-notes/index.md) for how to add one.
-Write it in the pull request that makes the change, or before merging the Release PR.
+breaking changes and how to migrate, goes in [Release notes](release-notes.md), a
+single hand-written file with one section per release, newest first. Feature pull
+requests do not edit it; the maintainer writes the section when preparing a release.
+
+To add one, before merging the Release PR:
+
+1. Add a `## <version>` section at the top of `docs/release-notes.md`, above the
+   previous release.
+2. Under it, put breaking changes first (`### Breaking changes`, each entry saying what
+   changed and what to write instead), then `### Added`, `### Changed`, `### Removed`
+   and `### Fixed`, leaving out the empty ones.
+3. Run `make docs`, which builds the site in strict mode and fails on broken links.
 
 ## First release
 
