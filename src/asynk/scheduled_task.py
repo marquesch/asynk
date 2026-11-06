@@ -80,8 +80,10 @@ class ScheduledTask(Task[P, R]):
         retry: RetryPolicy | None,
         publish: Publish,
         schedule: Schedule,
+        *,
+        timeout: float | None = None,
     ) -> None:
-        super().__init__(func, name, retry, publish)
+        super().__init__(func, name, retry, publish, timeout=timeout)
         self.schedule = schedule
 
 

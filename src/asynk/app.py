@@ -19,7 +19,6 @@ from asynk.hooks import (
 )
 from asynk.options import TaskOptions
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
-from asynk.retry import RetryPolicy
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone
 from asynk.store import Store
 from asynk.store.null import NullStore
@@ -117,11 +116,13 @@ class App:
             TypeError: If `options` is not a `TaskOptions`.
             ValueError: If the name is already registered.
         """
-        policy = self._task_policy(options)
+        resolved = self._resolve_options(options)
 
         def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
-            task = Task(func, task_name, policy, self.publish)
+            task = Task(
+                func, task_name, resolved.policy, self.publish, timeout=resolved.timeout or None
+            )
             self._tasks[task_name] = task
             return task
 
@@ -157,24 +158,31 @@ class App:
         """
         # Built now so a bad expression fails at the call.
         schedule = Schedule.build(cron, tz=self.tz, args=args, kwargs=kwargs)
-        policy = self._task_policy(options)
+        resolved = self._resolve_options(options)
         if tz is not None and name is not None:
             resolve_timezone(tz, f"scheduled task {name!r}")
 
         def decorator(func: Callable[P, Awaitable[R]]) -> ScheduledTask[P, R]:
             task_name = self._claim_name(name, func)
             zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
-            task = ScheduledTask(func, task_name, policy, self.publish, replace(schedule, tz=zone))
+            task = ScheduledTask(
+                func,
+                task_name,
+                resolved.policy,
+                self.publish,
+                replace(schedule, tz=zone),
+                timeout=resolved.timeout or None,
+            )
             self._tasks[task_name] = task
             self._scheduled_tasks.append(task)
             return task
 
         return decorator
 
-    def _task_policy(self, options: TaskOptions | None) -> RetryPolicy | None:
+    def _resolve_options(self, options: TaskOptions | None) -> TaskOptions:
         if options is not None and not isinstance(options, TaskOptions):
             raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
-        return (options or TaskOptions()).with_defaults(self.options).policy
+        return (options or TaskOptions()).with_defaults(self.options)
 
     def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
         task_name = name or f"{self.name}.{func.__qualname__}"

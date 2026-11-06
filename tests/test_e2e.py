@@ -58,6 +58,7 @@ NAMES = [
     "TaskState",
     "TaskError",
     "TaskNotFoundError",
+    "TaskTimeoutError",
 ]
 
 

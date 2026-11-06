@@ -21,6 +21,7 @@ PUBLIC_ERRORS = {
     "CronError",
     "TaskError",
     "TaskNotFoundError",
+    "TaskTimeoutError",
     "DeliveryFailedError",
 }
 # Private exceptions allowed outside errors.py, as module.qualname.

@@ -89,6 +89,51 @@ subclasses count. An error that does not match fails the task at once with
 status `FAILED`, even when retries are left. `retry_on` cannot be empty; use
 `TaskOptions(retry=False)` to turn retries off.
 
+## Timeouts
+
+`TaskOptions(timeout=...)` limits how long one attempt of a task may run, in
+seconds. An attempt that exceeds it is cancelled, its concurrency slot is freed
+and the task fails with `TaskTimeoutError`, which goes through the retry policy
+like any other error.
+
+``` { .python }
+--8<-- "examples/guides/timeouts.py"
+```
+
+It prints:
+
+```text
+call_partner failed: TaskTimeoutError after 2 attempts
+```
+
+- The limit is per attempt: every retry starts a fresh timer. There is no
+  total deadline across retries.
+- Only the task function is timed, not middleware or hooks.
+- Set it for every task with `App(options=TaskOptions(timeout=...))` and for
+  one task with `@app.task(options=...)`. A task's value replaces the app's.
+  `0`, the default, means no limit: a task that leaves it at `0` takes the
+  app's value, so a task cannot turn off a limit set for the whole app. The
+  value must be a finite number, zero or more: a negative number, `nan` or
+  `inf` raise `ValueError`, and a non-number raises `TypeError`.
+- A timeout is retried exactly when `retry_on` matches `TaskTimeoutError`. The
+  default `(Exception,)` matches it; a narrowed `retry_on`, such as
+  `(ConnectionError,)`, excludes timeouts unless you list `TaskTimeoutError`.
+- A `TimeoutError` the task raises itself, such as an HTTP client timeout, is an
+  ordinary failure, not a `TaskTimeoutError`.
+- `handle.result()` raises `TaskError` with type name `TaskTimeoutError`.
+- A worker shutdown that cancels the task is not a timeout: the delivery is
+  requeued at the same attempt.
+
+Limits:
+
+- A task must not swallow `asyncio.CancelledError`. If it does, it keeps its
+  slot until it finishes: the timeout cancels the task, it does not kill it.
+- A blocking call inside a task blocks the event loop, including the timer, so
+  nothing can time it out. The backstop is the liveness probe: the worker's
+  heartbeat runs on the same loop, so a blocked loop lets the probe files go
+  stale and the pod is restarted, and the broker redelivers the messages. See
+  [Probes](probes.md).
+
 ## Statuses and states
 
 | Outcome | `TaskStatus` | `TaskState` |

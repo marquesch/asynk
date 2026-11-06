@@ -45,3 +45,31 @@ def test_policy_is_the_retry_policy_or_none() -> None:
     assert TaskOptions(retry=policy).policy is policy
     assert TaskOptions(retry=False).policy is None
     assert TaskOptions().policy is None
+
+
+def test_timeout_defaults_to_zero_meaning_no_limit() -> None:
+    assert TaskOptions().timeout == 0
+
+
+@pytest.mark.parametrize("timeout", [0, 0.5, 3])
+def test_accepts_zero_or_a_positive_number(timeout: float) -> None:
+    assert TaskOptions(timeout=timeout).timeout == timeout
+
+
+@pytest.mark.parametrize("timeout", [-1, -0.5, float("nan"), float("inf"), float("-inf")])
+def test_rejects_a_timeout_that_is_negative_or_not_finite(timeout: float) -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        TaskOptions(timeout=timeout)
+
+
+@pytest.mark.parametrize("timeout", [True, None, False, "5", b"5", [1]])
+def test_rejects_a_timeout_that_is_not_a_number(timeout: Any) -> None:
+    with pytest.raises(TypeError, match="timeout"):
+        TaskOptions(timeout=timeout)
+
+
+def test_with_defaults_fills_a_zero_timeout_and_keeps_a_set_one() -> None:
+    app = TaskOptions(timeout=30)
+    assert TaskOptions().with_defaults(app).timeout == 30
+    assert TaskOptions(timeout=5).with_defaults(app).timeout == 5
+    assert TaskOptions(timeout=5).with_defaults(TaskOptions()).timeout == 5

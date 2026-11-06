@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -15,12 +16,17 @@ class TaskOptions:
     Attributes:
         retry: The retry policy; `False` disables retries and `None` leaves
             the option unset.
+        timeout: Seconds one attempt of the task may run before it is cancelled and
+            fails with `TaskTimeoutError`; `0` (the default) means no limit.
 
     Raises:
-        TypeError: If `retry` is not a `RetryPolicy`, `False` or `None`.
+        TypeError: If `retry` is not a `RetryPolicy`, `False` or `None`, or `timeout`
+            is not a number.
+        ValueError: If `timeout` is negative or not finite.
     """
 
     retry: RetryPolicy | Literal[False] | None = None
+    timeout: float = 0
 
     def __post_init__(self) -> None:
         if (
@@ -29,6 +35,10 @@ class TaskOptions:
             and not isinstance(self.retry, RetryPolicy)
         ):
             raise TypeError(f"retry must be a RetryPolicy, False or None, got {self.retry!r}")
+        if isinstance(self.timeout, bool) or not isinstance(self.timeout, int | float):
+            raise TypeError(f"timeout must be a number, got {self.timeout!r}")
+        if not math.isfinite(self.timeout) or self.timeout < 0:
+            raise ValueError(f"timeout must be finite and >= 0, got {self.timeout!r}")
 
     @property
     def policy(self) -> RetryPolicy | None:
@@ -44,4 +54,8 @@ class TaskOptions:
         Returns:
             New options; neither `self` nor `defaults` is changed.
         """
-        return replace(self, retry=defaults.retry if self.retry is None else self.retry)
+        return replace(
+            self,
+            retry=defaults.retry if self.retry is None else self.retry,
+            timeout=self.timeout or defaults.timeout,
+        )

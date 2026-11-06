@@ -23,7 +23,7 @@ PAGES = {
     ],
     "guides/scheduled-tasks.md": ["guides/scheduled_tasks.py"],
     "guides/results.md": ["guides/results_store.py"],
-    "guides/retries.md": ["guides/retries.py"],
+    "guides/retries.md": ["guides/retries.py", "guides/timeouts.py"],
     "guides/metadata.md": ["guides/publish_metadata.py"],
     "advanced/lifecycle-hooks.md": ["advanced/lifecycle_hooks.py"],
     "advanced/middleware.md": [
@@ -62,6 +62,12 @@ async def test_retries_example_retries_then_fails_for_good() -> None:
     module = _load("guides/retries.py")
     await asyncio.wait_for(module.main(), 10)
     assert module.attempts == {"fetch": 3, "charge": 1}
+
+
+async def test_timeouts_example_retries_the_timed_out_task_once() -> None:
+    module = _load("guides/timeouts.py")
+    await asyncio.wait_for(module.main(), 10)
+    assert module.attempts == 2
 
 
 async def test_middleware_metrics_example_counts_and_times_each_task() -> None:
