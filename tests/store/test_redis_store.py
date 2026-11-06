@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 import fakeredis
@@ -54,6 +55,36 @@ def test_import_guard_raises_when_the_client_is_missing(monkeypatch: pytest.Monk
     with pytest.raises(ImportError) as info:
         importlib.import_module("asynk.store.redis")
     assert str(info.value) == MESSAGE
+
+
+def test_import_guard_reraises_a_failing_dependency_of_the_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    package = tmp_path / "redis"
+    package.mkdir()
+    (package / "__init__.py").write_text("import not_a_real_redis_dependency\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for name in [
+        n
+        for n in sys.modules
+        if n in ("redis", "asynk.store.redis") or n.startswith(("redis.", "asynk.store.redis."))
+    ]:
+        monkeypatch.delitem(sys.modules, name)
+    with pytest.raises(ImportError) as info:
+        importlib.import_module("asynk.store.redis")
+    assert info.value.name == "not_a_real_redis_dependency"
+    assert str(info.value) != MESSAGE
+
+
+def test_core_modules_do_not_import_the_client() -> None:
+    code = (
+        "import sys\n"
+        "import asynk, asynk.cli, asynk.store, asynk.worker, asynk.scheduler\n"
+        "import asynk.transport.memory\n"
+        "print(sorted(m for m in sys.modules if m == 'redis' or m.startswith('redis.')))\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"
 
 
 def test_package_exports_the_store() -> None:
