@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
-    """Outcome of running a task, as seen by hooks and the consumer."""
+    """Outcome of running a task, as seen by middleware and the consumer."""
 
     SUCCESS = "success"
     FAILED = "failed"
@@ -40,24 +40,39 @@ class TaskResult:
     error: BaseException | None = None
 
 
+@dataclass(frozen=True)
+class TaskCall:
+    """One task about to run, as passed through the middleware chain.
+
+    Attributes:
+        envelope: The envelope of the message being handled.
+        delivery: The delivery the envelope arrived on.
+    """
+
+    envelope: Envelope
+    delivery: Delivery
+
+    def skip(self) -> TaskResult:
+        """Builds the `SKIPPED` result.
+
+        Return it without calling `next` to veto the task.
+
+        Returns:
+            A `TaskResult` with status `TaskStatus.SKIPPED`.
+        """
+        return TaskResult(self.envelope, TaskStatus.SKIPPED)
+
+
+Next: TypeAlias = Callable[[TaskCall], Awaitable[TaskResult]]
+"""Calls the rest of the middleware chain, ending with the task."""
+
+Middleware: TypeAlias = Callable[[TaskCall, Next], Awaitable[TaskResult]]
+"""Async layer around a task: receives the call and `next`, returns the result."""
+
 LifecycleHook: TypeAlias = Callable[["Runner"], Awaitable[None] | None]
 """Hook for the lifecycle events of a worker or scheduler; sync or async, receives the runner."""
 
-BeforeTaskHook: TypeAlias = Callable[[Envelope, Delivery], Awaitable[None] | None]
-"""Hook run before a task. Raise `SkipTask` to veto the task."""
-
-AfterTaskHook: TypeAlias = Callable[[TaskResult, Delivery], Awaitable[None] | None]
-"""Hook run after a task, before the delivery is settled; it may settle the delivery."""
-
 H = TypeVar("H", bound=Callable[..., Any])
-
-
-class SkipTask(Exception):
-    """Raised by a `before_task` hook to veto the task.
-
-    The task does not run and its delivery is acknowledged. `after_task` hooks
-    still run, with a `TaskStatus.SKIPPED` result.
-    """
 
 
 class HookRegistry(Generic[H]):
@@ -90,14 +105,21 @@ class HookRegistry(Generic[H]):
 
 @dataclass
 class Hooks:
-    """The hooks registered on an app, one registry per event."""
+    """The hooks registered on an app, one registry per event.
+
+    Attributes:
+        before_startup: Hooks run before a worker or scheduler starts.
+        after_startup: Hooks run once a worker or scheduler has started.
+        before_shutdown: Hooks run when a worker or scheduler begins to shut down.
+        after_shutdown: Hooks run after a worker or scheduler has stopped.
+        middleware: Layers run around each task.
+    """
 
     before_startup: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     after_startup: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     before_shutdown: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     after_shutdown: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
-    before_task: HookRegistry[BeforeTaskHook] = field(default_factory=HookRegistry)
-    after_task: HookRegistry[AfterTaskHook] = field(default_factory=HookRegistry)
+    middleware: HookRegistry[Middleware] = field(default_factory=HookRegistry)
 
 
 async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:

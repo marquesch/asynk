@@ -16,7 +16,7 @@ from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import TaskResult, TaskStatus
+from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.runner import Runner
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
@@ -32,9 +32,11 @@ def _setup(**kwargs: Any) -> tuple[App, MemoryProducer, MemoryConsumer, Worker]:
 def _collect(app: App) -> list[tuple[TaskResult, Delivery]]:
     seen: list[tuple[TaskResult, Delivery]] = []
 
-    @app.after_task
-    async def hook(result: TaskResult, delivery: Delivery) -> None:
-        seen.append((result, delivery))
+    @app.middleware
+    async def hook(call: TaskCall, next: Next) -> TaskResult:
+        result = await next(call)
+        seen.append((result, call.delivery))
+        return result
 
     return seen
 
@@ -220,11 +222,13 @@ async def test_sync_blocking_task_does_not_block_loop() -> None:
     order: list[str] = []
     both_done = asyncio.Event()
 
-    @app.after_task
-    async def hook(result: TaskResult, delivery: Delivery) -> None:
+    @app.middleware
+    async def hook(call: TaskCall, next: Next) -> TaskResult:
+        result = await next(call)
         order.append(result.envelope.task)
         if len(order) == 2:
             both_done.set()
+        return result
 
     @app.task(name="blocking")
     def blocking() -> None:

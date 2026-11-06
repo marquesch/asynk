@@ -16,6 +16,12 @@
 
 ::: asynk.Runner
 
+## Middleware
+
+::: asynk.TaskCall
+
+::: asynk.Next
+
 ## Transport protocols
 
 ::: asynk.Producer
@@ -55,8 +61,6 @@
 ::: asynk.TaskNotFoundError
 
 ::: asynk.TaskFailedError
-
-::: asynk.SkipTask
 
 ::: asynk.DecodeError
 

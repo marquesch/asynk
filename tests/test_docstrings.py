@@ -12,6 +12,7 @@ from asynk import (
     NullStore,
     Scheduler,
     Store,
+    TaskCall,
     TaskHandle,
     Worker,
 )
@@ -19,6 +20,7 @@ from asynk.envelope import Envelope
 from asynk.transport.memory import MemoryConsumer, MemoryDelivery, MemoryProducer
 
 MEMBER_CLASSES = [
+    TaskCall,
     Store,
     TaskHandle,
     NullStore,

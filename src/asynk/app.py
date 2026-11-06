@@ -9,10 +9,9 @@ from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
 from asynk.errors import NotConfiguredError as NotConfiguredError
 from asynk.hooks import (
-    AfterTaskHook,
-    BeforeTaskHook,
     Hooks,
     LifecycleHook,
+    Middleware,
 )
 from asynk.results import TaskHandle
 from asynk.runner import Runner
@@ -36,7 +35,8 @@ class App:
         store: Key-value store for task states, task results and scheduler claim keys.
         codec: Codec that encodes messages, task states and results.
         tz: Default timezone for scheduled tasks.
-        hooks: The hooks registered through the `before_*` and `after_*` decorators.
+        hooks: The hooks and middleware registered through the `before_*`, `after_*` and
+            `middleware` decorators.
     """
 
     def __init__(
@@ -270,34 +270,30 @@ class App:
         """
         return self.hooks.after_shutdown.add(hook)
 
-    def before_task(self, hook: BeforeTaskHook) -> BeforeTaskHook:
-        """Registers a hook run before each known task.
+    def middleware(self, layer: Middleware) -> Middleware:
+        """Registers a middleware layer around each task.
 
-        Hooks may be sync or async and receive the `Envelope` and `Delivery`.
-        Raise `SkipTask` to veto the task. Any other exception is treated as a
-        hook failure: the message is redelivered with its attempt count
-        incremented, up to the task's `max_retries`. Registering the same function
-        twice has no effect.
-
-        Args:
-            hook: The hook to register.
-
-        Returns:
-            The hook, unchanged.
-        """
-        return self.hooks.before_task.add(hook)
-
-    def after_task(self, hook: AfterTaskHook) -> AfterTaskHook:
-        """Registers a hook run after each task, before its delivery is settled.
-
-        Hooks may be sync or async and receive the `TaskResult` and `Delivery`, and
-        may settle the delivery. They also run for unknown and skipped tasks.
-        Failures are handled as for `before_task`.
+        A layer is an async function `(call: TaskCall, next: Next) -> TaskResult`.
+        It receives the call and `next`, which runs the rest of the chain and the
+        task, and returns a `TaskResult`: the one from `next` or another one, such
+        as `call.skip()`, the `SKIPPED` result that vetoes the task. The last
+        registered layer is the outermost. Registering the same layer twice has no
+        effect.
 
         Args:
-            hook: The hook to register.
+            layer: The middleware layer to register.
 
         Returns:
-            The hook, unchanged.
+            The layer, unchanged.
+
+        Example:
+            Log how long each task takes:
+
+                @app.middleware
+                async def timed(call: TaskCall, next: Next) -> TaskResult:
+                    started = time.monotonic()
+                    result = await next(call)
+                    logger.info("%s took %.3fs", call.envelope.task, time.monotonic() - started)
+                    return result
         """
-        return self.hooks.after_task.add(hook)
+        return self.hooks.middleware.add(layer)
