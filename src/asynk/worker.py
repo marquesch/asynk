@@ -9,14 +9,19 @@ from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
-from asynk.app import App, NotConfiguredError
-from asynk.codec import DecodeError, EncodeError
-from asynk.envelope import Envelope, InvalidEnvelopeError
+from asynk.app import App
+from asynk.envelope import Envelope
+from asynk.errors import (
+    DecodeError,
+    DeliveryFailedError,
+    EncodeError,
+    InvalidEnvelopeError,
+    NotConfiguredError,
+)
 from asynk.hooks import (
     Middleware,
     Next,
     TaskCall,
-    TaskFailedError,
     TaskResult,
     TaskStatus,
     run_hooks,
@@ -282,8 +287,8 @@ class Worker(Runner):
                         await delivery.reject(requeue=True)
                     raise
                 if not delivery.settled and result.status not in _CLEAN_STATUSES:
-                    raise TaskFailedError(result)
-        except TaskFailedError as exc:
+                    raise DeliveryFailedError(result)
+        except DeliveryFailedError as exc:
             return exc.result
         assert result is not None
         return result

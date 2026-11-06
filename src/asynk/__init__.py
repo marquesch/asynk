@@ -3,12 +3,22 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from asynk.app import App
-from asynk.codec import Codec, DecodeError, EncodeError
+from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
-from asynk.envelope import Envelope, InvalidEnvelopeError
-from asynk.errors import NotConfiguredError
-from asynk.hooks import Next, TaskCall, TaskFailedError, TaskResult, TaskStatus
-from asynk.results import TaskError, TaskHandle, TaskNotFoundError, TaskState
+from asynk.envelope import Envelope
+from asynk.errors import (
+    AsynkError,
+    CronError,
+    DecodeError,
+    DeliveryFailedError,
+    EncodeError,
+    InvalidEnvelopeError,
+    NotConfiguredError,
+    TaskError,
+    TaskNotFoundError,
+)
+from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.results import TaskHandle, TaskState
 from asynk.runner import Runner
 from asynk.scheduled_task import ScheduledTask
 from asynk.scheduler import Scheduler
@@ -29,10 +39,13 @@ except PackageNotFoundError:
 __all__ = [
     "__version__",
     "App",
+    "AsynkError",
     "Codec",
     "Consumer",
+    "CronError",
     "DecodeError",
     "Delivery",
+    "DeliveryFailedError",
     "Envelope",
     "InvalidEnvelopeError",
     "JsonCodec",
@@ -43,7 +56,6 @@ __all__ = [
     "Runner",
     "Task",
     "TaskCall",
-    "TaskFailedError",
     "TaskResult",
     "TaskStatus",
     "ScheduledTask",

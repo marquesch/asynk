@@ -6,9 +6,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
-
-class InvalidEnvelopeError(ValueError):
-    """Raised when data is not a valid envelope."""
+from asynk.errors import InvalidEnvelopeError
 
 
 @dataclass(frozen=True, slots=True)

@@ -46,7 +46,7 @@
 
 ::: asynk.NullStore
 
-## Results and errors
+## Results
 
 ::: asynk.TaskHandle
 
@@ -56,16 +56,22 @@
 
 ::: asynk.TaskStatus
 
+## Errors
+
+::: asynk.AsynkError
+
+::: asynk.NotConfiguredError
+
+::: asynk.EncodeError
+
+::: asynk.DecodeError
+
+::: asynk.InvalidEnvelopeError
+
+::: asynk.CronError
+
 ::: asynk.TaskError
 
 ::: asynk.TaskNotFoundError
 
-::: asynk.TaskFailedError
-
-::: asynk.DecodeError
-
-::: asynk.EncodeError
-
-::: asynk.InvalidEnvelopeError
-
-::: asynk.NotConfiguredError
+::: asynk.DeliveryFailedError

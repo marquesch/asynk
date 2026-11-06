@@ -11,14 +11,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from asynk.app import App, NotConfiguredError
+from asynk.app import App
+from asynk.errors import AsynkError, NotConfiguredError
 from asynk.logging import configure_logging
 from asynk.probes import check_probe, default_probe_dir
 from asynk.scheduler import Scheduler
 from asynk.worker import Worker
 
 
-class CliError(Exception):
+class CliError(AsynkError):
     """Raised for user-facing command-line errors."""
 
 

@@ -4,8 +4,8 @@ import uuid
 import pytest
 from envelope_helpers import decode_delivery
 
-from asynk.app import App, NotConfiguredError
-from asynk.codec import EncodeError
+from asynk import EncodeError, NotConfiguredError
+from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
 from asynk.results import TaskHandle, TaskState, decode_state, state_key

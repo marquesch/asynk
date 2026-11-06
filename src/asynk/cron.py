@@ -27,12 +27,14 @@ fires once, at its first occurrence (`fold=0`).
 # This module should change for almost no reason. A PR that changes it is a
 # poor decision unless there is a clear reason for it. It is small and boring on
 # purpose: pure functions over `datetime`, no I/O, no clock, no asyncio and no
-# imports from the rest of asynk.
+# imports from the rest of asynk except `asynk.errors`.
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+
+from asynk.errors import CronError
 
 _MONTH_NAMES = {
     name: i
@@ -50,10 +52,6 @@ _MAX_NUMBER_DIGITS = 4
 # Any month/day combination accepted by `parse` falls on every weekday within
 # 400 years (one Gregorian cycle), so `next_after` finds a slot well before this.
 _SEARCH_YEARS = 401
-
-
-class CronError(ValueError):
-    """Raised when a cron expression is invalid."""
 
 
 @dataclass(frozen=True)
