@@ -1,11 +1,14 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
+from typing import Any
+
 from asynk import (
     Exponential,
     Next,
     RetryPolicy,
     Runner,
     TaskCall,
+    TaskHandle,
     TaskOptions,
     TaskResult,
     TaskStatus,
@@ -67,6 +70,15 @@ async def _checks() -> None:
     await add.with_metadata(a=1).delay("x")  # type: ignore[arg-type]
     await scheduled.delay(1, b=2)
     await scheduled.delay("x")  # type: ignore[arg-type]
+    _typed: int | None = await (await add.delay(1)).result()
+    _wrong: str | None = await (await add.delay(1)).result()  # type: ignore[assignment]
+    _handle: TaskHandle[int] = await add.delay(1)
+    _bound: int | None = await (await add.with_metadata(a=1).delay(1)).result()
+    _bound_wrong: str | None = await (await add.with_metadata(a=1).delay(1)).result()  # type: ignore[assignment]
+    _scheduled: int | None = await (await scheduled.delay(1)).result()
+    _untyped: TaskHandle[Any] = app.get_task("id")
+    _any_result: str | None = await app.get_task("id").result()
+    _into_typed: TaskHandle[int] = app.get_task("id")
 
 
 @app.middleware

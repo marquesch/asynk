@@ -9,13 +9,13 @@ returns a handle that reads them:
 
 ## Handles
 
-`delay` returns a `TaskHandle` with:
+`delay` returns a `TaskHandle[R]`, where `R` is the type the task returns, with:
 
 - `task_id`, the envelope id;
 - `receipt`, whatever the producer's `publish` returned;
 - `state()`, the current `TaskState`;
 - `result(timeout=None)`, which waits for the task to finish and returns its
-  value.
+  value, or `None` if the task was skipped.
 
 `app.get_task(task_id)` builds a handle from an id alone, for example in
 another request or process that shares the store. `result(timeout=...)` raises
@@ -23,6 +23,30 @@ another request or process that shares the store. `result(timeout=...)` raises
 id the store has no record of. A failed task makes `result()` raise
 `TaskError`, which carries the failure's type name and message as `.type_name`
 and `.message`.
+
+## Typed results
+
+A task declared `async def add(a: int, b: int) -> int` makes `add.delay(...)`
+return a `TaskHandle[int]`, so a type checker sees `await handle.result()` as
+`int | None` (`None` when a middleware skipped the task). `app.get_task(id)`
+and `app.publish(...)` know no task, so they return a `TaskHandle[Any]`, which
+you can assign to a `TaskHandle[int]` or use untyped.
+
+The type is a declaration. Asynk does not check or convert the value at
+runtime: `result()` returns whatever the codec decodes. Typed results are
+meant for values the codec carries as they are: `None`, booleans, numbers,
+strings, and lists and dicts of those. Anything else is not rebuilt as the
+declared type. With the default `JsonCodec`, a task declared to return a
+dataclass or a `datetime` produces a dict or a string, and a tuple comes back
+as a list, even though the checker believes `result()` is the declared type.
+Convert such a value yourself, for example `Point(**result)`, or return plain
+values from the task. A task whose result the codec cannot encode fails with
+`ResultNotSerializable` (see below).
+
+A task declared `-> None` has a `TaskHandle[None]`, whose `result()` is always
+`None`. mypy reports using that value, as in `assert await handle.result() is
+None`, as "does not return a value"; annotate the handle as `TaskHandle[Any]`
+or just await it.
 
 ## States
 

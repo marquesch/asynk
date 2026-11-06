@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import Generic, ParamSpec, TypeAlias, TypeVar
+from typing import Any, Generic, ParamSpec, TypeAlias, TypeVar
 
 from asynk.envelope import Envelope
 from asynk.results import TaskHandle
@@ -14,7 +14,7 @@ from asynk.transport import PublishOptions
 P = ParamSpec("P")
 R = TypeVar("R")
 
-Publish: TypeAlias = Callable[[Envelope, PublishOptions | None], Awaitable[TaskHandle]]
+Publish: TypeAlias = Callable[[Envelope, PublishOptions | None], Awaitable[TaskHandle[Any]]]
 """Publishes an envelope for a worker to run and returns its handle; `App.publish`."""
 
 
@@ -63,7 +63,7 @@ class Task(Generic[P, R]):
         """
         return BoundTask(self, dict(metadata))
 
-    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle:
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle[R]:
         """Publishes a call to this task for a worker to run.
 
         Args:
@@ -99,7 +99,7 @@ class BoundTask(Generic[P, R]):
         """
         return BoundTask(self._task, {**self._metadata, **metadata})
 
-    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle:
+    async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle[R]:
         """Publishes a call to the task with this object's metadata.
 
         Args:

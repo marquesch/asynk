@@ -314,7 +314,7 @@ async def test_delay_with_unencodable_argument_writes_no_state() -> None:
 def _fake_publish() -> tuple[list[tuple[Envelope, PublishOptions | None]], Any]:
     calls: list[tuple[Envelope, PublishOptions | None]] = []
 
-    async def publish(envelope: Envelope, options: PublishOptions | None = None) -> TaskHandle:
+    async def publish(envelope: Envelope, options: PublishOptions | None = None) -> TaskHandle[Any]:
         calls.append((envelope, options))
         return TaskHandle(envelope.id, MemoryStore(), JsonCodec(), "r")
 
