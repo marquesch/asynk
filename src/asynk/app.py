@@ -196,30 +196,19 @@ class App:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the codec cannot encode the envelope.
         """
-        producer, body = self._prepare(envelope)
-        return await self._deliver(producer, envelope, body, options)
-
-    def _prepare(self, envelope: Envelope) -> tuple[Producer, bytes]:
         if self.producer is None:
             raise errors.NotConfiguredError(f"app {self.name!r} has no producer configured")
-        return self.producer, self.codec.encode(envelope.to_dict())
-
-    @staticmethod
-    async def _deliver(
-        producer: Producer, envelope: Envelope, body: bytes, options: PublishOptions | None
-    ) -> Any:
-        # Producers need not accept `options` unless one is given.
-        if options is None:
-            return await producer.publish(envelope, body)
-        return await producer.publish(envelope, body, options)
+        body = self.codec.encode(envelope.to_dict())
+        return await self.producer.publish(envelope, body, options)
 
     async def publish(
         self, envelope: Envelope, options: PublishOptions | None = None
     ) -> TaskHandle:
         """Publishes an envelope for a worker to run.
 
-        The task's state is set to `PENDING` before the envelope is sent. A store
-        failure is logged and does not stop the publish.
+        After the envelope is sent, the task's state is set to `PENDING` unless a
+        worker has already recorded one. A store failure is logged and does not
+        fail the publish.
 
         Args:
             envelope: The envelope to publish.
@@ -233,15 +222,14 @@ class App:
             NotConfiguredError: If the app has no producer.
             EncodeError: If the codec cannot encode the envelope.
         """
-        producer, body = self._prepare(envelope)
+        receipt = await self.send(envelope, options)
         try:
             await self.store.set(
                 state_key(envelope.id), encode_state(self.codec, TaskState.PENDING)
             )
         except Exception:
-            # Fail open: a store outage must not prevent publishing.
+            # Fail open: a store outage must not fail a message that was sent.
             logger.exception("could not record pending state for task %s", envelope.id)
-        receipt = await self._deliver(producer, envelope, body, options)
         return TaskHandle(envelope.id, self.store, self.codec, receipt)
 
     def registered_task(self, name: str) -> Task[..., Any]:

@@ -305,24 +305,50 @@ class _Producer:
         return "receipt"
 
 
-async def test_publish_records_pending_before_sending_and_returns_handle() -> None:
+async def test_publish_records_pending_after_sending_and_returns_handle() -> None:
     store = MemoryStore()
     producer = _Producer()
     app = App("t", producer=producer, store=store)
-    seen: list[bytes | None] = []
-
-    async def check(envelope: Envelope) -> None:
-        seen.append(await store.get(state_key(envelope.id)))
-
-    producer.on_publish = check
     envelope = Envelope.create("t.x", (1,), {}, {})
 
     handle = await app.publish(envelope)
 
-    assert seen == [encode_state(app.codec, TaskState.PENDING)]
+    assert len(producer.calls) == 1
     assert handle.task_id == envelope.id
     assert handle.receipt == "receipt"
     assert await handle.state() is TaskState.PENDING
+
+
+async def test_publish_does_not_overwrite_a_state_a_worker_already_recorded() -> None:
+    store = MemoryStore()
+    producer = _Producer()
+    app = App("t", producer=producer, store=store)
+    running = encode_state(app.codec, TaskState.RUNNING)
+
+    async def worker_is_faster(envelope: Envelope) -> None:
+        await store.set(state_key(envelope.id), running, overwrite=True)
+
+    producer.on_publish = worker_is_faster
+    handle = await app.publish(Envelope.create("t.x", (), {}, {}))
+
+    assert await handle.state() is TaskState.RUNNING
+
+
+async def test_publish_records_no_state_when_the_send_fails() -> None:
+    class Failing:
+        async def publish(
+            self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+        ) -> str:
+            raise OSError("broker down")
+
+    store = MemoryStore()
+    app = App("t", producer=Failing(), store=store)
+    envelope = Envelope.create("t.x", (), {}, {})
+
+    with pytest.raises(OSError, match="broker down"):
+        await app.publish(envelope)
+
+    assert await store.get(state_key(envelope.id)) is None
 
 
 async def test_publish_still_sends_when_the_store_fails() -> None:

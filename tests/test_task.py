@@ -9,7 +9,7 @@ from asynk import EncodeError, NotConfiguredError
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
-from asynk.results import TaskHandle, TaskState, decode_state, state_key
+from asynk.results import TaskHandle, TaskState, state_key
 from asynk.store.memory import MemoryStore
 from asynk.task import Task
 from asynk.transport import PublishOptions
@@ -180,17 +180,15 @@ async def test_delay_returns_handle_with_envelope_id() -> None:
     assert handle.task_id == producer.published[0].id
 
 
-async def test_delay_writes_pending_before_publish() -> None:
+async def test_delay_writes_pending_after_publish() -> None:
     store = MemoryStore()
-    seen: list[TaskState] = []
+    seen: list[bytes | None] = []
 
     class CheckingProducer(FakeProducer):
         async def publish(
             self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
         ) -> str:
-            data = await store.get(state_key(envelope.id))
-            assert data is not None
-            seen.append(decode_state(app.codec, data))
+            seen.append(await store.get(state_key(envelope.id)))
             return await super().publish(envelope, body)
 
     app = App("t", producer=CheckingProducer(), store=store)
@@ -198,9 +196,10 @@ async def test_delay_writes_pending_before_publish() -> None:
     @app.task()
     async def noop() -> None: ...
 
-    await noop.delay()
+    handle = await noop.delay()
 
-    assert seen == [TaskState.PENDING]
+    assert seen == [None]
+    assert await handle.state() is TaskState.PENDING
 
 
 async def test_delay_works_with_default_null_store() -> None:

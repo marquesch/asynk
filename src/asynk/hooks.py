@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 from asynk.envelope import Envelope
 from asynk.transport import Delivery
 
-# Imported only to type the runner argument of hooks; a runtime import would be circular.
 if TYPE_CHECKING:
     from asynk.runner import Runner
 
