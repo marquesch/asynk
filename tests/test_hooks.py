@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from asynk.app import App
-from asynk.hooks import SkipTask, TaskStatus
+from asynk.envelope import Envelope
+from asynk.hooks import SkipTask, TaskCall, TaskResult, TaskStatus
+from asynk.transport import Delivery
 
 EVENTS = [
     "before_startup",
@@ -15,6 +18,7 @@ EVENTS = [
     "after_shutdown",
     "before_task",
     "after_task",
+    "middleware",
 ]
 
 
@@ -138,3 +142,15 @@ def test_same_function_may_be_registered_for_different_events() -> None:
 def test_skip_task_is_an_exception_and_skipped_is_a_status() -> None:
     assert issubclass(SkipTask, Exception)
     assert TaskStatus.SKIPPED.value == "skipped"
+
+
+def test_task_call_skip_builds_a_skipped_result() -> None:
+    envelope = Envelope.create("t", (), {})
+    call = TaskCall(envelope, cast(Delivery, object()))
+    assert call.skip() == TaskResult(envelope, TaskStatus.SKIPPED)
+
+
+def test_task_call_is_frozen() -> None:
+    call = TaskCall(Envelope.create("t", (), {}), cast(Delivery, object()))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        call.envelope = Envelope.create("u", (), {})  # type: ignore[misc]

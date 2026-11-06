@@ -40,6 +40,35 @@ class TaskResult:
     error: BaseException | None = None
 
 
+@dataclass(frozen=True)
+class TaskCall:
+    """One task about to run, as passed through the middleware chain.
+
+    Attributes:
+        envelope: The envelope of the message being handled.
+        delivery: The delivery the envelope arrived on.
+    """
+
+    envelope: Envelope
+    delivery: Delivery
+
+    def skip(self) -> TaskResult:
+        """Builds the `SKIPPED` result.
+
+        Return it without calling `next` to veto the task.
+
+        Returns:
+            A `TaskResult` with status `TaskStatus.SKIPPED`.
+        """
+        return TaskResult(self.envelope, TaskStatus.SKIPPED)
+
+
+Next: TypeAlias = Callable[[TaskCall], Awaitable[TaskResult]]
+"""Calls the rest of the middleware chain, ending with the task."""
+
+Middleware: TypeAlias = Callable[[TaskCall, Next], Awaitable[TaskResult]]
+"""Async layer around a task: receives the call and `next`, returns the result."""
+
 LifecycleHook: TypeAlias = Callable[["Runner"], Awaitable[None] | None]
 """Hook for the lifecycle events of a worker or scheduler; sync or async, receives the runner."""
 
@@ -98,6 +127,7 @@ class Hooks:
     after_shutdown: HookRegistry[LifecycleHook] = field(default_factory=HookRegistry)
     before_task: HookRegistry[BeforeTaskHook] = field(default_factory=HookRegistry)
     after_task: HookRegistry[AfterTaskHook] = field(default_factory=HookRegistry)
+    middleware: HookRegistry[Middleware] = field(default_factory=HookRegistry)
 
 
 async def run_hooks(hooks: Iterable[Callable[..., Any]], *args: Any) -> None:

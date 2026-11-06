@@ -16,6 +16,12 @@
 
 ::: asynk.Runner
 
+## Middleware
+
+::: asynk.TaskCall
+
+::: asynk.Next
+
 ## Transport protocols
 
 ::: asynk.Producer

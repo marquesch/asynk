@@ -1,6 +1,6 @@
 """Static-only checks, verified by mypy (not collected by pytest)."""
 
-from asynk import Delivery, Runner, TaskResult, TaskStatus, Worker
+from asynk import Delivery, Next, Runner, TaskCall, TaskResult, TaskStatus, Worker
 from asynk.app import App
 from asynk.results import TaskState
 from asynk.transport.memory import memory_transport
@@ -38,6 +38,17 @@ async def retry(result: TaskResult, delivery: Delivery) -> None:
         retry = result.envelope.retry()
         await producer.publish(retry, app.codec.encode(retry.to_dict()))
         await delivery.ack()
+
+
+@app.middleware
+async def timed(call: TaskCall, next: Next) -> TaskResult:
+    return await next(call)
+
+
+# Middleware must be async: mypy rejects a sync layer.
+@app.middleware  # type: ignore[arg-type]
+def sync_layer(call: TaskCall, next: Next) -> TaskResult:
+    return call.skip()
 
 
 @app.before_startup

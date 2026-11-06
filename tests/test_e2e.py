@@ -13,6 +13,8 @@ from asynk.transport.memory import memory_transport
 
 NAMES = [
     "App",
+    "TaskCall",
+    "Next",
     "Task",
     "Envelope",
     "Codec",

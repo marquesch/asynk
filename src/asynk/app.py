@@ -13,6 +13,7 @@ from asynk.hooks import (
     BeforeTaskHook,
     Hooks,
     LifecycleHook,
+    Middleware,
 )
 from asynk.results import TaskHandle
 from asynk.runner import Runner
@@ -36,7 +37,8 @@ class App:
         store: Key-value store for task states, task results and scheduler claim keys.
         codec: Codec that encodes messages, task states and results.
         tz: Default timezone for scheduled tasks.
-        hooks: The hooks registered through the `before_*` and `after_*` decorators.
+        hooks: The hooks and middleware registered through the `before_*`, `after_*` and
+            `middleware` decorators.
     """
 
     def __init__(
@@ -301,3 +303,31 @@ class App:
             The hook, unchanged.
         """
         return self.hooks.after_task.add(hook)
+
+    def middleware(self, layer: Middleware) -> Middleware:
+        """Registers a middleware layer around each task.
+
+        A layer is an async function `(call: TaskCall, next: Next) -> TaskResult`.
+        It must `await next(call)` to run the rest of the chain and the task, and
+        return a `TaskResult`, which may be the one it received or a new one. The
+        last registered layer is the outermost: it runs first on the way in and
+        last on the way out. Return `call.skip()` without calling `next` to veto
+        the task. Registering the same layer twice has no effect.
+
+        Example:
+            Log how long each task takes::
+
+                @app.middleware
+                async def timed(call: TaskCall, next: Next) -> TaskResult:
+                    started = time.monotonic()
+                    result = await next(call)
+                    logger.info("%s took %.3fs", call.envelope.task, time.monotonic() - started)
+                    return result
+
+        Args:
+            layer: The middleware layer to register.
+
+        Returns:
+            The layer, unchanged.
+        """
+        return self.hooks.middleware.add(layer)
