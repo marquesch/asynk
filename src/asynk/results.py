@@ -18,7 +18,7 @@ class TaskState(enum.Enum):
         RETRYING: An attempt failed and a retry was published.
         SUCCESS: Finished; `TaskHandle.result` returns the value.
         FAILURE: Failed for good; `TaskHandle.result` raises `TaskError`.
-        SKIPPED: A `before_task` hook raised `SkipTask`; `TaskHandle.result` returns None.
+        SKIPPED: Middleware skipped the task; `TaskHandle.result` returns None.
         UNKNOWN: The store has no record for this id.
     """
 
