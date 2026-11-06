@@ -28,6 +28,7 @@ from asynk.store import Store
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
 from asynk.task import Task
+from asynk.telemetry import NullTelemetry, Telemetry
 from asynk.transport import Consumer, Delivery, Producer, PublishOptions
 from asynk.worker import Worker
 
@@ -70,6 +71,8 @@ __all__ = [
     "Store",
     "MemoryStore",
     "NullStore",
+    "NullTelemetry",
+    "Telemetry",
     "TaskHandle",
     "TaskOptions",
     "TaskState",

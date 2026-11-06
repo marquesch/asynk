@@ -170,11 +170,13 @@ class Worker(Runner):
         return delivery
 
     async def _handle_and_release(self, delivery: Delivery, semaphore: asyncio.Semaphore) -> None:
+        self.app.telemetry.task_started()
         try:
             await self.handle(delivery)
         except Exception:
             logger.exception("unexpected error handling a delivery")
         finally:
+            self.app.telemetry.task_finished()
             semaphore.release()
 
     async def _drain(self, in_flight: set[asyncio.Task[None]]) -> None:
@@ -223,6 +225,8 @@ class Worker(Runner):
                     chain: Next = run_task
                     for layer in self.app.hooks.middleware:
                         chain = _link(layer, chain)
+                    if self.app.telemetry.layer is not None:
+                        chain = _link(self.app.telemetry.layer, chain)
                     try:
                         result = await chain(call)
                         self._log_result(result)
@@ -294,6 +298,7 @@ class Worker(Runner):
             )
             await delivery.reject(requeue=True)
             return
+        self.app.telemetry.retry_published(envelope)
         await delivery.ack()
         logger.info(
             "published retry of task %r (id=%s, attempt=%d, delay=%s)",
