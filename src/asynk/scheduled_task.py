@@ -79,8 +79,8 @@ class ScheduledTask(Task[P, R]):
         name: str,
         retry: RetryPolicy | None,
         publish: Publish,
-        schedule: Schedule,
         *,
+        schedule: Schedule,
         timeout: float | None = None,
     ) -> None:
         super().__init__(func, name, retry, publish, timeout=timeout)
