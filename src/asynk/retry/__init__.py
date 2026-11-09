@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+from typing import Any
 
+from asynk._validate import check_number
 from asynk.hooks import TaskStatus
 from asynk.retry.backoff import Backoff, Exponential
 
@@ -33,36 +34,39 @@ class RetryPolicy:
     retry_on: tuple[type[Exception], ...] = (Exception,)
 
     def __post_init__(self) -> None:
-        retries = self.max_retries
-        if retries is not None:
-            if isinstance(retries, bool) or not isinstance(retries, int):
-                raise TypeError(f"max_retries must be an int or None, got {retries!r}")
-            if retries < 0:
-                raise ValueError(f"max_retries must be at least 0, got {retries!r}")
+        _check_max_retries(self.max_retries)
+        _check_backoff(self.backoff)
+        object.__setattr__(self, "retry_on", _checked_retry_on(self.retry_on))
 
-        backoff = self.backoff
-        if isinstance(backoff, int | float) and not isinstance(backoff, bool):
-            if not math.isfinite(backoff) or backoff < 0:
-                raise ValueError(
-                    f"backoff must be a finite number of seconds >= 0, got {backoff!r}"
-                )
-        elif backoff is not None and (
-            isinstance(backoff, bool) or not callable(getattr(backoff, "delay", None))
-        ):
-            raise TypeError(f"backoff must be a number, a Backoff or None, got {backoff!r}")
 
-        try:
-            retry_on = tuple(self.retry_on)
-        except TypeError:
-            raise TypeError(
-                f"retry_on must be a tuple of exception types, got {self.retry_on!r}"
-            ) from None
-        if not retry_on:
-            raise ValueError("retry_on must not be empty")
-        for kind in retry_on:
-            if not (isinstance(kind, type) and issubclass(kind, Exception)):
-                raise TypeError(f"retry_on must contain Exception subclasses, got {kind!r}")
-        object.__setattr__(self, "retry_on", retry_on)
+def _check_max_retries(retries: object) -> None:
+    if retries is None:
+        return
+    if isinstance(retries, bool) or not isinstance(retries, int):
+        raise TypeError(f"max_retries must be an int or None, got {retries!r}")
+    if retries < 0:
+        raise ValueError(f"max_retries must be at least 0, got {retries!r}")
+
+
+def _check_backoff(backoff: object) -> None:
+    if backoff is None or callable(getattr(backoff, "delay", None)):
+        return
+    if isinstance(backoff, bool) or not isinstance(backoff, int | float):
+        raise TypeError(f"backoff must be a number, a Backoff or None, got {backoff!r}")
+    check_number("backoff", backoff)
+
+
+def _checked_retry_on(retry_on: Any) -> tuple[type[Exception], ...]:
+    try:
+        kinds = tuple(retry_on)
+    except TypeError:
+        raise TypeError(f"retry_on must be a tuple of exception types, got {retry_on!r}") from None
+    if not kinds:
+        raise ValueError("retry_on must not be empty")
+    for kind in kinds:
+        if not (isinstance(kind, type) and issubclass(kind, Exception)):
+            raise TypeError(f"retry_on must contain Exception subclasses, got {kind!r}")
+    return kinds
 
 
 def retry_status(policy: RetryPolicy | None, attempt: int, error: BaseException) -> TaskStatus:

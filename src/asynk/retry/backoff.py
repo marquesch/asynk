@@ -7,6 +7,8 @@ import random
 from dataclasses import dataclass
 from typing import Protocol
 
+from asynk._validate import check_number
+
 
 class Backoff(Protocol):
     """A strategy that decides how long to wait before a retry."""
@@ -47,20 +49,11 @@ class Exponential:
     jitter: bool = False
 
     def __post_init__(self) -> None:
-        for name in ("base", "factor", "max"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                raise TypeError(f"{name} must be an int or float, got {value!r}")
-            if not math.isfinite(value):
-                raise ValueError(f"{name} must be finite, got {value!r}")
+        check_number("base", self.base, exclusive=True)
+        check_number("factor", self.factor, minimum=1)
+        check_number("max", self.max, minimum=self.base)
         if not isinstance(self.jitter, bool):
             raise TypeError(f"jitter must be a bool, got {self.jitter!r}")
-        if not self.base > 0:
-            raise ValueError(f"base must be positive, got {self.base!r}")
-        if not self.factor >= 1:
-            raise ValueError(f"factor must be at least 1, got {self.factor!r}")
-        if not self.max >= self.base:
-            raise ValueError(f"max must be at least base ({self.base!r}), got {self.max!r}")
 
     def delay(self, retry: int) -> float:
         """Returns the seconds to wait before a retry.

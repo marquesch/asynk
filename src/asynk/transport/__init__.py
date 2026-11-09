@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from asynk._validate import check_number
 from asynk.envelope import Envelope
 
 
@@ -28,13 +28,8 @@ class PublishOptions:
             TypeError: If `delay` is not a number.
             ValueError: If `delay` is negative, NaN or infinite.
         """
-        delay = self.delay
-        if delay is None:
-            return
-        if isinstance(delay, bool) or not isinstance(delay, (int, float)):
-            raise TypeError(f"delay must be a number of seconds, got {delay!r}")
-        if not math.isfinite(delay) or delay < 0:
-            raise ValueError(f"delay must be a finite number >= 0, got {delay!r}")
+        if self.delay is not None:
+            check_number("delay", self.delay)
 
 
 class Producer(Protocol):
