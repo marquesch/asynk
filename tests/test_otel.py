@@ -18,11 +18,11 @@ from otel_helpers import (
 )
 
 import asynk
-from asynk import App, Envelope, NullTelemetry, RetryPolicy, TaskOptions, Worker
+from asynk import App, Envelope, RetryPolicy, TaskOptions, Worker
 from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
 from asynk.otel import OtelTelemetry
 from asynk.store.memory import MemoryStore
-from asynk.telemetry import select_telemetry
+from asynk.telemetry import NullTelemetry, select_telemetry
 from asynk.transport import Delivery
 from asynk.transport.memory import memory_transport
 
@@ -391,6 +391,9 @@ async def test_active_tasks_goes_up_and_down_also_on_errors_and_cancellation() -
     class _Sem:
         def release(self) -> None: ...
 
+    class _SettledDelivery:
+        settled = True
+
     async def explode(delivery: Delivery) -> None:
         raise RuntimeError("x")
 
@@ -399,11 +402,11 @@ async def test_active_tasks_goes_up_and_down_also_on_errors_and_cancellation() -
 
     sem: Any = _Sem()
     s.worker.handle = explode  # type: ignore[method-assign]
-    await s.worker._handle_and_release(None, sem)  # type: ignore[arg-type]
+    await s.worker._handle_and_release(_SettledDelivery(), sem)  # type: ignore[arg-type]
     assert active.points == [(1, {}), (-1, {})]
 
     s.worker.handle = hang  # type: ignore[method-assign]
-    running = asyncio.create_task(s.worker._handle_and_release(None, sem))  # type: ignore[arg-type]
+    running = asyncio.create_task(s.worker._handle_and_release(_SettledDelivery(), sem))  # type: ignore[arg-type]
     await asyncio.sleep(0)
     assert active.total == 1
     running.cancel()

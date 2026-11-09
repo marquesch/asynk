@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 import pytest
@@ -278,9 +277,6 @@ class _SpyConsumer:
         if self._fail:
             raise RuntimeError("serve failed")
         return self._inner.deliveries()
-
-    def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:
-        return self._inner.process(delivery)
 
 
 def _spy_setup(fail: bool = False, fail_start: bool = False) -> tuple[list[str], Worker]:

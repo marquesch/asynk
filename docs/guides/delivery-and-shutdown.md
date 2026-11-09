@@ -10,9 +10,8 @@ stable across `envelope.retry()`, which makes it usable as an idempotency key.
 A failing task is retried only when it has a retry policy; see
 [Retries](retries.md). A failure that is not retried yields a `TaskResult` with
 status `FAILED`, or `RETRIES_EXCEEDED` once its retries are used up, and
-reaches the consumer's `process()` as a `DeliveryFailedError`. The transport
-settles the delivery: the memory transport rejects it without requeue, and a
-broker transport typically dead-letters it.
+is rejected without requeue: the memory transport drops it, and a broker
+transport typically dead-letters it.
 See [Writing a custom transport](../advanced/custom-transport.md#the-consumer-contract).
 
 A message the worker cannot decode, or that is not a valid envelope, is logged

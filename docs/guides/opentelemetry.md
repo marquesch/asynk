@@ -12,7 +12,7 @@ pip install 'asynk[otel]'
 The extra installs `opentelemetry-api` only. When an `App` is built, it checks
 whether that package is importable; if it is, telemetry is on for that app.
 There is no asynk setting for it. Without the package the app uses a
-[`NullTelemetry`][asynk.NullTelemetry] that does nothing, and `import asynk`
+[`NullTelemetry`][asynk.telemetry.NullTelemetry] that does nothing, and `import asynk`
 never imports OpenTelemetry.
 
 The API alone records nothing: spans and metrics go to whatever SDK your process
