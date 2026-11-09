@@ -47,29 +47,40 @@ def test_policy_is_the_retry_policy_or_none() -> None:
     assert TaskOptions().policy is None
 
 
-def test_timeout_defaults_to_zero_meaning_no_limit() -> None:
-    assert TaskOptions().timeout == 0
+def test_timeout_is_unset_by_default() -> None:
+    assert TaskOptions().timeout is None
+    assert TaskOptions().time_limit is None
 
 
-@pytest.mark.parametrize("timeout", [0, 0.5, 3])
-def test_accepts_zero_or_a_positive_number(timeout: float) -> None:
+@pytest.mark.parametrize("timeout", [0.5, 3])
+def test_accepts_a_positive_number(timeout: float) -> None:
     assert TaskOptions(timeout=timeout).timeout == timeout
+    assert TaskOptions(timeout=timeout).time_limit == timeout
 
 
-@pytest.mark.parametrize("timeout", [-1, -0.5, float("nan"), float("inf"), float("-inf")])
-def test_rejects_a_timeout_that_is_negative_or_not_finite(timeout: float) -> None:
+def test_false_means_no_limit() -> None:
+    assert TaskOptions(timeout=False).timeout is False
+    assert TaskOptions(timeout=False).time_limit is None
+
+
+@pytest.mark.parametrize("timeout", [0, -1, -0.5, float("nan"), float("inf"), float("-inf")])
+def test_rejects_a_timeout_that_is_not_positive_and_finite(timeout: float) -> None:
     with pytest.raises(ValueError, match="timeout"):
         TaskOptions(timeout=timeout)
 
 
-@pytest.mark.parametrize("timeout", [True, None, False, "5", b"5", [1]])
+@pytest.mark.parametrize("timeout", [True, "5", b"5", [1]])
 def test_rejects_a_timeout_that_is_not_a_number(timeout: Any) -> None:
     with pytest.raises(TypeError, match="timeout"):
         TaskOptions(timeout=timeout)
 
 
-def test_with_defaults_fills_a_zero_timeout_and_keeps_a_set_one() -> None:
+def test_with_defaults_fills_an_unset_timeout_and_keeps_a_set_one() -> None:
     app = TaskOptions(timeout=30)
     assert TaskOptions().with_defaults(app).timeout == 30
     assert TaskOptions(timeout=5).with_defaults(app).timeout == 5
     assert TaskOptions(timeout=5).with_defaults(TaskOptions()).timeout == 5
+
+
+def test_with_defaults_keeps_a_false_timeout_over_the_default() -> None:
+    assert TaskOptions(timeout=False).with_defaults(TaskOptions(timeout=30)).timeout is False

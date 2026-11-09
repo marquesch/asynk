@@ -418,6 +418,19 @@ def test_task_inherits_the_app_timeout_and_can_override_it() -> None:
     assert scheduled.timeout == 30
 
 
+def test_a_task_can_opt_out_of_the_app_timeout() -> None:
+    app = App("a", options=TaskOptions(timeout=30))
+
+    @app.task(options=TaskOptions(timeout=False))
+    async def t() -> None: ...
+
+    @app.scheduled_task(cron="* * * * *", options=TaskOptions(timeout=False))
+    async def scheduled() -> None: ...
+
+    assert t.timeout is None
+    assert scheduled.timeout is None
+
+
 def test_no_timeout_anywhere_means_no_limit() -> None:
     app = App("a")
 
