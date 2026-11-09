@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from asynk._validate import check_number
-from asynk.hooks import TaskStatus
+from asynk.middleware import TaskStatus
 from asynk.retry.backoff import Backoff, Exponential
 
 __all__ = ["Backoff", "Exponential", "RetryPolicy", "retry_delay", "retry_status"]

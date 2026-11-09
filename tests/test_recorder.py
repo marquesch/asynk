@@ -8,7 +8,7 @@ import pytest
 from asynk import TaskError
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
-from asynk.hooks import TaskResult, TaskStatus
+from asynk.middleware import TaskResult, TaskStatus
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskHandle, TaskState, result_key
 from asynk.store.memory import MemoryStore

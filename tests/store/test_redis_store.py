@@ -15,7 +15,7 @@ import redis.asyncio
 import asynk
 import asynk.store.redis
 from asynk.app import App
-from asynk.hooks import TaskStatus
+from asynk.middleware import TaskStatus
 from asynk.results import TaskState
 from asynk.store import Store
 from asynk.store.redis import RedisStore

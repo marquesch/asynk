@@ -18,7 +18,7 @@ from opentelemetry.trace import Span, SpanKind, Status, StatusCode, TracerProvid
 
 import asynk  # noqa: E402
 from asynk.envelope import Envelope  # noqa: E402
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus  # noqa: E402
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus  # noqa: E402
 
 logger = logging.getLogger("asynk")
 

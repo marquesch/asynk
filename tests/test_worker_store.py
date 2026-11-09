@@ -12,7 +12,7 @@ from store_helpers import FailingStopStore, StrictStore, assert_store_stop_failu
 from asynk import RetryPolicy, TaskError, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskState
 from asynk.runner import Runner
 from asynk.store.memory import MemoryStore

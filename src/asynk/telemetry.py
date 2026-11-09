@@ -8,7 +8,7 @@ import os
 from typing import Protocol, runtime_checkable
 
 from asynk.envelope import Envelope
-from asynk.hooks import Middleware
+from asynk.middleware import Middleware
 
 logger = logging.getLogger("asynk")
 

@@ -12,7 +12,7 @@ from asynk import NotConfiguredError, RetryPolicy, TaskOptions
 from asynk.app import App
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.transport import Delivery
 from asynk.transport.memory import memory_transport
 from asynk.worker import Worker
