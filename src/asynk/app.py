@@ -124,9 +124,7 @@ class App:
 
         def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
             task_name = self._claim_name(name, func)
-            task = Task(
-                func, task_name, resolved.policy, self.publish, timeout=resolved.timeout or None
-            )
+            task = Task(func, task_name, resolved.policy, self.publish, timeout=resolved.time_limit)
             self._tasks[task_name] = task
             return task
 
@@ -175,7 +173,7 @@ class App:
                 resolved.policy,
                 self.publish,
                 replace(schedule, tz=zone),
-                timeout=resolved.timeout or None,
+                timeout=resolved.time_limit,
             )
             self._tasks[task_name] = task
             self._scheduled_tasks.append(task)

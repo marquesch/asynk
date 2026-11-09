@@ -111,10 +111,10 @@ call_partner failed: TaskTimeoutError after 2 attempts
 - Only the task function is timed, not middleware or hooks.
 - Set it for every task with `App(options=TaskOptions(timeout=...))` and for
   one task with `@app.task(options=...)`. A task's value replaces the app's.
-  `0`, the default, means no limit: a task that leaves it at `0` takes the
-  app's value, so a task cannot turn off a limit set for the whole app. The
-  value must be a finite number, zero or more: a negative number, `nan` or
-  `inf` raise `ValueError`, and a non-number raises `TypeError`.
+  `None`, the default, takes the app's value, and `False` turns the limit off for
+  a task even when the app sets one. The value must be a positive, finite number:
+  zero, a negative number, `nan` or `inf` raise `ValueError`, and any other
+  non-number raises `TypeError`.
 - A timeout is retried exactly when `retry_on` matches `TaskTimeoutError`. The
   default `(Exception,)` matches it; a narrowed `retry_on`, such as
   `(ConnectionError,)`, excludes timeouts unless you list `TaskTimeoutError`.
