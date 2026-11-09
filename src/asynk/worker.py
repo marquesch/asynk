@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from asynk.app import App
 from asynk.envelope import Envelope
@@ -28,6 +28,7 @@ from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
 from asynk.retry import RetryPolicy, retry_delay, retry_status
 from asynk.runner import Role, Runner
+from asynk.task import Task
 from asynk.transport import Consumer, Delivery, PublishOptions
 
 logger = logging.getLogger("asynk")
@@ -206,68 +207,86 @@ class Worker(Runner):
         Returns:
             The task's result, or None if the body is not a valid envelope.
         """
-        try:
-            envelope = Envelope.from_dict(self.app.codec.decode(delivery.body))
-        except (DecodeError, InvalidEnvelopeError) as exc:
-            logger.warning("rejecting an undecodable or invalid message: %s", exc)
-            await delivery.reject()
+        envelope = await self._decode(delivery)
+        if envelope is None:
             return None
+        task = self.app.tasks.get(envelope.task)
+        policy = task.retry if task is not None else self.app.options.policy
         try:
-            call = TaskCall(envelope, delivery)
-
-            outcome: TaskResult | None = None
-
-            async def run_task(call: TaskCall) -> TaskResult:
-                nonlocal outcome
-                outcome = await self._execute(call)
-                return outcome
-
-            chain: Next = run_task
-            for layer in self.app.hooks.middleware:
-                chain = _link(layer, chain)
-            if self.app.telemetry.layer is not None:
-                chain = _link(self.app.telemetry.layer, chain)
-            try:
-                result = await chain(call)
-                self._log_result(result)
-            except Exception as exc:
-                if outcome is None:
-                    result = self._on_middleware_failure(envelope, delivery, exc)
-                else:
-                    logger.error(
-                        "middleware failed after task %r (id=%s) ran",
-                        envelope.task,
-                        envelope.id,
-                        exc_info=exc,
-                    )
-                    result = outcome
-                    self._log_result(result)
+            result = await self._run(TaskCall(envelope, delivery), task, policy)
             await self._recorder.record(result)
-            await self._settle(delivery, envelope, result)
+            await self._settle(delivery, envelope, result, policy)
         except asyncio.CancelledError:
             if not delivery.settled:
                 await delivery.reject(requeue=True)
             raise
         return result
 
-    async def _settle(self, delivery: Delivery, envelope: Envelope, result: TaskResult) -> None:
+    async def _decode(self, delivery: Delivery) -> Envelope | None:
+        """Returns the delivery's envelope, or rejects the delivery and returns None."""
+        try:
+            return Envelope.from_dict(self.app.codec.decode(delivery.body))
+        except (DecodeError, InvalidEnvelopeError) as exc:
+            logger.warning("rejecting an undecodable or invalid message: %s", exc)
+            await delivery.reject()
+            return None
+
+    async def _run(
+        self, call: TaskCall, task: Task[..., Any] | None, policy: RetryPolicy | None
+    ) -> TaskResult:
+        """Runs the middleware chain around the task and always returns a result."""
+        ran: TaskResult | None = None
+
+        async def innermost(call: TaskCall) -> TaskResult:
+            nonlocal ran
+            ran = await self._execute(task, policy, call)
+            return ran
+
+        try:
+            result = await self._chain(innermost)(call)
+        except Exception as exc:
+            if ran is None:
+                return self._layer_failed(call, policy, exc)
+            logger.error(
+                "middleware failed after task %r (id=%s) ran",
+                call.envelope.task,
+                call.envelope.id,
+                exc_info=exc,
+            )
+            result = ran
+        self._log_result(result)
+        return result
+
+    def _chain(self, innermost: Next) -> Next:
+        chain = innermost
+        for layer in self.app.hooks.middleware:  # read per call: late registrations apply
+            chain = _link(layer, chain)
+        if self.app.telemetry.layer is not None:
+            chain = _link(self.app.telemetry.layer, chain)
+        return chain
+
+    async def _settle(
+        self,
+        delivery: Delivery,
+        envelope: Envelope,
+        result: TaskResult,
+        policy: RetryPolicy | None,
+    ) -> None:
         if delivery.settled:  # a middleware layer may have settled it
             return
         match result.status:
             case TaskStatus.SUCCESS | TaskStatus.SKIPPED:
                 await delivery.ack()
             case TaskStatus.RETRYING:
-                await self._publish_retry(envelope, delivery)
+                await self._publish_retry(envelope, delivery, policy)
             case _:
                 await delivery.reject()
 
-    def _policy(self, task_name: str) -> RetryPolicy | None:
-        task = self.app.tasks.get(task_name)
-        return task.retry if task is not None else self.app.options.policy
-
-    def _on_middleware_failure(
-        self, envelope: Envelope, delivery: Delivery, exc: Exception
+    def _layer_failed(
+        self, call: TaskCall, policy: RetryPolicy | None, exc: Exception
     ) -> TaskResult:
+        """Builds the result for a middleware layer that raised before the task ran."""
+        envelope = call.envelope
         logger.error(
             "middleware failed for task %r (id=%s, attempt=%d)",
             envelope.task,
@@ -275,13 +294,15 @@ class Worker(Runner):
             envelope.attempt,
             exc_info=exc,
         )
-        if delivery.settled:
+        if call.delivery.settled:
             status = TaskStatus.FAILED
         else:
-            status = retry_status(self._policy(envelope.task), envelope.attempt, exc)
+            status = retry_status(policy, envelope.attempt, exc)
         return TaskResult(envelope, status, error=exc)
 
-    async def _publish_retry(self, envelope: Envelope, delivery: Delivery) -> None:
+    async def _publish_retry(
+        self, envelope: Envelope, delivery: Delivery, policy: RetryPolicy | None
+    ) -> None:
         if self.app.producer is None:
             logger.error(
                 "cannot publish a retry of task %r (id=%s): the app has no producer; requeueing",
@@ -292,7 +313,7 @@ class Worker(Runner):
             return
         try:
             retry = envelope.retry()
-            delay = retry_delay(self._policy(envelope.task), envelope.attempt)
+            delay = retry_delay(policy, envelope.attempt)
             options = None if delay is None else PublishOptions(delay=delay)
             await self.app.send(retry, options)
         except Exception:
@@ -348,11 +369,11 @@ class Worker(Runner):
             case TaskStatus.SUCCESS:
                 logger.debug("task %r (id=%s) succeeded", name, result.envelope.id)
 
-    async def _execute(self, call: TaskCall) -> TaskResult:
+    async def _execute(
+        self, task: Task[..., Any] | None, policy: RetryPolicy | None, call: TaskCall
+    ) -> TaskResult:
         envelope = call.envelope
-        try:
-            task = self.app.registered_task(envelope.task)
-        except KeyError:
+        if task is None:
             return TaskResult(envelope, TaskStatus.UNKNOWN_TASK)
         await self._recorder.record_state(envelope.id, TaskState.RUNNING)
         try:
@@ -361,5 +382,5 @@ class Worker(Runner):
         except Exception as exc:
             if isinstance(exc, TimeoutError) and limit.expired():
                 exc = TaskTimeoutError(f"task {envelope.task!r} exceeded {task.timeout} s")
-            return TaskResult(envelope, retry_status(task.retry, envelope.attempt, exc), error=exc)
+            return TaskResult(envelope, retry_status(policy, envelope.attempt, exc), error=exc)
         return TaskResult(envelope, TaskStatus.SUCCESS, value=value)
