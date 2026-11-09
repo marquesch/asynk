@@ -10,7 +10,6 @@ from asynk.errors import (
     AsynkError,
     CronError,
     DecodeError,
-    DeliveryFailedError,
     EncodeError,
     InvalidEnvelopeError,
     NotConfiguredError,
@@ -29,7 +28,6 @@ from asynk.store import Store
 from asynk.store.memory import MemoryStore
 from asynk.store.null import NullStore
 from asynk.task import Task
-from asynk.telemetry import NullTelemetry, Telemetry
 from asynk.transport import Consumer, Delivery, Producer, PublishOptions
 from asynk.worker import Worker
 
@@ -50,7 +48,6 @@ __all__ = [
     "CronError",
     "DecodeError",
     "Delivery",
-    "DeliveryFailedError",
     "Envelope",
     "InvalidEnvelopeError",
     "JsonCodec",
@@ -72,8 +69,6 @@ __all__ = [
     "Store",
     "MemoryStore",
     "NullStore",
-    "NullTelemetry",
-    "Telemetry",
     "TaskHandle",
     "TaskOptions",
     "TaskState",

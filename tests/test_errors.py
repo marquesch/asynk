@@ -10,7 +10,7 @@ import pytest
 
 import asynk
 import asynk.errors
-from asynk import AsynkError, DeliveryFailedError, Envelope, TaskResult, TaskStatus
+from asynk import AsynkError
 
 PUBLIC_ERRORS = {
     "AsynkError",
@@ -22,7 +22,6 @@ PUBLIC_ERRORS = {
     "TaskError",
     "TaskNotFoundError",
     "TaskTimeoutError",
-    "DeliveryFailedError",
 }
 # Private exceptions allowed outside errors.py, as module.qualname.
 PRIVATE_OUTSIDE = {"asynk.cli.CliError"}
@@ -126,10 +125,3 @@ def _runtime_imports(tree: ast.Module) -> list[str]:
 def test_errors_module_imports_nothing_from_asynk() -> None:
     tree = ast.parse(inspect.getsource(asynk.errors))
     assert not [m for m in _runtime_imports(tree) if m.startswith("asynk")]
-
-
-def test_delivery_failed_error_carries_the_result() -> None:
-    result = TaskResult(Envelope.create("job", (), {}), TaskStatus.FAILED)
-    exc = DeliveryFailedError(result)
-    assert exc.result is result
-    assert str(exc) == "task 'job' ended with FAILED"

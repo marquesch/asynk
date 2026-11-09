@@ -72,9 +72,9 @@
 
 ## Telemetry
 
-::: asynk.Telemetry
+::: asynk.telemetry.Telemetry
 
-::: asynk.NullTelemetry
+::: asynk.telemetry.NullTelemetry
 
 ::: asynk.otel.OtelTelemetry
 
@@ -107,5 +107,3 @@
 ::: asynk.TaskNotFoundError
 
 ::: asynk.TaskTimeoutError
-
-::: asynk.DeliveryFailedError

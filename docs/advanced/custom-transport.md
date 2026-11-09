@@ -43,7 +43,7 @@ so one not yet due is lost when the process exits.
 A delivery carries the received `body` and is settled exactly once, with
 `ack()` or `reject(requeue=...)`; a second call raises `RuntimeError`.
 `settled` reports whether that happened. The worker settles some deliveries
-itself (see below), so `process` checks `settled` before settling.
+itself, so a delivery you hold may already be settled.
 
 ## The consumer contract
 
@@ -56,24 +56,20 @@ itself (see below), so `process` checks `settled` before settling.
   at any await point during shutdown; if the iterator has an `aclose()`
   method the worker calls it. When the iterator ends, the worker drains its
   running tasks and `Worker.run()` returns.
-- `process(delivery)` is an async context manager entered once per delivery,
-  around its handling. On a clean exit it must settle an unsettled delivery
-  (usually `ack`). On an exception it must settle an unsettled delivery
-  (usually `reject`) and must never suppress the exception, especially
-  `asyncio.CancelledError`.
 
-What reaches `process`:
+The worker settles every delivery itself, using only `ack()` and
+`reject(requeue=...)`:
 
-- When a task fails for good, is unknown or exceeds its retries, the worker
-  raises `DeliveryFailedError` inside the block; `.result.status` says which. A
-  task that is retried is settled by the worker: it publishes the retry and
-  acks the delivery, or rejects it with requeue when the retry cannot be
-  published. Any other exception is an unexpected error.
-- The worker decodes each body inside `process`. A body it cannot decode is
-  rejected without requeue there, and the block exits cleanly.
+- A task that succeeds, or is skipped by middleware, is acked.
+- A task that fails for good, is unknown or exceeds its retries is rejected
+  without requeue. A broker transport typically dead-letters it in `reject`.
+- A task that is retried is acked after the worker publishes the retry, or
+  rejected with requeue when the retry cannot be published.
+- A body the worker cannot decode is rejected without requeue, and so is a
+  delivery whose handling fails unexpectedly.
 - When a task is cancelled at the shutdown timeout, the worker rejects its
-  unsettled delivery with `requeue=True` before the cancellation reaches
-  `process`, so the message is redelivered rather than dropped.
+  delivery with `requeue=True`, so the message is redelivered rather than
+  dropped.
 
 ## Testing your transport
 

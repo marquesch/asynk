@@ -6,7 +6,6 @@ A real transport talks to a broker in the same places: `publish` sends the body,
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 
 from asynk import App, Delivery, Envelope, MemoryStore, PublishOptions, Worker
 
@@ -73,17 +72,6 @@ class QueueConsumer:
     async def deliveries(self) -> AsyncIterator[Delivery]:
         while (body := await self._queue.get()) is not None:
             yield QueueDelivery(body, self._queue)
-
-    @asynccontextmanager
-    async def process(self, delivery: Delivery) -> AsyncIterator[None]:
-        try:
-            yield
-        except BaseException:
-            if not delivery.settled:
-                await delivery.reject()
-            raise  # never suppress, cancellation included
-        if not delivery.settled:
-            await delivery.ack()
 
 
 queue: Queue = asyncio.Queue()

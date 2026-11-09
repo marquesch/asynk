@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from asynk.hooks import TaskResult
-
 
 class AsynkError(Exception):
     """Base class of every exception asynk defines."""
@@ -52,15 +47,3 @@ class TaskNotFoundError(AsynkError):
 
 class TaskTimeoutError(AsynkError):
     """Raised inside a worker when a task attempt exceeds its `timeout`."""
-
-
-class DeliveryFailedError(AsynkError):
-    """Raised in `Consumer.process` for a failed, unknown or retries-exceeded task.
-
-    Attributes:
-        result: The failed task's result.
-    """
-
-    def __init__(self, result: TaskResult) -> None:
-        super().__init__(f"task {result.envelope.task!r} ended with {result.status.name}")
-        self.result = result

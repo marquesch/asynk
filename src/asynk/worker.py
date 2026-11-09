@@ -12,7 +12,6 @@ from asynk.app import App
 from asynk.envelope import Envelope
 from asynk.errors import (
     DecodeError,
-    DeliveryFailedError,
     InvalidEnvelopeError,
     NotConfiguredError,
     TaskTimeoutError,
@@ -30,8 +29,6 @@ from asynk.results import TaskState
 from asynk.retry import RetryPolicy, retry_delay, retry_status
 from asynk.runner import Role, Runner
 from asynk.transport import Consumer, Delivery, PublishOptions
-
-_CLEAN_STATUSES = (TaskStatus.SUCCESS, TaskStatus.SKIPPED)
 
 logger = logging.getLogger("asynk")
 
@@ -176,6 +173,11 @@ class Worker(Runner):
             await self.handle(delivery)
         except Exception:
             logger.exception("unexpected error handling a delivery")
+            if not delivery.settled:
+                try:
+                    await delivery.reject()
+                except Exception:
+                    logger.exception("failed to reject a delivery after an unexpected error")
         finally:
             self.app.telemetry.task_finished()
             semaphore.release()
@@ -204,58 +206,60 @@ class Worker(Runner):
         Returns:
             The task's result, or None if the body is not a valid envelope.
         """
-        result: TaskResult | None = None
         try:
-            async with self.consumer.process(delivery):
-                try:
-                    envelope = Envelope.from_dict(self.app.codec.decode(delivery.body))
-                except (DecodeError, InvalidEnvelopeError) as exc:
-                    logger.warning("rejecting an undecodable or invalid message: %s", exc)
-                    await delivery.reject()
-                    return None
-                try:
-                    call = TaskCall(envelope, delivery)
+            envelope = Envelope.from_dict(self.app.codec.decode(delivery.body))
+        except (DecodeError, InvalidEnvelopeError) as exc:
+            logger.warning("rejecting an undecodable or invalid message: %s", exc)
+            await delivery.reject()
+            return None
+        try:
+            call = TaskCall(envelope, delivery)
 
-                    outcome: TaskResult | None = None
+            outcome: TaskResult | None = None
 
-                    async def run_task(call: TaskCall) -> TaskResult:
-                        nonlocal outcome
-                        outcome = await self._execute(call)
-                        return outcome
+            async def run_task(call: TaskCall) -> TaskResult:
+                nonlocal outcome
+                outcome = await self._execute(call)
+                return outcome
 
-                    chain: Next = run_task
-                    for layer in self.app.hooks.middleware:
-                        chain = _link(layer, chain)
-                    if self.app.telemetry.layer is not None:
-                        chain = _link(self.app.telemetry.layer, chain)
-                    try:
-                        result = await chain(call)
-                        self._log_result(result)
-                    except Exception as exc:
-                        if outcome is None:
-                            result = self._on_middleware_failure(envelope, delivery, exc)
-                        else:
-                            logger.error(
-                                "middleware failed after task %r (id=%s) ran",
-                                envelope.task,
-                                envelope.id,
-                                exc_info=exc,
-                            )
-                            result = outcome
-                            self._log_result(result)
-                    await self._recorder.record(result)
-                    if result.status is TaskStatus.RETRYING and not delivery.settled:
-                        await self._publish_retry(envelope, delivery)
-                except asyncio.CancelledError:
-                    if not delivery.settled:
-                        await delivery.reject(requeue=True)
-                    raise
-                if not delivery.settled and result.status not in _CLEAN_STATUSES:
-                    raise DeliveryFailedError(result)
-        except DeliveryFailedError as exc:
-            return exc.result
-        assert result is not None
+            chain: Next = run_task
+            for layer in self.app.hooks.middleware:
+                chain = _link(layer, chain)
+            if self.app.telemetry.layer is not None:
+                chain = _link(self.app.telemetry.layer, chain)
+            try:
+                result = await chain(call)
+                self._log_result(result)
+            except Exception as exc:
+                if outcome is None:
+                    result = self._on_middleware_failure(envelope, delivery, exc)
+                else:
+                    logger.error(
+                        "middleware failed after task %r (id=%s) ran",
+                        envelope.task,
+                        envelope.id,
+                        exc_info=exc,
+                    )
+                    result = outcome
+                    self._log_result(result)
+            await self._recorder.record(result)
+            await self._settle(delivery, envelope, result)
+        except asyncio.CancelledError:
+            if not delivery.settled:
+                await delivery.reject(requeue=True)
+            raise
         return result
+
+    async def _settle(self, delivery: Delivery, envelope: Envelope, result: TaskResult) -> None:
+        if delivery.settled:  # a middleware layer may have settled it
+            return
+        match result.status:
+            case TaskStatus.SUCCESS | TaskStatus.SKIPPED:
+                await delivery.ack()
+            case TaskStatus.RETRYING:
+                await self._publish_retry(envelope, delivery)
+            case _:
+                await delivery.reject()
 
     def _policy(self, task_name: str) -> RetryPolicy | None:
         task = self.app.tasks.get(task_name)

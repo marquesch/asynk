@@ -7,7 +7,6 @@ import time
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any
 
 from redis.asyncio import Redis
@@ -149,10 +148,7 @@ class RedisDelivery:
 
 
 class RedisConsumer:
-    """Consumer that reads a Redis stream through a consumer group.
-
-    `process` acks on success and rejects without requeue on any exception.
-    """
+    """Consumer that reads a Redis stream through a consumer group."""
 
     def __init__(
         self,
@@ -269,26 +265,6 @@ class RedisConsumer:
             except (ConnectionError, TimeoutError):
                 self._connected = False
                 await asyncio.sleep(self._block_ms / 1000)
-
-    @asynccontextmanager
-    async def process(self, delivery: Delivery) -> AsyncIterator[None]:
-        """Acks on a clean exit and rejects without requeue on an exception.
-
-        Args:
-            delivery: The delivery being handled.
-
-        Yields:
-            None, while the delivery is handled.
-        """
-        try:
-            yield
-        except BaseException:
-            if not delivery.settled:
-                await delivery.reject(requeue=False)
-            raise
-        else:
-            if not delivery.settled:
-                await delivery.ack()
 
     def _delivery(self, entry_id: bytes, fields: dict[bytes, bytes]) -> RedisDelivery:
         return RedisDelivery(self, entry_id, fields[_BODY])

@@ -6,8 +6,9 @@ from typing import Any
 
 import pytest
 
-from asynk import App, Envelope, NullTelemetry, RetryPolicy, TaskOptions, Telemetry, Worker
+from asynk import App, Envelope, RetryPolicy, TaskOptions, Worker
 from asynk.hooks import TaskStatus
+from asynk.telemetry import NullTelemetry, Telemetry
 from asynk.transport.memory import memory_transport
 
 
@@ -58,7 +59,7 @@ def test_app_without_the_package_uses_the_null_object() -> None:
         "import sys; sys.modules['opentelemetry'] = None\n"
         "import asynk\n"
         "app = asynk.App('t')\n"
-        "assert type(app.telemetry) is asynk.NullTelemetry\n"
+        "assert type(app.telemetry) is asynk.telemetry.NullTelemetry\n"
     )
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
@@ -99,12 +100,16 @@ async def test_worker_reports_started_and_finished_even_when_handling_fails() ->
         raise RuntimeError("x")
 
     worker.handle = boom  # type: ignore[method-assign]
-    await worker._handle_and_release(object(), _Sem())  # type: ignore[arg-type]
+    await worker._handle_and_release(_SettledDelivery(), _Sem())  # type: ignore[arg-type]
     assert [c[0] for c in spy.calls] == ["started", "finished"]
 
 
 class _Sem:
     def release(self) -> None: ...
+
+
+class _SettledDelivery:
+    settled = True
 
 
 async def test_worker_reports_a_published_retry() -> None:

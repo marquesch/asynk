@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import asynk
@@ -42,7 +41,6 @@ NAMES = [
     "__version__",
     "EncodeError",
     "NotConfiguredError",
-    "DeliveryFailedError",
     "AsynkError",
     "CronError",
     "DecodeError",
@@ -53,8 +51,6 @@ NAMES = [
     "Store",
     "MemoryStore",
     "NullStore",
-    "NullTelemetry",
-    "Telemetry",
     "TaskHandle",
     "TaskOptions",
     "TaskState",
@@ -144,17 +140,6 @@ class ListConsumer:
                 yield _ListDelivery(self._wire.pop(0).encode())
             else:
                 await asyncio.sleep(0)
-
-    def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:
-        return self._process(delivery)
-
-    @asynccontextmanager
-    async def _process(self, delivery: Delivery) -> AsyncIterator[None]:
-        try:
-            yield
-        finally:
-            if not delivery.settled:
-                await delivery.ack()
 
 
 async def test_custom_producer_and_consumer_are_decoupled() -> None:

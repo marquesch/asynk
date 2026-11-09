@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -89,14 +88,11 @@ class Delivery(Protocol):
 
 
 class Consumer(Protocol):
-    """Receives deliveries from a broker and decides how each is settled.
+    """Receives deliveries from a broker.
 
     The worker calls `start`, iterates `deliveries`, closes the iterator, then
-    calls `stop`. Each delivery is handled inside `process(delivery)`. When a
-    task failed, was unknown or exceeded its retries and the delivery is still
-    unsettled, the worker raises `DeliveryFailedError` inside that block. On exit,
-    `process` settles a delivery that is still unsettled (usually ack on a
-    clean exit, reject on an exception) and re-raises the exception.
+    calls `stop`. It settles every delivery itself with `Delivery.ack` or
+    `Delivery.reject`.
     """
 
     @property
@@ -114,15 +110,4 @@ class Consumer(Protocol):
 
     def deliveries(self) -> AsyncIterator[Delivery]:
         """Returns the stream of incoming deliveries, one per received message."""
-        ...
-
-    def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:
-        """Wraps the handling of one delivery; see the class docstring for the contract.
-
-        Args:
-            delivery: The delivery being handled.
-
-        Returns:
-            An async context manager entered around the handling.
-        """
         ...

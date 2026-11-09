@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import TypeAlias
 
 from asynk.envelope import Envelope
@@ -97,10 +96,7 @@ class MemoryDelivery:
 
 
 class MemoryConsumer:
-    """Consumer that reads from an in-process queue.
-
-    `process` acks on success and rejects without requeue on any exception.
-    """
+    """Consumer that reads from an in-process queue."""
 
     def __init__(self, queue: _Queue) -> None:
         """Initializes the consumer.
@@ -132,26 +128,6 @@ class MemoryConsumer:
             if isinstance(item, _Stop):
                 return
             yield MemoryDelivery(item, self._queue)
-
-    @asynccontextmanager
-    async def process(self, delivery: Delivery) -> AsyncIterator[None]:
-        """Acks on a clean exit and rejects without requeue on an exception.
-
-        Args:
-            delivery: The delivery being handled.
-
-        Yields:
-            None, while the delivery is handled.
-        """
-        try:
-            yield
-        except BaseException:
-            if not delivery.settled:
-                await delivery.reject(requeue=False)
-            raise
-        else:
-            if not delivery.settled:
-                await delivery.ack()
 
 
 def memory_transport() -> tuple[MemoryProducer, MemoryConsumer]:

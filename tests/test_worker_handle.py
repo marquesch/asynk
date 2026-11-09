@@ -265,3 +265,24 @@ async def test_worker_decodes_with_the_app_codec() -> None:
     result = await _handle(worker, await _next(consumer))
     assert result.status is TaskStatus.SUCCESS
     assert result.value == 3
+
+
+async def test_an_unexpected_error_rejects_the_delivery_without_requeue(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, producer, consumer, worker = _setup()
+    await publish_envelope(producer, Envelope.create("add", (1, 2), {}))
+    delivery = await _next(consumer)
+
+    async def explode(delivery: Delivery) -> None:
+        raise RuntimeError("store down")
+
+    worker.handle = explode  # type: ignore[method-assign]
+    sem = asyncio.Semaphore(1)
+    await sem.acquire()
+    with caplog.at_level(logging.ERROR, logger="asynk"):
+        await worker._handle_and_release(delivery, sem)
+    assert delivery.settled
+    assert not sem.locked()
+    assert "unexpected error" in caplog.text
+    await assert_nothing_delivered(consumer)

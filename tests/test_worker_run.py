@@ -6,7 +6,6 @@ import signal
 import tempfile
 import time
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 
@@ -261,9 +260,6 @@ class _FailingConsumer:
         yield await anext(self.inner.deliveries())
         await self.fail.wait()
         raise ConnectionError("broker gone")
-
-    def process(self, delivery: Delivery) -> AbstractAsyncContextManager[None]:
-        return self.inner.process(delivery)
 
 
 async def test_consumer_error_cancels_and_requeues_in_flight() -> None:
