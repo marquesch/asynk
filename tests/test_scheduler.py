@@ -361,6 +361,35 @@ async def test_shutdown_interrupts_hung_publish(
     assert "2026-11-04T11:30:00+00:00" in record.getMessage()
 
 
+async def test_shutdown_during_a_publish_that_succeeds_attempts_no_further_slot(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, consumer = _app()
+    holder: list[Scheduler] = []
+    publish = app.producer.publish
+
+    async def publish_then_stop(*args: Any, **kwargs: Any) -> Any:
+        receipt = await publish(*args, **kwargs)
+        holder[0].request_shutdown()
+        return receipt
+
+    app.producer.publish = publish_then_stop  # type: ignore[method-assign]
+
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="first")
+    async def first() -> None: ...
+
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="second")
+    async def second() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T12:00:00"))
+    scheduler = Scheduler(app, clock=clock)
+    holder.append(scheduler)
+    with caplog.at_level(logging.WARNING, logger="asynk"):
+        await asyncio.wait_for(scheduler.run(), 30)
+    assert [e.task for e in await _published(consumer)] == ["first"]
+    assert not [r for r in caplog.records if "cancel" in r.getMessage()]
+
+
 async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 
