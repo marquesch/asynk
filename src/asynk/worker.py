@@ -223,7 +223,6 @@ class Worker(Runner):
         return result
 
     async def _decode(self, delivery: Delivery) -> Envelope | None:
-        """Returns the delivery's envelope, or rejects the delivery and returns None."""
         try:
             return Envelope.from_dict(self.app.codec.decode(delivery.body))
         except (DecodeError, InvalidEnvelopeError) as exc:
@@ -234,7 +233,6 @@ class Worker(Runner):
     async def _run(
         self, call: TaskCall, task: Task[..., Any] | None, policy: RetryPolicy | None
     ) -> TaskResult:
-        """Runs the middleware chain around the task and always returns a result."""
         ran: TaskResult | None = None
 
         async def innermost(call: TaskCall) -> TaskResult:
@@ -285,7 +283,6 @@ class Worker(Runner):
     def _layer_failed(
         self, call: TaskCall, policy: RetryPolicy | None, exc: Exception
     ) -> TaskResult:
-        """Builds the result for a middleware layer that raised before the task ran."""
         envelope = call.envelope
         logger.error(
             "middleware failed for task %r (id=%s, attempt=%d)",
