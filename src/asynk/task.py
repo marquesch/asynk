@@ -61,7 +61,7 @@ class Task(Generic[P, R]):
         Returns:
             A `BoundTask` carrying the metadata; this task is left unchanged.
         """
-        return BoundTask(self, dict(metadata))
+        return BoundTask(self.name, self._publish, dict(metadata))
 
     async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle[R]:
         """Publishes a call to this task for a worker to run.
@@ -84,8 +84,9 @@ class Task(Generic[P, R]):
 class BoundTask(Generic[P, R]):
     """An immutable view of a task that publishes with fixed metadata."""
 
-    def __init__(self, task: Task[P, R], metadata: dict[str, object]) -> None:
-        self._task = task
+    def __init__(self, name: str, publish: Publish, metadata: dict[str, object]) -> None:
+        self._name = name
+        self._publish = publish
         self._metadata = metadata
 
     def with_metadata(self, /, **metadata: object) -> BoundTask[P, R]:
@@ -97,7 +98,7 @@ class BoundTask(Generic[P, R]):
         Returns:
             A new `BoundTask`; this one is left unchanged.
         """
-        return BoundTask(self._task, {**self._metadata, **metadata})
+        return BoundTask(self._name, self._publish, {**self._metadata, **metadata})
 
     async def delay(self, *args: P.args, **kwargs: P.kwargs) -> TaskHandle[R]:
         """Publishes a call to the task with this object's metadata.
@@ -115,5 +116,5 @@ class BoundTask(Generic[P, R]):
             EncodeError: If the app's codec cannot encode an argument or a
                 metadata value.
         """
-        envelope = Envelope.create(self._task.name, args, kwargs, self._metadata)
-        return await self._task._publish(envelope, None)
+        envelope = Envelope.create(self._name, args, kwargs, self._metadata)
+        return await self._publish(envelope, None)

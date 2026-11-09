@@ -23,7 +23,6 @@ def test_task_registers_with_default_name() -> None:
 
     expected = f"t.{fn.func.__qualname__}"
     assert fn.name == expected
-    assert app.registered_task(expected) is fn
     assert app.tasks[expected] is fn
 
 
@@ -135,7 +134,11 @@ def test_duplicate_name_raises_value_error() -> None:
 
 def test_unknown_task_raises_key_error() -> None:
     with pytest.raises(KeyError):
-        App("t").registered_task("nope")
+        App("t").tasks["nope"]
+
+
+def test_app_has_no_registered_task_lookup() -> None:
+    assert not hasattr(App, "registered_task")
 
 
 async def test_direct_call_runs_function() -> None:
@@ -260,7 +263,7 @@ def test_rejected_task_does_not_claim_its_name(kind: str) -> None:
 
     task = _decorator(app, kind)(_async_add)
 
-    assert app.registered_task("x") is task
+    assert app.tasks["x"] is task
 
 
 async def _async_add(a: int, b: int) -> int:

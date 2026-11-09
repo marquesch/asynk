@@ -1,5 +1,6 @@
 from dataclasses import fields
 from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
@@ -225,3 +226,14 @@ def test_non_utc_still_needs_tz_database() -> None:
     app = App("x")
     with pytest.raises(ValueError, match="scheduled task 'n': unknown timezone 'Europe/Paris'"):
         app.scheduled_task(cron="* * * * *", tz="Europe/Paris", name="n")
+
+
+async def _noop() -> None: ...
+
+
+def test_scheduled_task_takes_its_schedule_by_keyword() -> None:
+    schedule = Schedule.build("* * * * *", tz=UTC)
+    publish: Any = None
+    with pytest.raises(TypeError):
+        ScheduledTask(_noop, "n", None, publish, schedule)  # type: ignore[call-arg]
+    assert ScheduledTask(_noop, "n", None, publish, schedule=schedule).schedule is schedule

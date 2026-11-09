@@ -210,12 +210,7 @@ class Scheduler(Runner):
     async def _claim(
         self, key: str, task: ScheduledTask[..., Any], scheduled_at: str
     ) -> bool | None:
-        """Claims a slot in the store.
-
-        Returns:
-            True if this scheduler won the claim, False if another one holds it,
-            None if the store failed (fail open: the caller publishes anyway).
-        """
+        # True: won the claim; False: another scheduler holds it; None: the store failed.
         try:
             return await self.app.store.set(f"claim:{key}", b"1")
         except Exception:

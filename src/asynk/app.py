@@ -91,7 +91,6 @@ class App:
         self.store: Store = store if store is not None else NullStore()
         self.codec: Codec = codec if codec is not None else JsonCodec()
         self._tasks: dict[str, Task[..., Any]] = {}
-        self._scheduled_tasks: list[ScheduledTask[..., Any]] = []
         self.hooks = Hooks()
         self.telemetry: Telemetry = select_telemetry()
 
@@ -103,7 +102,7 @@ class App:
     @property
     def scheduled_tasks(self) -> Sequence[ScheduledTask[..., Any]]:
         """The registered scheduled tasks, in registration order."""
-        return tuple(self._scheduled_tasks)
+        return tuple(t for t in self._tasks.values() if isinstance(t, ScheduledTask))
 
     def task(
         self,
@@ -127,10 +126,7 @@ class App:
         resolved = self._resolve_options(options)
 
         def decorator(func: Callable[P, Awaitable[R]]) -> Task[P, R]:
-            task_name = self._claim_name(name, func)
-            task = Task(func, task_name, resolved.policy, self.publish, timeout=resolved.time_limit)
-            self._tasks[task_name] = task
-            return task
+            return self._register(func, name, resolved)
 
         return decorator
 
@@ -169,21 +165,36 @@ class App:
             resolve_timezone(tz, f"scheduled task {name!r}")
 
         def decorator(func: Callable[P, Awaitable[R]]) -> ScheduledTask[P, R]:
-            task_name = self._claim_name(name, func)
+            task = self._register(func, name, resolved, schedule, tz)
+            assert isinstance(task, ScheduledTask)
+            return task
+
+        return decorator
+
+    def _register(
+        self,
+        func: Callable[P, Awaitable[R]],
+        name: str | None,
+        options: TaskOptions,
+        schedule: Schedule | None = None,
+        tz: str | None = None,
+    ) -> Task[P, R]:
+        task_name = self._claim_name(name, func)
+        task: Task[P, R]
+        if schedule is None:
+            task = Task(func, task_name, options.policy, self.publish, timeout=options.time_limit)
+        else:
             zone = self.tz if tz is None else resolve_timezone(tz, f"scheduled task {task_name!r}")
             task = ScheduledTask(
                 func,
                 task_name,
-                resolved.policy,
+                options.policy,
                 self.publish,
-                replace(schedule, tz=zone),
-                timeout=resolved.time_limit,
+                schedule=replace(schedule, tz=zone),
+                timeout=options.time_limit,
             )
-            self._tasks[task_name] = task
-            self._scheduled_tasks.append(task)
-            return task
-
-        return decorator
+        self._tasks[task_name] = task
+        return task
 
     def _resolve_options(self, options: TaskOptions | None) -> TaskOptions:
         return _task_options(options).with_defaults(self.options)
@@ -246,20 +257,6 @@ class App:
             # Fail open: a store outage must not fail a message that was sent.
             logger.exception("could not record pending state for task %s", envelope.id)
         return TaskHandle(envelope.id, self.store, self.codec, receipt)
-
-    def registered_task(self, name: str) -> Task[..., Any]:
-        """Looks up a registered task.
-
-        Args:
-            name: The task name.
-
-        Returns:
-            The task.
-
-        Raises:
-            KeyError: If no task has that name.
-        """
-        return self._tasks[name]
 
     def get_task(self, task_id: str) -> TaskHandle[Any]:
         """Returns a handle for reading the state and result of a published task.
