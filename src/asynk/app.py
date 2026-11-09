@@ -32,6 +32,12 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+def _task_options(options: TaskOptions | None) -> TaskOptions:
+    if options is not None and not isinstance(options, TaskOptions):
+        raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
+    return options if options is not None else TaskOptions()
+
+
 class App:
     """Registry of tasks plus the producer and consumer that move their messages.
 
@@ -79,9 +85,7 @@ class App:
         """
         self.name = name
         self.tz = resolve_timezone(tz, f"app {name!r}")
-        if options is not None and not isinstance(options, TaskOptions):
-            raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
-        self.options = options if options is not None else TaskOptions()
+        self.options = _task_options(options)
         self.producer = producer
         self.consumer = consumer
         self.store: Store = store if store is not None else NullStore()
@@ -182,9 +186,7 @@ class App:
         return decorator
 
     def _resolve_options(self, options: TaskOptions | None) -> TaskOptions:
-        if options is not None and not isinstance(options, TaskOptions):
-            raise TypeError(f"options must be a TaskOptions or None, got {options!r}")
-        return (options or TaskOptions()).with_defaults(self.options)
+        return _task_options(options).with_defaults(self.options)
 
     def _claim_name(self, name: str | None, func: Callable[..., Any]) -> str:
         task_name = name or f"{self.name}.{func.__qualname__}"

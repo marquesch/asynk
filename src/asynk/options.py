@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from asynk._validate import check_number
 from asynk.retry import RetryPolicy
 
 
@@ -39,10 +39,7 @@ class TaskOptions:
         timeout = self.timeout
         if timeout is None or timeout is False:
             return
-        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
-            raise TypeError(f"timeout must be a number, False or None, got {timeout!r}")
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError(f"timeout must be a finite number > 0, got {timeout!r}")
+        check_number("timeout", timeout, exclusive=True)
 
     @property
     def policy(self) -> RetryPolicy | None:
