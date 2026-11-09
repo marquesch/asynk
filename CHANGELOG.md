@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/marquesch/asynk/compare/v0.3.0...v0.4.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* simplify task registration ([#112](https://github.com/marquesch/asynk/issues/112))
+* settle deliveries in the worker; drop Consumer.process and DeliveryFailedError ([#106](https://github.com/marquesch/asynk/issues/106))
+* let a task opt out of the app-wide timeout ([#103](https://github.com/marquesch/asynk/issues/103))
+
+### Bug Fixes
+
+* let a task opt out of the app-wide timeout ([#103](https://github.com/marquesch/asynk/issues/103)) ([5961214](https://github.com/marquesch/asynk/commit/59612145486f781427e8a4dcd5c89f7ce69e0dd2))
+
+
+### Refactoring
+
+* flatten Scheduler._fire and drop its bool return ([#105](https://github.com/marquesch/asynk/issues/105)) ([73b09b8](https://github.com/marquesch/asynk/commit/73b09b84f138a6a978489dddabd681bd5e5e2448))
+* settle deliveries in the worker; drop Consumer.process and DeliveryFailedError ([#106](https://github.com/marquesch/asynk/issues/106)) ([a3deb29](https://github.com/marquesch/asynk/commit/a3deb29c43d2a18f566fb7254eb8460d655e9520))
+* share numeric option validation and split RetryPolicy checks ([#110](https://github.com/marquesch/asynk/issues/110)) ([da2a869](https://github.com/marquesch/asynk/commit/da2a8694bcb0a590099328d4ad72e58b08dee59e))
+* simplify task registration ([#112](https://github.com/marquesch/asynk/issues/112)) ([31a1c86](https://github.com/marquesch/asynk/commit/31a1c8677b76cd51b89767932c9c4771dd7b050b))
+* split Worker.handle into decode, run and settle steps ([#108](https://github.com/marquesch/asynk/issues/108)) ([94a1fb2](https://github.com/marquesch/asynk/commit/94a1fb284a69ea09cf11b6501d9ad11e86b33b26))
+
 ## [0.3.0](https://github.com/marquesch/asynk/compare/v0.2.0...v0.3.0) (2026-11-06)
 
 
