@@ -1,6 +1,6 @@
 [project]
 name = "asynk"
-version = "0.3.0"
+version = "0.4.0"
 description = "Asyncio task framework with decoupled producers and consumers"
 readme = "README.md"
 authors = [

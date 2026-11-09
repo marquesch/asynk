@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0](https://github.com/marquesch/asynk/compare/v0.3.0...v0.4.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* settle deliveries in the worker; drop Consumer.process and DeliveryFailedError ([#106](https://github.com/marquesch/asynk/issues/106))
+* let a task opt out of the app-wide timeout ([#103](https://github.com/marquesch/asynk/issues/103))
+
+### Bug Fixes
+
+* let a task opt out of the app-wide timeout ([#103](https://github.com/marquesch/asynk/issues/103)) ([5961214](https://github.com/marquesch/asynk/commit/59612145486f781427e8a4dcd5c89f7ce69e0dd2))
+
+
+### Refactoring
+
+* flatten Scheduler._fire and drop its bool return ([#105](https://github.com/marquesch/asynk/issues/105)) ([73b09b8](https://github.com/marquesch/asynk/commit/73b09b84f138a6a978489dddabd681bd5e5e2448))
+* settle deliveries in the worker; drop Consumer.process and DeliveryFailedError ([#106](https://github.com/marquesch/asynk/issues/106)) ([a3deb29](https://github.com/marquesch/asynk/commit/a3deb29c43d2a18f566fb7254eb8460d655e9520))
+
 ## [0.3.0](https://github.com/marquesch/asynk/compare/v0.2.0...v0.3.0) (2026-11-06)
 
 
