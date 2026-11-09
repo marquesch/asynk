@@ -12,7 +12,7 @@ from timer_helpers import spy_on_delivery_timers
 from asynk import Exponential, RetryPolicy, TaskError, TaskOptions
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.results import TaskState, result_key
 from asynk.store.memory import MemoryStore
 from asynk.transport import Delivery, PublishOptions

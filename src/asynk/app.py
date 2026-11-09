@@ -12,11 +12,8 @@ from asynk import errors
 from asynk.codec import Codec
 from asynk.codec.json import JsonCodec
 from asynk.envelope import Envelope
-from asynk.hooks import (
-    Hooks,
-    LifecycleHook,
-    Middleware,
-)
+from asynk.hooks import Hooks, LifecycleHook
+from asynk.middleware import Middleware
 from asynk.options import TaskOptions
 from asynk.results import TaskHandle, TaskState, encode_state, state_key
 from asynk.scheduled_task import Schedule, ScheduledTask, resolve_timezone

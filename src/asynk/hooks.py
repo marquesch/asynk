@@ -1,92 +1,20 @@
-"""Lifecycle hooks, task middleware types, and task results."""
+"""Lifecycle hooks and the registries that hold them."""
 
 from __future__ import annotations
 
-import enum
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 
-from asynk.envelope import Envelope
-from asynk.transport import Delivery
+from asynk.middleware import Middleware
 
 if TYPE_CHECKING:
     from asynk.runner import Runner
 
 logger = logging.getLogger("asynk")
 
-
-class TaskStatus(enum.Enum):
-    """Outcome of running a task, as seen by middleware and the consumer.
-
-    Attributes:
-        SUCCESS: The task returned normally.
-        FAILED: The task, or a layer before it ran, raised and is not retried:
-            no retry policy applies, the exception is not in its `retry_on`, or
-            the layer settled the delivery.
-        RETRYING: The task, or a layer before it ran, raised and the retry policy
-            has retries left.
-        RETRIES_EXCEEDED: The task, or a layer before it ran, raised and the retry
-            policy has no retries left.
-        UNKNOWN_TASK: The envelope names a task this app has not registered.
-        SKIPPED: Middleware skipped the task, so it did not run.
-    """
-
-    SUCCESS = "success"
-    FAILED = "failed"
-    RETRYING = "retrying"
-    RETRIES_EXCEEDED = "retries_exceeded"
-    UNKNOWN_TASK = "unknown_task"
-    SKIPPED = "skipped"
-
-
-@dataclass(frozen=True)
-class TaskResult:
-    """Result of handling one delivery.
-
-    Attributes:
-        envelope: The envelope that was handled.
-        status: How the run ended.
-        value: The task's return value on success.
-        error: The raised exception on failure.
-    """
-
-    envelope: Envelope
-    status: TaskStatus
-    value: Any = None
-    error: BaseException | None = None
-
-
-@dataclass(frozen=True)
-class TaskCall:
-    """One task about to run, as passed through the middleware chain.
-
-    Attributes:
-        envelope: The envelope of the message being handled.
-        delivery: The delivery the envelope arrived on.
-    """
-
-    envelope: Envelope
-    delivery: Delivery
-
-    def skip(self) -> TaskResult:
-        """Builds the `SKIPPED` result.
-
-        Return it without calling `next` to veto the task.
-
-        Returns:
-            A `TaskResult` with status `TaskStatus.SKIPPED`.
-        """
-        return TaskResult(self.envelope, TaskStatus.SKIPPED)
-
-
-Next: TypeAlias = Callable[[TaskCall], Awaitable[TaskResult]]
-"""Calls the rest of the middleware chain, ending with the task."""
-
-Middleware: TypeAlias = Callable[[TaskCall, Next], Awaitable[TaskResult]]
-"""Async layer around a task: receives the call and `next`, returns the result."""
 
 LifecycleHook: TypeAlias = Callable[["Runner"], Awaitable[None] | None]
 """Hook for the lifecycle events of a worker or scheduler; sync or async, receives the runner."""

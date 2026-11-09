@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 import asynk.retry.backoff
-from asynk.hooks import TaskStatus
+from asynk.middleware import TaskStatus
 from asynk.retry import Exponential, RetryPolicy, retry_delay, retry_status
 
 

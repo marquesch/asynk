@@ -10,7 +10,8 @@ import pytest
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import TaskCall, TaskResult, TaskStatus, run_all_hooks
+from asynk.hooks import run_all_hooks
+from asynk.middleware import TaskCall, TaskResult, TaskStatus
 from asynk.transport import Delivery
 
 EVENTS = [

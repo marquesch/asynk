@@ -19,7 +19,7 @@ from otel_helpers import (
 
 import asynk
 from asynk import App, Envelope, RetryPolicy, TaskOptions, Worker
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.otel import OtelTelemetry
 from asynk.store.memory import MemoryStore
 from asynk.telemetry import NullTelemetry, select_telemetry

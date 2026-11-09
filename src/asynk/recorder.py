@@ -6,19 +6,11 @@ import logging
 
 from asynk.codec import Codec
 from asynk.errors import EncodeError
-from asynk.hooks import TaskResult, TaskStatus
+from asynk.middleware import TaskResult, TaskStatus
 from asynk.results import TaskState, encode_result, encode_state, result_key, state_key
 from asynk.store import Store
 
 logger = logging.getLogger("asynk")
-
-_TERMINAL_STATES = {
-    TaskStatus.SUCCESS: TaskState.SUCCESS,
-    TaskStatus.SKIPPED: TaskState.SKIPPED,
-    TaskStatus.FAILED: TaskState.FAILURE,
-    TaskStatus.RETRIES_EXCEEDED: TaskState.FAILURE,
-    TaskStatus.UNKNOWN_TASK: TaskState.FAILURE,
-}
 
 
 class ResultRecorder:
@@ -62,7 +54,7 @@ class ResultRecorder:
         if result.status is TaskStatus.RETRYING:
             await self.record_state(envelope.id, TaskState.RETRYING)
             return
-        state = _TERMINAL_STATES[result.status]
+        state = result.status.state
         try:
             state, record = self._encode_outcome(result, state)
             await self._store.set(

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from asynk import App, Envelope, RetryPolicy, TaskOptions, Worker
-from asynk.hooks import TaskStatus
+from asynk.middleware import TaskStatus
 from asynk.telemetry import NullTelemetry, Telemetry
 from asynk.transport.memory import memory_transport
 

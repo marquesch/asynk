@@ -16,14 +16,8 @@ from asynk.errors import (
     NotConfiguredError,
     TaskTimeoutError,
 )
-from asynk.hooks import (
-    Middleware,
-    Next,
-    TaskCall,
-    TaskResult,
-    TaskStatus,
-    run_hooks,
-)
+from asynk.hooks import run_hooks
+from asynk.middleware import Middleware, Next, TaskCall, TaskResult, TaskStatus
 from asynk.recorder import ResultRecorder
 from asynk.results import TaskState
 from asynk.retry import RetryPolicy, retry_delay, retry_status

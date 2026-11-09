@@ -17,7 +17,7 @@ from asynk.errors import (
     TaskNotFoundError,
     TaskTimeoutError,
 )
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.options import TaskOptions
 from asynk.results import TaskHandle, TaskState
 from asynk.retry import Backoff, Exponential, RetryPolicy

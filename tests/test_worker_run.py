@@ -14,7 +14,7 @@ from envelope_helpers import decode_delivery, publish_envelope
 
 from asynk.app import App
 from asynk.envelope import Envelope
-from asynk.hooks import Next, TaskCall, TaskResult, TaskStatus
+from asynk.middleware import Next, TaskCall, TaskResult, TaskStatus
 from asynk.runner import Runner
 from asynk.transport import Delivery
 from asynk.transport.memory import MemoryConsumer, MemoryProducer, memory_transport
