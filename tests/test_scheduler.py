@@ -361,6 +361,43 @@ async def test_shutdown_interrupts_hung_publish(
     assert "2026-11-04T11:30:00+00:00" in record.getMessage()
 
 
+class StoppingProducer:
+    """Publishes normally, then requests shutdown of the scheduler in `holder`."""
+
+    def __init__(self, inner: Any, holder: list[Scheduler]) -> None:
+        self.inner = inner
+        self.holder = holder
+
+    async def publish(
+        self, envelope: Envelope, body: bytes, options: PublishOptions | None = None
+    ) -> Any:
+        receipt = await self.inner.publish(envelope, body)
+        self.holder[0].request_shutdown()
+        return receipt
+
+
+async def test_shutdown_during_a_publish_that_succeeds_attempts_no_further_slot(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, consumer = _app()
+    holder: list[Scheduler] = []
+    app.producer = StoppingProducer(app.producer, holder)
+
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="first")
+    async def first() -> None: ...
+
+    @app.scheduled_task(cron="30 * * * *", tz="UTC", name="second")
+    async def second() -> None: ...
+
+    clock = FakeClock(_at("2026-11-04T11:29:30"), until=_at("2026-11-04T12:00:00"))
+    scheduler = Scheduler(app, clock=clock)
+    holder.append(scheduler)
+    with caplog.at_level(logging.WARNING, logger="asynk"):
+        await asyncio.wait_for(scheduler.run(), 30)
+    assert [e.task for e in await _published(consumer)] == ["first"]
+    assert not [r for r in caplog.records if "cancel" in r.getMessage()]
+
+
 async def test_shutdown_interrupts_sleep() -> None:
     app, consumer = _app()
 
